@@ -21,3 +21,28 @@ pub(crate) struct UriArgs<'a> {
 pub(crate) struct PathArgs<'a> {
   pub path: &'a str,
 }
+
+/// Một máy tìm thấy qua Bonjour trên iOS.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BonjourPeer {
+  pub id: String,
+  pub name: String,
+  pub os: String,
+  pub fp: String,
+  pub port: u16,
+  pub ips: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct BonjourPeers {
+  pub peers: Vec<BonjourPeer>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct StartBonjourArgs<'a> {
+  pub id: &'a str,
+  pub name: &'a str,
+  pub os: &'a str,
+  pub fp: &'a str,
+  pub port: u16,
+}

@@ -37,6 +37,14 @@ impl<R: Runtime> BetterdropMobile<R> {
     Err(std::io::Error::other("không dùng trên máy tính").into())
   }
 
+  pub fn start_bonjour(&self, _id: &str, _name: &str, _os: &str, _fp: &str, _port: u16) -> crate::Result<()> {
+    Ok(())
+  }
+
+  pub fn bonjour_peers(&self) -> crate::Result<Vec<BonjourPeer>> {
+    Ok(vec![])
+  }
+
   pub fn scan_file(&self, _path: &str) -> crate::Result<()> {
     Ok(())
   }

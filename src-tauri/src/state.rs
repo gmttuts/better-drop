@@ -15,6 +15,14 @@ pub type EmitFn = Arc<dyn Fn(&'static str, serde_json::Value) + Send + Sync>;
 /// Mở một file theo URI (`content://` trên Android, `file://` trên iOS).
 pub type UriOpener = Arc<dyn Fn(&str) -> std::io::Result<std::fs::File> + Send + Sync>;
 
+/// Tìm máy bằng dịch vụ của hệ điều hành thay cho mdns-sd (iOS: Bonjour).
+pub trait NativeDiscovery: Send + Sync {
+    /// Quảng bá (hoặc cập nhật) thông tin máy này.
+    fn announce(&self, me: &DeviceInfo) -> Result<(), String>;
+    /// Các máy đang thấy trong mạng.
+    fn peers(&self) -> Vec<Peer>;
+}
+
 /// Phần việc khác nhau giữa các nền tảng, gắn vào từ `lib.rs`.
 #[derive(Default, Clone)]
 pub struct Hooks {
@@ -23,6 +31,7 @@ pub struct Hooks {
     pub uri_info: Option<Arc<dyn Fn(&str) -> std::io::Result<(String, Option<u64>)> + Send + Sync>>,
     /// Gọi sau khi lưu xong một file nhận được (Android: báo hệ thống quét file).
     pub file_saved: Option<Arc<dyn Fn(&std::path::Path) + Send + Sync>>,
+    pub native_discovery: Option<Arc<dyn NativeDiscovery>>,
 }
 
 pub struct AppState {

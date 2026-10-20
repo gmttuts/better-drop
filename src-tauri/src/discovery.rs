@@ -12,6 +12,9 @@ use std::time::Duration;
 pub const SERVICE_TYPE: &str = "_betterdrop._tcp.local.";
 
 pub fn start(st: Arc<AppState>) -> Result<(), String> {
+    if let Some(native) = st.hooks.native_discovery.clone() {
+        return start_native(st, native);
+    }
     let daemon = ServiceDaemon::new().map_err(|e| e.to_string())?;
     register(&daemon, &st.device_info())?;
     let rx = daemon.browse(SERVICE_TYPE).map_err(|e| e.to_string())?;
@@ -38,6 +41,55 @@ pub fn start(st: Arc<AppState>) -> Result<(), String> {
             }
         }
     });
+    Ok(())
+}
+
+/// Tìm máy bằng dịch vụ của hệ điều hành: hỏi lại danh sách mỗi 2 giây.
+fn start_native(st: Arc<AppState>, native: Arc<dyn crate::state::NativeDiscovery>) -> Result<(), String> {
+    let me = st.device_info();
+    native.announce(&me)?;
+    std::thread::spawn(move || loop {
+        let found: HashMap<String, Peer> = native
+            .peers()
+            .into_iter()
+            .filter(|p| p.info.id != me.id)
+            .map(|p| (format!("native:{}", p.info.id), p))
+            .collect();
+        let changed = {
+            let mut peers = st.peers.lock().unwrap();
+            let before: Vec<String> = peers
+                .iter()
+                .filter(|(k, _)| k.starts_with("native:"))
+                .map(|(k, p)| format!("{k}{}{:?}", p.info.name, p.addrs))
+                .collect();
+            peers.retain(|k, _| !k.starts_with("native:"));
+            peers.extend(found);
+            let mut after: Vec<String> = peers
+                .iter()
+                .filter(|(k, _)| k.starts_with("native:"))
+                .map(|(k, p)| format!("{k}{}{:?}", p.info.name, p.addrs))
+                .collect();
+            let mut before = before;
+            before.sort();
+            after.sort();
+            before != after
+        };
+        if changed {
+            st.emit_peers();
+        }
+        std::thread::sleep(Duration::from_secs(2));
+    });
+    Ok(())
+}
+
+/// Cập nhật thông tin quảng bá sau khi đổi tên máy.
+pub fn reannounce(st: &AppState) -> Result<(), String> {
+    if let Some(native) = &st.hooks.native_discovery {
+        return native.announce(&st.device_info());
+    }
+    if let Some(d) = st.mdns.lock().unwrap().as_ref() {
+        register(d, &st.device_info())?;
+    }
     Ok(())
 }
 

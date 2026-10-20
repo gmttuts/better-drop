@@ -255,3 +255,32 @@ async fn pairs_via_qr_link() {
     assert!(crate::discovery::add_from_link(&other.st, &bad).await.is_err());
     assert!(crate::discovery::add_from_link(&other.st, "https://example.com").await.is_err());
 }
+
+#[test]
+fn mobile_download_dir_is_refreshed_on_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let old = identity::load_settings(
+        dir.path(),
+        identity::Defaults { download_dir: Some("/old/container/Documents".into()), ..Default::default() },
+    );
+    assert_eq!(old.download_dir, "/old/container/Documents");
+
+    // Không ép: giữ thư mục người dùng đã chọn (máy tính).
+    let kept = identity::load_settings(
+        dir.path(),
+        identity::Defaults { download_dir: Some("/new".into()), ..Default::default() },
+    );
+    assert_eq!(kept.download_dir, "/old/container/Documents");
+
+    // Ép (điện thoại): luôn dùng đường dẫn mới, và giữ nguyên id máy.
+    let fresh = identity::load_settings(
+        dir.path(),
+        identity::Defaults {
+            download_dir: Some("/new/container/Documents".into()),
+            force_download_dir: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(fresh.download_dir, "/new/container/Documents");
+    assert_eq!(fresh.device_id, old.device_id);
+}

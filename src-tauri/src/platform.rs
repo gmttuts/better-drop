@@ -72,8 +72,8 @@ mod imp {
 #[cfg(mobile)]
 mod imp {
     use crate::identity::Defaults;
-    use crate::models::Settings;
-    use crate::state::Hooks;
+    use crate::models::{DeviceInfo, Peer, Settings};
+    use crate::state::{Hooks, NativeDiscovery};
     use std::path::{Path, PathBuf};
     use std::str::FromStr;
     use std::sync::Arc;
@@ -111,6 +111,7 @@ mod imp {
             Defaults {
                 name: mobile.device_name().ok().filter(|n| !n.trim().is_empty()),
                 download_dir: Some(download_dir),
+                force_download_dir: true,
             },
         ))
     }
@@ -139,6 +140,43 @@ mod imp {
             open_uri: Some(open_uri),
             uri_info: Some(uri_info),
             file_saved: Some(file_saved),
+            native_discovery: if cfg!(target_os = "ios") {
+                Some(Arc::new(Bonjour(app.clone())))
+            } else {
+                None
+            },
+        }
+    }
+
+    /// iOS: tìm máy qua Bonjour của hệ thống (xem BetterDropPlugin.swift).
+    struct Bonjour(AppHandle);
+
+    impl NativeDiscovery for Bonjour {
+        fn announce(&self, me: &DeviceInfo) -> Result<(), String> {
+            self.0
+                .betterdrop_mobile()
+                .start_bonjour(&me.id, &me.name, &me.os, &me.fp, me.port)
+                .map_err(|e| e.to_string())
+        }
+
+        fn peers(&self) -> Vec<Peer> {
+            self.0
+                .betterdrop_mobile()
+                .bonjour_peers()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|p| Peer {
+                    addrs: p.ips.iter().map(|ip| format!("{ip}:{}", p.port)).collect(),
+                    info: DeviceInfo {
+                        id: p.id,
+                        name: p.name,
+                        os: p.os,
+                        fp: p.fp,
+                        port: p.port,
+                    },
+                    manual: false,
+                })
+                .collect()
         }
     }
 

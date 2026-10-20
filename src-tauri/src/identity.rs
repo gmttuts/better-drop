@@ -51,6 +51,9 @@ pub fn os_name() -> &'static str {
 pub struct Defaults {
     pub name: Option<String>,
     pub download_dir: Option<PathBuf>,
+    /// Luôn dùng `download_dir` ở trên thay cho giá trị đã lưu. Cần cho iOS, vì
+    /// đường dẫn thư mục của app đổi sau mỗi lần cập nhật app.
+    pub force_download_dir: bool,
 }
 
 pub fn default_name() -> String {
@@ -76,10 +79,17 @@ pub fn default_download_dir() -> PathBuf {
 
 pub fn load_settings(dir: &Path, defaults: Defaults) -> Settings {
     let path = dir.join("settings.json");
-    if let Some(s) = fs::read(&path)
+    if let Some(mut s) = fs::read(&path)
         .ok()
         .and_then(|b| serde_json::from_slice::<Settings>(&b).ok())
     {
+        if let (true, Some(d)) = (defaults.force_download_dir, &defaults.download_dir) {
+            let d = d.to_string_lossy().into_owned();
+            if s.download_dir != d {
+                s.download_dir = d;
+                let _ = save_settings(dir, &s);
+            }
+        }
         return s;
     }
     let s = Settings {

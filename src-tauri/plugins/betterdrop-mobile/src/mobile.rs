@@ -59,6 +59,24 @@ impl<R: Runtime> BetterdropMobile<R> {
       .map_err(Into::into)
   }
 
+  /// iOS: quảng bá máy này qua Bonjour và bắt đầu tìm máy khác.
+  pub fn start_bonjour(&self, id: &str, name: &str, os: &str, fp: &str, port: u16) -> crate::Result<()> {
+    self
+      .0
+      .run_mobile_plugin::<serde_json::Value>("startBonjour", StartBonjourArgs { id, name, os, fp, port })
+      .map(|_| ())
+      .map_err(Into::into)
+  }
+
+  /// iOS: các máy đã tìm thấy qua Bonjour.
+  pub fn bonjour_peers(&self) -> crate::Result<Vec<BonjourPeer>> {
+    self
+      .0
+      .run_mobile_plugin::<BonjourPeers>("bonjourPeers", ())
+      .map(|r| r.peers)
+      .map_err(Into::into)
+  }
+
   /// Android: báo hệ thống có file mới để hiện ngay trong Files/Ảnh.
   pub fn scan_file(&self, path: &str) -> crate::Result<()> {
     self

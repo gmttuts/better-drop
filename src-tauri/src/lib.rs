@@ -106,10 +106,7 @@ fn update_settings(app: tauri::AppHandle, name: String, download_dir: String) ->
         s.name = name;
         s.download_dir = download_dir;
     })?;
-    let st = app.state::<Arc<AppState>>();
-    if let Some(d) = st.mdns.lock().unwrap().as_ref() {
-        discovery::register(d, &st.device_info())?;
-    }
+    discovery::reannounce(&app.state::<Arc<AppState>>())?;
     Ok(info)
 }
 
