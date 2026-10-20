@@ -82,7 +82,7 @@ function el<K extends keyof HTMLElementTagNameMap>(
 }
 
 function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
+  if (n < 1024) return `${Math.round(n)} B`;
   const units = ["KB", "MB", "GB", "TB"];
   let v = n / 1024;
   let i = 0;

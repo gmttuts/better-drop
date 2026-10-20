@@ -1,0 +1,6 @@
+# Thư mục sinh ra khi build Android/iOS: không khởi động lại app Mac khi chúng thay đổi.
+gen/
+plugins/*/android/build/
+plugins/*/android/.gradle/
+plugins/*/ios/.build/
+plugins/*/.tauri/

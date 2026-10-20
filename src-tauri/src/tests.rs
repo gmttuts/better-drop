@@ -318,3 +318,25 @@ async fn remembered_peers_survive_restart_and_forget_hides() {
     assert!(again.peer_list().is_empty());
     assert!(restart(&again).peer_list().is_empty());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn merges_addresses_so_unreachable_mdns_address_is_not_a_dead_end() {
+    let a = node("Mac").await;
+    let b = node("Android emulator").await;
+    let info = b.st.device_info();
+    // mDNS chỉ thấy địa chỉ mạng ảo không tới được...
+    a.st.peers.lock().unwrap().insert(
+        "mdns:emu".into(),
+        Peer { info: info.clone(), addrs: vec!["10.255.255.1:9".into()], manual: false, online: true },
+    );
+    // ...còn người dùng thêm tay địa chỉ tới được (vd qua adb forward).
+    a.st.peers.lock().unwrap().insert(
+        format!("manual:{}", info.id),
+        Peer { info: info.clone(), addrs: vec![format!("127.0.0.1:{}", b.st.port)], manual: true, online: true },
+    );
+    let list = a.st.peer_list();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].addrs[0], format!("127.0.0.1:{}", b.st.port), "địa chỉ thêm tay thử trước");
+    assert_eq!(list[0].addrs.len(), 2);
+    transfer::send_text(a.st.clone(), list[0].clone(), "qua địa chỉ thêm tay".into()).await.unwrap();
+}

@@ -30,15 +30,17 @@ class PathArgs {
 class BetterDropPlugin(private val activity: Activity) : Plugin(activity) {
     private var multicastLock: WifiManager.MulticastLock? = null
 
-    /** Android bỏ qua gói tin multicast (mDNS) nếu app không giữ khoá này. */
+    /**
+     * Android bỏ qua gói tin multicast (mDNS) nếu app không giữ khoá này.
+     * Gọi lại sau khi mạng thay đổi: khoá cũ được nhả ra và xin khoá mới.
+     */
     @Command
     fun acquireMulticastLock(invoke: Invoke) {
-        if (multicastLock == null) {
-            val wifi = activity.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            multicastLock = wifi.createMulticastLock("betterdrop").apply {
-                setReferenceCounted(false)
-                acquire()
-            }
+        multicastLock?.let { if (it.isHeld) it.release() }
+        val wifi = activity.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        multicastLock = wifi.createMulticastLock("betterdrop").apply {
+            setReferenceCounted(false)
+            acquire()
         }
         invoke.resolve()
     }

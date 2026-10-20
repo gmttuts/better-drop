@@ -140,6 +140,12 @@ mod imp {
             open_uri: Some(open_uri),
             uri_info: Some(uri_info),
             file_saved: Some(file_saved),
+            before_mdns: {
+                let a = app.clone();
+                Some(Arc::new(move || {
+                    let _ = a.betterdrop_mobile().acquire_multicast_lock();
+                }))
+            },
             native_discovery: if cfg!(target_os = "ios") {
                 Some(Arc::new(Bonjour(app.clone())))
             } else {
@@ -183,9 +189,7 @@ mod imp {
 
     pub fn on_event(_app: &AppHandle, _event: &str, _payload: &serde_json::Value) {}
 
-    pub fn before_discovery(app: &AppHandle) {
-        let _ = app.betterdrop_mobile().acquire_multicast_lock();
-    }
+    pub fn before_discovery(_app: &AppHandle) {}
 
     pub fn after_setup(_app: &AppHandle, _settings: &Settings) -> tauri::Result<()> {
         Ok(())

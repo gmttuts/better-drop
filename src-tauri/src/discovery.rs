@@ -15,33 +15,92 @@ pub fn start(st: Arc<AppState>) -> Result<(), String> {
     if let Some(native) = st.hooks.native_discovery.clone() {
         return start_native(st, native);
     }
+    let (daemon, rx) = start_mdns(&st)?;
+    std::thread::spawn(move || watch_mdns(st, daemon, rx));
+    Ok(())
+}
+
+/// Dựng daemon mDNS mới: quảng bá máy này và bắt đầu tìm máy khác.
+fn start_mdns(st: &AppState) -> Result<(ServiceDaemon, mdns_sd::Receiver<ServiceEvent>), String> {
+    if let Some(hook) = &st.hooks.before_mdns {
+        hook();
+    }
     let daemon = ServiceDaemon::new().map_err(|e| e.to_string())?;
     register(&daemon, &st.device_info())?;
     let rx = daemon.browse(SERVICE_TYPE).map_err(|e| e.to_string())?;
-    *st.mdns.lock().unwrap() = Some(daemon);
+    *st.mdns.lock().unwrap() = Some(daemon.clone());
+    Ok((daemon, rx))
+}
 
+fn watch_mdns(st: Arc<AppState>, mut daemon: ServiceDaemon, mut rx: mdns_sd::Receiver<ServiceEvent>) {
     let my_id = st.device_info().id;
-    std::thread::spawn(move || {
-        while let Ok(ev) = rx.recv() {
-            match ev {
-                ServiceEvent::ServiceResolved(svc) => {
-                    let Some(peer) = peer_from(&svc) else { continue };
-                    if peer.info.id == my_id {
-                        continue;
-                    }
-                    st.peers.lock().unwrap().insert(svc.get_fullname().to_string(), peer);
+    let mut ips = local_ipv4();
+    // Số lần còn phải dựng lại sau khi mạng thay đổi. Phải lặp vài lần vì lúc vừa
+    // phát hiện thay đổi, Wi‑Fi có thể chưa kết nối xong.
+    let mut retries = 0u8;
+    loop {
+        match rx.recv_timeout(Duration::from_secs(4)) {
+            Ok(ServiceEvent::ServiceResolved(svc)) => {
+                let Some(peer) = peer_from(&svc) else { continue };
+                if peer.info.id == my_id {
+                    continue;
+                }
+                st.peers.lock().unwrap().insert(svc.get_fullname().to_string(), peer);
+                st.emit_peers();
+            }
+            Ok(ServiceEvent::ServiceRemoved(_, fullname)) => {
+                if st.peers.lock().unwrap().remove(&fullname).is_some() {
                     st.emit_peers();
                 }
-                ServiceEvent::ServiceRemoved(_, fullname) => {
-                    if st.peers.lock().unwrap().remove(&fullname).is_some() {
-                        st.emit_peers();
+            }
+            Ok(_) => {}
+            Err(e) => {
+                let disconnected = matches!(e, mdns_sd::RecvTimeoutError::Disconnected);
+                if disconnected && st.mdns.lock().unwrap().is_none() {
+                    return; // App đang thoát.
+                }
+                let now = local_ipv4();
+                if now != ips {
+                    // Mạng thay đổi (đổi Wi‑Fi, Wi‑Fi kết nối lại, cắm/rút dây):
+                    // bỏ máy của mạng cũ, rồi dựng lại mDNS như lúc mới mở app.
+                    ips = now;
+                    retries = 3;
+                    st.peers.lock().unwrap().retain(|k, _| k.starts_with("manual:") || k.starts_with("native:"));
+                    st.emit_peers();
+                }
+                if disconnected {
+                    retries = retries.max(1);
+                }
+                if retries > 0 {
+                    retries -= 1;
+                    let _ = daemon.shutdown();
+                    match start_mdns(&st) {
+                        Ok((d, r)) => {
+                            daemon = d;
+                            rx = r;
+                        }
+                        // Chưa có mạng: rx cũ đã đóng nên lượt sau sẽ thử lại.
+                        Err(_) => std::thread::sleep(Duration::from_secs(3)),
                     }
                 }
-                _ => {}
             }
         }
-    });
-    Ok(())
+    }
+}
+
+/// Các địa chỉ IPv4 hiện có của máy này (để phát hiện mạng thay đổi).
+fn local_ipv4() -> Vec<Ipv4Addr> {
+    let mut ips: Vec<Ipv4Addr> = if_addrs::get_if_addrs()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|i| match i.ip() {
+            std::net::IpAddr::V4(ip) if !ip.is_loopback() => Some(ip),
+            _ => None,
+        })
+        .collect();
+    ips.sort();
+    ips.dedup();
+    ips
 }
 
 /// Tìm máy bằng dịch vụ của hệ điều hành: hỏi lại danh sách mỗi 2 giây.

@@ -33,6 +33,8 @@ pub struct Hooks {
     /// Gọi sau khi lưu xong một file nhận được (Android: báo hệ thống quét file).
     pub file_saved: Option<Arc<dyn Fn(&std::path::Path) + Send + Sync>>,
     pub native_discovery: Option<Arc<dyn NativeDiscovery>>,
+    /// Gọi trước khi (dựng lại) mDNS, kể cả sau khi mạng thay đổi (Android: khoá multicast).
+    pub before_mdns: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 pub struct AppState {
@@ -98,16 +100,40 @@ impl AppState {
         }
     }
 
-    /// Danh sách máy, gộp trùng theo id (ưu tiên bản tìm qua mDNS), bỏ máy đã ẩn.
+    /// Danh sách máy, gộp trùng theo id và bỏ máy đã ẩn.
+    ///
+    /// Một máy có thể vừa được tự tìm thấy (mDNS) vừa được thêm tay (IP/QR, hoặc tự nhớ
+    /// khi nó gửi tới). Ta gộp lại: địa chỉ thêm tay đứng trước vì đã kết nối được,
+    /// sau đó tới địa chỉ mDNS (có thể là địa chỉ không tới được như mạng ảo, VPN).
     pub fn peer_list(&self) -> Vec<Peer> {
         let hidden: Vec<String> = self.devices.lock().unwrap().hidden.iter().map(|d| d.id.clone()).collect();
         let peers = self.peers.lock().unwrap();
         let mut by_id: HashMap<String, Peer> = HashMap::new();
-        for p in peers.values().filter(|p| !hidden.contains(&p.info.id)) {
-            match by_id.get(&p.info.id) {
-                Some(existing) if !existing.manual || (existing.online && !p.online) => {}
-                _ => {
+        let mut entries: Vec<&Peer> = peers.values().filter(|p| !hidden.contains(&p.info.id)).collect();
+        // Thêm tay đang bật trước, rồi mDNS, cuối cùng thêm tay đang tắt.
+        entries.sort_by_key(|p| match (p.manual, p.online) {
+            (true, true) => 0,
+            (false, _) => 1,
+            (true, false) => 2,
+        });
+        for p in entries {
+            match by_id.get_mut(&p.info.id) {
+                None => {
                     by_id.insert(p.info.id.clone(), p.clone());
+                }
+                Some(merged) => {
+                    for a in &p.addrs {
+                        if !merged.addrs.contains(a) {
+                            merged.addrs.push(a.clone());
+                        }
+                    }
+                    merged.online |= p.online;
+                    // Tên/hệ điều hành mới nhất lấy từ mDNS (máy tự quảng bá).
+                    if !p.manual {
+                        merged.info.name = p.info.name.clone();
+                        merged.info.os = p.info.os.clone();
+                        merged.manual = false;
+                    }
                 }
             }
         }
