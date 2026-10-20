@@ -41,11 +41,19 @@ fn watch_mdns(st: Arc<AppState>, mut daemon: ServiceDaemon, mut rx: mdns_sd::Rec
     loop {
         match rx.recv_timeout(Duration::from_secs(4)) {
             Ok(ServiceEvent::ServiceResolved(svc)) => {
-                let Some(peer) = peer_from(&svc) else { continue };
+                let Some(mut peer) = peer_from(&svc) else { continue };
                 if peer.info.id == my_id {
                     continue;
                 }
-                st.peers.lock().unwrap().insert(svc.get_fullname().to_string(), peer);
+                let mut peers = st.peers.lock().unwrap();
+                // Giữ kết quả kiểm tra kết nối cũ nếu địa chỉ không đổi (tránh nhấp nháy).
+                if let Some(old) = peers.get(svc.get_fullname()) {
+                    if old.addrs == peer.addrs {
+                        peer.online = old.online;
+                    }
+                }
+                peers.insert(svc.get_fullname().to_string(), peer);
+                drop(peers);
                 st.emit_peers();
             }
             Ok(ServiceEvent::ServiceRemoved(_, fullname)) => {
@@ -211,7 +219,9 @@ fn peer_from(svc: &mdns_sd::ResolvedService) -> Option<Peer> {
     })
 }
 
-/// Định kỳ kiểm tra các máy thêm thủ công còn bật không (để hiện mờ máy đang tắt).
+/// Định kỳ kiểm tra máy nào kết nối được, để hiện mờ máy đang tắt hoặc không tới
+/// được (vd mDNS quảng bá địa chỉ của mạng ảo/VPN) thay vì chỉ báo lỗi khi gửi.
+/// Máy tìm qua Bonjour trên iOS được làm mới liên tục nên không cần kiểm tra ở đây.
 pub async fn health_check_loop(st: Arc<AppState>) {
     loop {
         let manual: Vec<(String, Peer)> = st
@@ -219,7 +229,7 @@ pub async fn health_check_loop(st: Arc<AppState>) {
             .lock()
             .unwrap()
             .iter()
-            .filter(|(k, _)| k.starts_with("manual:"))
+            .filter(|(k, _)| !k.starts_with("native:"))
             .map(|(k, p)| (k.clone(), p.clone()))
             .collect();
         let mut changed = false;

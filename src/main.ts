@@ -376,7 +376,11 @@ function renderPeers() {
         className: "btn primary",
         textContent: busy ? "Đang gửi…" : "Gửi",
         disabled: !ready || busy || !online,
-        title: !online ? "Máy đang tắt hoặc không cùng mạng" : ready ? `Gửi tới ${d.name}` : "Chọn file hoặc nhập văn bản trước",
+        title: !online
+          ? "Không kết nối được tới máy này. Hai máy có cùng mạng Wi‑Fi không? Có thể thêm bằng IP hoặc quét mã QR."
+          : ready
+            ? `Gửi tới ${d.name}`
+            : "Chọn file hoặc nhập văn bản trước",
       });
       send.addEventListener("click", () => p && sendMany([p]));
 
@@ -388,7 +392,8 @@ function renderPeers() {
       const icon = el("span", { className: "peer-icon" });
       icon.innerHTML = osIcon(d.os);
       const meta = el("div", { className: "muted small" });
-      if (!online) meta.append(el("span", { className: "offline-tag", textContent: "Đang tắt" }), " · ");
+      if (!online)
+        meta.append(el("span", { className: "offline-tag", textContent: p ? "Không kết nối được" : "Đang tắt" }), " · ");
       meta.append(`${osLabel(d.os)}${p?.manual ? " · đã lưu" : ""}`);
       if (p) meta.append(" · mã ", el("span", { className: "code", textContent: shortCode(p.fp) }));
 
