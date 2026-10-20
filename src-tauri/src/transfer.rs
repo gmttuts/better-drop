@@ -12,6 +12,7 @@ use std::time::Duration;
 use tokio_util::io::ReaderStream;
 
 const PARALLEL_UPLOADS: usize = 3;
+const RECEIVE_OFF: &str = "Máy nhận đang tắt chế độ nhận file";
 const SKIP_NAMES: &[&str] = &[".DS_Store", "Thumbs.db", "desktop.ini"];
 
 pub struct LocalFile {
@@ -132,6 +133,9 @@ pub async fn send_text(st: Arc<AppState>, peer: Peer, text: String) -> Result<()
     let result = async {
         let client = peer_client(&peer)?;
         let (_, resp) = send_prepare(&client, &peer, &req).await?;
+        if resp.status() == StatusCode::SERVICE_UNAVAILABLE {
+            return Err(RECEIVE_OFF.into());
+        }
         if !resp.status().is_success() {
             return Err(format!("Máy nhận trả lỗi {}", resp.status()));
         }
@@ -181,6 +185,10 @@ pub async fn send_files(
         StatusCode::OK => {}
         StatusCode::FORBIDDEN => {
             tracker.set_status(TransferStatus::Rejected, Some("Máy nhận đã từ chối".into()));
+            return Ok(());
+        }
+        StatusCode::SERVICE_UNAVAILABLE => {
+            tracker.set_status(TransferStatus::Rejected, Some(RECEIVE_OFF.into()));
             return Ok(());
         }
         s => return Err(format!("Máy nhận trả lỗi {s}")),

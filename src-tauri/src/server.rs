@@ -80,6 +80,9 @@ async fn prepare(
     State(st): St,
     Json(req): Json<PrepareRequest>,
 ) -> Result<Json<PrepareResponse>, StatusCode> {
+    if !st.settings.read().unwrap().receive_enabled {
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    }
     if req.kind == TransferKind::Text {
         let text = req.text.unwrap_or_default();
         st.emit(

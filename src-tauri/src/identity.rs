@@ -74,6 +74,8 @@ pub fn load_settings(dir: &Path) -> Settings {
         device_id: uuid::Uuid::new_v4().to_string(),
         name: default_name(),
         download_dir: default_download_dir().to_string_lossy().into_owned(),
+        receive_enabled: true,
+        hide_dock: false,
     };
     let _ = save_settings(dir, &s);
     s

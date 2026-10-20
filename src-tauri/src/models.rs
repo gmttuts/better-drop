@@ -134,6 +134,16 @@ pub struct Settings {
     pub device_id: String,
     pub name: String,
     pub download_dir: String,
+    /// Tắt đi thì mọi yêu cầu gửi tới đều bị từ chối ngay.
+    #[serde(default = "default_true")]
+    pub receive_enabled: bool,
+    /// Chỉ trên macOS: ẩn biểu tượng trên Dock, chỉ còn biểu tượng trên thanh menu.
+    #[serde(default)]
+    pub hide_dock: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -142,4 +152,6 @@ pub struct SelfInfo {
     pub settings: Settings,
     /// Các địa chỉ "ip:port" của máy này, để nhập thủ công ở máy kia.
     pub addrs: Vec<String>,
+    /// Đang bật "Mở cùng máy tính".
+    pub autostart: bool,
 }

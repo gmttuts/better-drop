@@ -21,11 +21,14 @@ interface Settings {
   device_id: string;
   name: string;
   download_dir: string;
+  receive_enabled: boolean;
+  hide_dock: boolean;
 }
 interface SelfInfo {
   info: DeviceInfo;
   settings: Settings;
   addrs: string[];
+  autostart: boolean;
 }
 type Status = "waiting" | "transferring" | "done" | "rejected" | "cancelled" | "error";
 interface TransferUpdate {
@@ -117,6 +120,27 @@ function renderMe() {
   if (!me) return;
   $("me-name").textContent = me.info.name;
   $("me-code").textContent = shortCode(me.info.fp);
+  $("paused-chip").hidden = me.settings.receive_enabled;
+  $<HTMLInputElement>("set-receive").checked = me.settings.receive_enabled;
+  $<HTMLInputElement>("set-autostart").checked = me.autostart;
+  $<HTMLInputElement>("set-dock").checked = me.settings.hide_dock;
+}
+
+/// Các ô tích ở mục "Chạy nền" có hiệu lực ngay, không cần bấm Lưu.
+function bindToggle(id: string, command: string, arg: string) {
+  const box = $<HTMLInputElement>(id);
+  box.addEventListener("change", async () => {
+    box.disabled = true;
+    try {
+      me = await invoke<SelfInfo>(command, { [arg]: box.checked });
+      renderMe();
+    } catch (e) {
+      box.checked = !box.checked;
+      toast(errorText(e), "error");
+    } finally {
+      box.disabled = false;
+    }
+  });
 }
 
 // ---- Tab & nội dung cần gửi ----
@@ -355,6 +379,11 @@ function openSettings() {
   $<HTMLInputElement>("set-name").value = me.settings.name;
   $<HTMLInputElement>("set-dir").value = me.settings.download_dir;
   $("set-code").textContent = shortCode(me.info.fp);
+  const isMac = me.info.os === "mac";
+  $("row-dock").hidden = !isMac;
+  $("bg-hint").textContent = `Khi đóng cửa sổ, BetterDrop vẫn chạy nền và nhận file. Mở lại hoặc thoát hẳn từ biểu tượng trên ${
+    isMac ? "thanh menu" : "khay hệ thống (góc dưới bên phải)"
+  }.`;
   $("set-addrs").replaceChildren(
     ...(me.addrs.length ? me.addrs : ["(không có mạng)"]).map((a) => el("li", { className: "code", textContent: a })),
   );
@@ -460,7 +489,24 @@ async function init() {
     }
   });
 
+  bindToggle("set-receive", "set_receive_enabled", "enabled");
+  bindToggle("set-autostart", "set_autostart", "enabled");
+  bindToggle("set-dock", "set_hide_dock", "hide");
+  $("paused-chip").addEventListener("click", async () => {
+    try {
+      me = await invoke<SelfInfo>("set_receive_enabled", { enabled: true });
+      renderMe();
+      toast("Đã bật lại nhận file");
+    } catch (e) {
+      toast(errorText(e), "error");
+    }
+  });
+
   // Sự kiện từ Rust
+  await listen<SelfInfo>("settings-changed", (e) => {
+    me = e.payload;
+    renderMe();
+  });
   await listen<Peer[]>("peers-changed", (e) => {
     peers = e.payload;
     renderPeers();

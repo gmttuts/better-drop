@@ -15,6 +15,7 @@
         </svg>
         <span>BetterDrop</span>
       </div>
+      <button class="paused-chip" id="paused-chip" hidden title="Bấm để bật lại nhận file">Đang tắt nhận file</button>
       <div class="me" id="me" title="Thông tin máy này">
         <span class="me-name" id="me-name">…</span>
         <span class="code" id="me-code" title="Mã nhận dạng — so với mã hiện ở máy kia"></span>
@@ -122,6 +123,13 @@
             <button class="btn" type="button" id="btn-choose-dir">Chọn…</button>
           </div>
         </label>
+        <fieldset class="toggles">
+          <legend>Chạy nền</legend>
+          <label class="check"><input type="checkbox" id="set-receive" /> Cho phép nhận file</label>
+          <label class="check"><input type="checkbox" id="set-autostart" /> Mở BetterDrop khi khởi động máy</label>
+          <label class="check" id="row-dock" hidden><input type="checkbox" id="set-dock" /> Ẩn biểu tượng trên Dock</label>
+          <p class="muted small" id="bg-hint"></p>
+        </fieldset>
         <div class="info-block">
           <div class="muted small">Địa chỉ của máy này (để nhập ở máy kia nếu không tự thấy):</div>
           <ul id="set-addrs" class="addrs"></ul>

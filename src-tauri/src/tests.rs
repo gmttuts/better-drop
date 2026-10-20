@@ -28,6 +28,8 @@ async fn node(name: &str) -> Node {
         device_id: uuid::Uuid::new_v4().to_string(),
         name: name.into(),
         download_dir: dir.path().join("downloads").to_string_lossy().into_owned(),
+        receive_enabled: true,
+        hide_dock: false,
     };
     let st = Arc::new(AppState::new(emit, dir.path().join("data"), ident, port, settings));
     let s2 = st.clone();
@@ -191,4 +193,23 @@ async fn sends_text() {
             break;
         }
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn receive_disabled_is_refused() {
+    let a = node("Mac").await;
+    let b = node("Windows").await;
+    b.st.settings.write().unwrap().receive_enabled = false;
+    let peer_b = as_peer(&b);
+
+    let src = tempfile::tempdir().unwrap();
+    write(&src.path().join("x.txt"), b"x");
+    let files = transfer::collect_files(&[src.path().join("x.txt").to_string_lossy().into_owned()]).unwrap();
+    let tracker = sender_tracker(&a.st);
+    transfer::send_files(&a.st, &peer_b, files, &tracker).await.unwrap();
+    assert_eq!(tracker.status(), TransferStatus::Rejected);
+    assert!(b.st.pending.lock().unwrap().is_empty(), "không được hỏi người dùng");
+
+    let err = transfer::send_text(a.st.clone(), peer_b, "hi".into()).await.unwrap_err();
+    assert!(err.contains("tắt chế độ nhận"), "{err}");
 }
