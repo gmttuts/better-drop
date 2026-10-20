@@ -1,8 +1,9 @@
 # BetterDrop
 
-Chuyển file, thư mục và văn bản giữa Mac ⇄ Windows ⇄ Linux qua mạng Wi‑Fi/LAN, giống AirDrop.
+Chuyển file, thư mục và văn bản giữa Mac ⇄ Windows ⇄ Linux ⇄ Android ⇄ iPhone/iPad qua mạng Wi‑Fi/LAN, giống AirDrop.
 
-- Tự tìm máy trong cùng mạng (mDNS/Bonjour), hoặc thêm thủ công bằng IP.
+- Tự tìm máy trong cùng mạng (mDNS/Bonjour). Nếu không thấy, điện thoại **quét mã QR** trên máy tính (Cài đặt › "Kết nối điện thoại bằng mã QR"), hoặc nhập IP.
+- Máy nhận tự nhớ máy vừa gửi tới, nên gửi ngược lại được ngay.
 - Máy nhận phải bấm **Chấp nhận** mới bắt đầu nhận.
 - Dữ liệu đi qua HTTPS (TLS). Mỗi máy có chứng chỉ riêng, và bên gửi chỉ chấp nhận đúng chứng chỉ đã quảng bá. Mã 4 ký tự (vd `520D`) dùng để so với máy kia.
 - File nhận được lưu vào `~/Downloads/BetterDrop` (đổi được trong Cài đặt). Nếu trùng tên, file mới được thêm hậu tố ` (1)`, không ghi đè file cũ.
@@ -38,6 +39,19 @@ npm run tauri build
 1. Cài [Rust](https://rustup.rs), [Node.js LTS](https://nodejs.org) và "Desktop development with C++" (Visual Studio Build Tools). WebView2 có sẵn trên Windows 10/11.
 2. Chép thư mục dự án sang (không cần `node_modules`, `src-tauri/target`), rồi chạy `npm install` và `npm run tauri build`.
 3. Bộ cài nằm ở `src-tauri\target\release\bundle\msi\` và `...\nsis\`.
+
+## Điện thoại
+
+**Android**: tải `BetterDrop-android` (file `.apk`) từ GitHub Actions, mở trên điện thoại và cho phép "Cài ứng dụng không rõ nguồn gốc". File nhận được nằm ở `Download/BetterDrop` (xem bằng app Files).
+
+**iPhone/iPad**: cần build bằng Xcode trên máy Mac.
+1. Một lần duy nhất: `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`.
+2. `source scripts/mobile-env.sh && npm run tauri ios dev` (máy ảo), hoặc `npm run tauri ios build -- --open`. Sau đó trong Xcode, chọn *Signing & Capabilities › Team* là Apple ID của bạn, cắm iPhone và bấm Run.
+3. Nếu dùng Apple ID miễn phí, app hết hạn sau 7 ngày (phải cài lại). Tài khoản Apple Developer (99 USD/năm) thì không hết hạn và đưa lên TestFlight được.
+4. File nhận được nằm trong app **Tệp › Trên iPhone › BetterDrop**.
+5. iOS dừng app khi chuyển ra màn hình khác, nên **phải mở BetterDrop khi muốn nhận file**.
+
+Build Android trên máy: `source scripts/mobile-env.sh && npm run tauri android build -- --apk` (cần Java 17, Android SDK/NDK).
 
 ## Lưu ý mạng
 
