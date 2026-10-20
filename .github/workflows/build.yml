@@ -82,3 +82,54 @@ jobs:
         with:
           draft: true
           files: ${{ matrix.bundles }}
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Cài Android NDK
+        run: |
+          echo "y" | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018" > /dev/null
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - run: npm ci
+
+      - name: Build APK
+        run: npm run tauri android build -- --apk
+
+      - name: Đổi tên APK
+        run: |
+          mkdir -p out
+          cp src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk out/BetterDrop-android.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BetterDrop-android
+          path: out/BetterDrop-android.apk
+          if-no-files-found: error
+
+      - name: Release (khi đẩy tag v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: out/BetterDrop-android.apk

@@ -17,8 +17,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-notification = "2"
-tauri-plugin-autostart = "2"
-tauri-plugin-single-instance = "2"
+tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
@@ -38,6 +37,23 @@ hostname = "0.4"
 if-addrs = "0.15"
 unicode-normalization = "0.1"
 dirs = "6"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+
+# Chỉ có trên máy tính: tự mở cùng máy, chỉ chạy một bản.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
+
+# Chỉ có trên điện thoại: quét mã QR bằng camera.
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+tauri-plugin-barcode-scanner = "2"
+tauri-plugin-betterdrop-mobile = { path = "plugins/betterdrop-mobile" }
 
 [dev-dependencies]
 tempfile = "3"
+
+# Bản phát hành nhỏ gọn hơn (đặc biệt quan trọng với APK Android chứa 4 kiến trúc CPU).
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1

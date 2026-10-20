@@ -53,6 +53,7 @@ h3 { font-size: 16px; margin: 0 0 8px; }
 
 /* ---- Thanh trên ---- */
 .topbar {
+  padding-top: max(12px, env(safe-area-inset-top)) !important;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -262,6 +263,14 @@ textarea:focus, input:focus { outline: 2px solid var(--accent-soft); border-colo
 .bar { height: 6px; border-radius: 3px; background: var(--bg); overflow: hidden; margin: 6px 0 4px; }
 .bar > i { display: block; height: 100%; background: var(--accent); transition: width 0.2s; }
 .transfer.done .bar > i { background: var(--ok); }
+
+.pair-actions { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-top: 12px; }
+.pair-actions .btn { width: 100%; }
+.qr { display: grid; place-items: center; background: #fff; border-radius: 12px; padding: 8px; margin: 8px auto 12px; width: fit-content; }
+.qr svg { width: 220px; height: 220px; }
+.qr-link { word-break: break-all; background: var(--bg); padding: 8px; border-radius: 8px; -webkit-user-select: text; user-select: text; }
+.staged-size { color: var(--muted); font-size: 12px; margin-left: auto; padding-left: 8px; white-space: nowrap; }
+.layout { padding-bottom: max(24px, env(safe-area-inset-bottom)); }
 
 /* ---- Hộp thoại ---- */
 .dialog {

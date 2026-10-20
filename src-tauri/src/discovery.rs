@@ -137,3 +137,99 @@ pub async fn add_manual(st: &AppState, addr: &str) -> Result<Peer, String> {
     st.emit_peers();
     Ok(peer)
 }
+
+pub const LINK_SCHEME: &str = "betterdrop";
+
+/// Liên kết ghép nối mã hoá trong QR: chứa id, tên, fingerprint chứng chỉ và các
+/// địa chỉ của máy này. Vì có sẵn fingerprint nên máy quét kiểm tra được chứng chỉ
+/// ngay từ lần kết nối đầu (an toàn hơn nhập IP tay).
+pub fn pair_link(me: &DeviceInfo, addrs: &[String]) -> String {
+    let mut params: Vec<(&str, &str)> = vec![
+        ("id", &me.id),
+        ("name", &me.name),
+        ("os", &me.os),
+        ("fp", &me.fp),
+    ];
+    params.extend(addrs.iter().map(|a| ("a", a.as_str())));
+    let url = reqwest::Url::parse_with_params(&format!("{LINK_SCHEME}://pair"), params)
+        .expect("URL cố định luôn hợp lệ");
+    url.to_string()
+}
+
+pub fn pair_svg(link: &str) -> Result<String, String> {
+    use qrcode::render::svg;
+    let code = qrcode::QrCode::new(link.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(code
+        .render::<svg::Color>()
+        .min_dimensions(220, 220)
+        .quiet_zone(true)
+        .dark_color(svg::Color("#000000"))
+        .light_color(svg::Color("#ffffff"))
+        .build())
+}
+
+/// Thêm máy từ liên kết ghép nối (quét QR hoặc dán vào ô nhập).
+pub async fn add_from_link(st: &AppState, link: &str) -> Result<Peer, String> {
+    let url = reqwest::Url::parse(link.trim()).map_err(|_| "Liên kết không hợp lệ".to_string())?;
+    if url.scheme() != LINK_SCHEME {
+        return Err("Đây không phải mã QR của BetterDrop".into());
+    }
+    let get = |k: &str| {
+        url.query_pairs()
+            .find(|(key, _)| key == k)
+            .map(|(_, v)| v.into_owned())
+    };
+    let (Some(id), Some(fp)) = (get("id"), get("fp")) else {
+        return Err("Mã QR thiếu thông tin".into());
+    };
+    if id == st.device_info().id {
+        return Err("Đây là mã QR của chính máy này".into());
+    }
+    let addrs: Vec<String> = url
+        .query_pairs()
+        .filter(|(k, _)| k == "a")
+        .map(|(_, v)| v.into_owned())
+        .collect();
+    if addrs.is_empty() {
+        return Err("Máy kia không có địa chỉ mạng nào".into());
+    }
+
+    // Thử từng địa chỉ, chỉ chấp nhận đúng chứng chỉ ghi trong QR.
+    let client = build_client(Pin::Fingerprint(fp.clone()))?;
+    let mut reachable = Vec::new();
+    let mut info: Option<DeviceInfo> = None;
+    let mut last_err = String::new();
+    for addr in &addrs {
+        let res = client
+            .get(api_url(addr, "info"))
+            .timeout(Duration::from_secs(4))
+            .send()
+            .await;
+        match res {
+            Ok(r) => match r.json::<DeviceInfo>().await {
+                Ok(i) if i.id == id => {
+                    reachable.push(addr.clone());
+                    info.get_or_insert(i);
+                }
+                _ => last_err = "Máy trả lời không khớp mã QR".into(),
+            },
+            Err(e) => last_err = describe_error(&e),
+        }
+    }
+    let Some(info) = info else {
+        return Err(format!(
+            "Không kết nối được tới máy trong mã QR. Hai máy có cùng mạng Wi‑Fi không? ({last_err})"
+        ));
+    };
+    let peer = Peer {
+        info: DeviceInfo { fp, ..info },
+        addrs: reachable,
+        manual: true,
+    };
+    st.peers
+        .lock()
+        .unwrap()
+        .insert(format!("manual:{}", peer.info.id), peer.clone());
+    st.emit_peers();
+    Ok(peer)
+}

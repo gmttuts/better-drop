@@ -6,7 +6,7 @@ use std::collections::HashMap;
 pub struct DeviceInfo {
     pub id: String,
     pub name: String,
-    /// "mac" | "windows" | "linux"
+    /// "mac" | "windows" | "linux" | "android" | "ios"
     pub os: String,
     /// SHA-256 (hex) của chứng chỉ TLS.
     pub fp: String,
@@ -154,4 +154,23 @@ pub struct SelfInfo {
     pub addrs: Vec<String>,
     /// Đang bật "Mở cùng máy tính".
     pub autostart: bool,
+    /// Đang chạy trên điện thoại/tablet.
+    pub mobile: bool,
+}
+
+/// Một mục đã chọn để gửi, hiển thị trong danh sách chờ gửi.
+#[derive(Debug, Clone, Serialize)]
+pub struct StagedItem {
+    pub path: String,
+    pub name: String,
+    pub is_dir: bool,
+    /// Kích thước file; None với thư mục hoặc khi không biết.
+    pub size: Option<u64>,
+}
+
+/// Mã QR để điện thoại quét và kết nối với máy này.
+#[derive(Debug, Clone, Serialize)]
+pub struct PairInfo {
+    pub link: String,
+    pub svg: String,
 }

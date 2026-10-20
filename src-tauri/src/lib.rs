@@ -3,17 +3,17 @@ mod discovery;
 mod identity;
 mod models;
 mod paths;
+mod platform;
 mod server;
 mod state;
 mod transfer;
+#[cfg(desktop)]
 mod tray;
 
-use models::{Peer, SelfInfo, Settings};
+use models::{PairInfo, Peer, SelfInfo, Settings, StagedItem};
 use state::AppState;
 use std::sync::Arc;
 use tauri::{Emitter, Manager, State};
-use tauri_plugin_autostart::ManagerExt as _;
-use tauri_plugin_opener::OpenerExt;
 
 type AppStateRef<'a> = State<'a, Arc<AppState>>;
 
@@ -38,7 +38,8 @@ fn self_info(app: &tauri::AppHandle) -> SelfInfo {
         info: st.device_info(),
         settings,
         addrs: local_addrs(st.port),
-        autostart: app.autolaunch().is_enabled().unwrap_or(false),
+        autostart: platform::autostart_enabled(app),
+        mobile: cfg!(mobile),
     }
 }
 
@@ -58,18 +59,12 @@ fn change_settings(app: &tauri::AppHandle, f: impl FnOnce(&mut Settings)) -> Res
 
 /// Bật/tắt nhận file (dùng chung cho Cài đặt và menu khay hệ thống).
 pub(crate) fn set_receive(app: &tauri::AppHandle, enabled: bool) -> Result<SelfInfo, String> {
+    #[cfg(desktop)]
     if let Some(t) = app.try_state::<tray::TrayState>() {
         let _ = t.receive.set_checked(enabled);
     }
     change_settings(app, |s| s.receive_enabled = enabled)
 }
-
-#[cfg(target_os = "macos")]
-fn apply_dock(app: &tauri::AppHandle, hide: bool) {
-    let _ = app.set_dock_visibility(!hide);
-}
-#[cfg(not(target_os = "macos"))]
-fn apply_dock(_app: &tauri::AppHandle, _hide: bool) {}
 
 #[tauri::command]
 fn get_self_info(app: tauri::AppHandle) -> SelfInfo {
@@ -83,14 +78,13 @@ fn set_receive_enabled(app: tauri::AppHandle, enabled: bool) -> Result<SelfInfo,
 
 #[tauri::command]
 fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<SelfInfo, String> {
-    let al = app.autolaunch();
-    if enabled { al.enable() } else { al.disable() }.map_err(|e| e.to_string())?;
+    platform::set_autostart(&app, enabled)?;
     change_settings(&app, |_| {})
 }
 
 #[tauri::command]
 fn set_hide_dock(app: tauri::AppHandle, hide: bool) -> Result<SelfInfo, String> {
-    apply_dock(&app, hide);
+    platform::apply_dock(&app, hide);
     change_settings(&app, |s| s.hide_dock = hide)
 }
 
@@ -119,15 +113,37 @@ fn update_settings(app: tauri::AppHandle, name: String, download_dir: String) ->
     Ok(info)
 }
 
+/// Nhận cả địa chỉ IP lẫn liên kết `betterdrop://` (dán từ QR).
 #[tauri::command]
 async fn add_manual_peer(st: AppStateRef<'_>, addr: String) -> Result<Peer, String> {
-    discovery::add_manual(&st, &addr).await
+    if addr.trim().starts_with(discovery::LINK_SCHEME) {
+        discovery::add_from_link(&st, &addr).await
+    } else {
+        discovery::add_manual(&st, &addr).await
+    }
+}
+
+#[tauri::command]
+fn pair_info(app: tauri::AppHandle) -> Result<PairInfo, String> {
+    let st = app.state::<Arc<AppState>>();
+    let link = discovery::pair_link(&st.device_info(), &local_addrs(st.port));
+    let svg = discovery::pair_svg(&link)?;
+    Ok(PairInfo { link, svg })
+}
+
+#[tauri::command]
+async fn describe_paths(st: AppStateRef<'_>, paths: Vec<String>) -> Result<Vec<StagedItem>, String> {
+    let st = st.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || transfer::describe(&st, &paths))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn send_files(st: AppStateRef<'_>, peer_id: String, paths: Vec<String>) -> Result<String, String> {
     let peer = st.find_peer(&peer_id).ok_or("Không tìm thấy máy nhận")?;
-    let files = tauri::async_runtime::spawn_blocking(move || transfer::collect_files(&paths))
+    let state = st.inner().clone();
+    let files = tauri::async_runtime::spawn_blocking(move || transfer::collect_files(&state, &paths))
         .await
         .map_err(|e| e.to_string())??;
     Ok(transfer::start_send_files(st.inner().clone(), peer, files))
@@ -153,50 +169,38 @@ fn cancel_transfer(st: AppStateRef, id: String) {
 
 #[tauri::command]
 fn open_folder(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
     std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
     app.opener()
         .open_path(path, None::<&str>)
         .map_err(|e| e.to_string())
 }
 
-const HIDDEN_ARG: &str = "--hidden";
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    let mut builder = tauri::Builder::default();
-    // Mở app lần nữa thì chỉ hiện lại cửa sổ cũ. Bỏ qua khi chạy thử nhiều bản bằng profile.
-    if identity::profile().is_none() {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            tray::show_main(app);
-        }));
-    }
-
-    builder
+    platform::plugins(tauri::Builder::default())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            Some(vec![HIDDEN_ARG]),
-        ))
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            let data_dir = identity::data_dir();
-            let settings = identity::load_settings(&data_dir);
+            let (data_dir, defaults) = platform::dirs(app.handle())?;
+            let settings = identity::load_settings(&data_dir, defaults);
             let ident = identity::load_or_create_identity(&data_dir)?;
             let listener = server::bind()?;
             let port = listener.local_addr()?.port();
 
             let handle = app.handle().clone();
             let emit: state::EmitFn = Arc::new(move |event, payload| {
-                tray::on_event(&handle, event, &payload);
+                platform::on_event(&handle, event, &payload);
                 let _ = handle.emit(event, payload);
             });
-            let receive_enabled = settings.receive_enabled;
-            let hide_dock = settings.hide_dock;
-            let st = Arc::new(AppState::new(emit, data_dir, ident, port, settings));
+            let mut st = AppState::new(emit, data_dir, ident, port, settings.clone());
+            st.hooks = platform::hooks(app.handle());
+            let st = Arc::new(st);
             app.manage(st.clone());
 
             let server_state = st.clone();
@@ -205,21 +209,17 @@ pub fn run() {
                     server_state.emit("fatal-error", format!("Máy chủ nhận file dừng: {e}"));
                 }
             });
+            platform::before_discovery(app.handle());
             if let Err(e) = discovery::start(st.clone()) {
                 st.emit("fatal-error", format!("Không bật được tự tìm máy: {e}"));
             }
-
-            tray::setup(app.handle(), receive_enabled)?;
-            apply_dock(app.handle(), hide_dock);
-            // Khi tự mở cùng máy tính thì chạy nền luôn, không hiện cửa sổ.
-            if !std::env::args().any(|a| a == HIDDEN_ARG) {
-                tray::show_main(app.handle());
-            }
+            platform::after_setup(app.handle(), &settings)?;
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                tray::on_close_requested(window, api);
+        .on_window_event(|_window, _event| {
+            #[cfg(desktop)]
+            if let tauri::WindowEvent::CloseRequested { api, .. } = _event {
+                tray::on_close_requested(_window, api);
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -230,6 +230,8 @@ pub fn run() {
             get_peers,
             update_settings,
             add_manual_peer,
+            pair_info,
+            describe_paths,
             send_files,
             send_text,
             respond_request,

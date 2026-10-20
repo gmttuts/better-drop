@@ -12,6 +12,19 @@ use tokio::sync::oneshot;
 /// Hàm gửi event lên giao diện. Trong app là `AppHandle::emit`, trong test là một closure.
 pub type EmitFn = Arc<dyn Fn(&'static str, serde_json::Value) + Send + Sync>;
 
+/// Mở một file theo URI (`content://` trên Android, `file://` trên iOS).
+pub type UriOpener = Arc<dyn Fn(&str) -> std::io::Result<std::fs::File> + Send + Sync>;
+
+/// Phần việc khác nhau giữa các nền tảng, gắn vào từ `lib.rs`.
+#[derive(Default, Clone)]
+pub struct Hooks {
+    pub open_uri: Option<UriOpener>,
+    /// Tên và kích thước (nếu biết) của một URI do bộ chọn file trả về.
+    pub uri_info: Option<Arc<dyn Fn(&str) -> std::io::Result<(String, Option<u64>)> + Send + Sync>>,
+    /// Gọi sau khi lưu xong một file nhận được (Android: báo hệ thống quét file).
+    pub file_saved: Option<Arc<dyn Fn(&std::path::Path) + Send + Sync>>,
+}
+
 pub struct AppState {
     pub emit: EmitFn,
     pub data_dir: PathBuf,
@@ -27,6 +40,7 @@ pub struct AppState {
     /// Giữ cho việc chọn tên file trống + đổi tên là một bước nguyên tử.
     pub rename_lock: Mutex<()>,
     pub mdns: Mutex<Option<mdns_sd::ServiceDaemon>>,
+    pub hooks: Hooks,
 }
 
 impl AppState {
@@ -43,6 +57,7 @@ impl AppState {
             peers: Mutex::default(),
             rename_lock: Mutex::default(),
             mdns: Mutex::default(),
+            hooks: Hooks::default(),
         }
     }
 
@@ -82,6 +97,15 @@ impl AppState {
 
     pub fn find_peer(&self, id: &str) -> Option<Peer> {
         self.peer_list().into_iter().find(|p| p.info.id == id)
+    }
+
+    /// Mở file nguồn để gửi: đường dẫn thường hoặc URI của điện thoại.
+    pub fn open_source(&self, src: &str) -> std::io::Result<std::fs::File> {
+        let is_uri = src.starts_with("content://") || src.starts_with("file://");
+        match (&self.hooks.open_uri, is_uri) {
+            (Some(open), true) => open(src),
+            _ => std::fs::File::open(src),
+        }
     }
 
     pub fn emit_peers(&self) {

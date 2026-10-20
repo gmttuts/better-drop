@@ -2,7 +2,7 @@
 <html lang="vi">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>BetterDrop</title>
     <link rel="stylesheet" href="/src/styles.css" />
     <script type="module" src="/src/main.ts" defer></script>
@@ -38,7 +38,7 @@
         <div class="tab-panel" id="panel-files">
           <div class="dropzone" id="dropzone">
             <svg viewBox="0 0 24 24" class="dz-icon" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
-            <p class="dz-title">Kéo thả file hoặc thư mục vào đây</p>
+            <p class="dz-title" id="dz-title">Kéo thả file hoặc thư mục vào đây</p>
             <div class="dz-actions">
               <button class="btn" id="btn-pick-files">Chọn file</button>
               <button class="btn" id="btn-pick-folder">Chọn thư mục</button>
@@ -69,10 +69,14 @@
           <p><strong>Đang tìm máy trong mạng…</strong></p>
           <p class="muted">Mở BetterDrop trên máy kia và kết nối cùng một mạng Wi‑Fi/LAN.</p>
         </div>
+        <div class="pair-actions">
+          <button class="btn primary" id="btn-scan" hidden>Quét mã QR của máy tính</button>
+          <button class="link" id="btn-show-qr" hidden>Kết nối điện thoại bằng mã QR</button>
+        </div>
         <details class="manual" id="manual">
           <summary>Không thấy máy? Thêm bằng địa chỉ IP</summary>
           <form id="manual-form" class="manual-form">
-            <input id="manual-addr" placeholder="vd 192.168.1.20 hoặc 192.168.1.20:53318" autocomplete="off" spellcheck="false" />
+            <input id="manual-addr" placeholder="vd 192.168.1.20 hoặc liên kết betterdrop://…" autocomplete="off" spellcheck="false" />
             <button class="btn primary" type="submit">Thêm</button>
           </form>
           <p class="muted small">Địa chỉ của máy kia nằm ở <em>Cài đặt</em> trong BetterDrop trên máy đó.</p>
@@ -110,6 +114,21 @@
       </div>
     </dialog>
 
+    <!-- Mã QR để điện thoại quét -->
+    <dialog id="dlg-qr" class="dialog">
+      <h3>Quét để kết nối</h3>
+      <div class="qr" id="qr-svg"></div>
+      <p class="muted small">Trên điện thoại, mở BetterDrop và bấm <strong>Quét mã QR của máy tính</strong>. Hai máy cần dùng chung mạng Wi‑Fi.</p>
+      <details class="small">
+        <summary>Không quét được? Dùng liên kết</summary>
+        <p class="qr-link code" id="qr-link"></p>
+        <button class="btn small" id="btn-copy-link">Sao chép liên kết</button>
+      </details>
+      <div class="dialog-actions">
+        <button class="btn primary" id="btn-qr-close">Xong</button>
+      </div>
+    </dialog>
+
     <!-- Cài đặt -->
     <dialog id="dlg-settings" class="dialog">
       <h3>Cài đặt</h3>
@@ -126,7 +145,7 @@
         <fieldset class="toggles">
           <legend>Chạy nền</legend>
           <label class="check"><input type="checkbox" id="set-receive" /> Cho phép nhận file</label>
-          <label class="check"><input type="checkbox" id="set-autostart" /> Mở BetterDrop khi khởi động máy</label>
+          <label class="check" id="row-autostart"><input type="checkbox" id="set-autostart" /> Mở BetterDrop khi khởi động máy</label>
           <label class="check" id="row-dock" hidden><input type="checkbox" id="set-dock" /> Ẩn biểu tượng trên Dock</label>
           <p class="muted small" id="bg-hint"></p>
         </fieldset>

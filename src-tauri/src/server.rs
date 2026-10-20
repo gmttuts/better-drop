@@ -4,12 +4,13 @@ use crate::models::*;
 use crate::paths::{sanitize_rel_path, unique_path};
 use crate::state::{AppState, InFile, InSession, Tracker};
 use axum::body::Body;
-use axum::extract::{DefaultBodyLimit, Query, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures_util::StreamExt;
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -52,7 +53,7 @@ pub async fn serve(state: Arc<AppState>, listener: std::net::TcpListener) -> Res
     .await
     .map_err(|e| e.to_string())?;
     axum_server::from_tcp_rustls(listener, cfg)
-        .serve(router(state).into_make_service())
+        .serve(router(state).into_make_service_with_connect_info::<SocketAddr>())
         .await
         .map_err(|e| e.to_string())
 }
@@ -76,14 +77,43 @@ impl Drop for PendingGuard {
     }
 }
 
+/// Ghi nhớ máy vừa gửi tới mình để có thể gửi ngược lại, kể cả khi mạng chặn
+/// tự tìm máy (mDNS) — ví dụ điện thoại đã quét QR của máy tính.
+fn remember_sender(st: &AppState, sender: &DeviceInfo, remote: SocketAddr) {
+    if sender.id == st.device_info().id {
+        return;
+    }
+    let addr = format!("{}:{}", remote.ip().to_canonical(), sender.port);
+    {
+        let mut peers = st.peers.lock().unwrap();
+        let known = peers
+            .values()
+            .any(|p| p.info.id == sender.id && (!p.manual || p.addrs.contains(&addr)));
+        if known {
+            return;
+        }
+        peers.insert(
+            format!("manual:{}", sender.id),
+            Peer {
+                info: sender.clone(),
+                addrs: vec![addr],
+                manual: true,
+            },
+        );
+    }
+    st.emit_peers();
+}
+
 async fn prepare(
     State(st): St,
+    ConnectInfo(remote): ConnectInfo<SocketAddr>,
     Json(req): Json<PrepareRequest>,
 ) -> Result<Json<PrepareResponse>, StatusCode> {
     if !st.settings.read().unwrap().receive_enabled {
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     }
     if req.kind == TransferKind::Text {
+        remember_sender(&st, &req.sender, remote);
         let text = req.text.unwrap_or_default();
         st.emit(
             "incoming-text",
@@ -141,6 +171,7 @@ async fn prepare(
     if !accepted {
         return Err(StatusCode::FORBIDDEN);
     }
+    remember_sender(&st, &req.sender, remote);
 
     let session_id = uuid::Uuid::new_v4().to_string();
     let base_dir = PathBuf::from(st.settings.read().unwrap().download_dir.clone());
@@ -256,6 +287,9 @@ async fn upload(
         let final_path = unique_path(&dest);
         std::fs::rename(&part, &final_path)
             .map_err(|e| fail(format!("Không lưu được file: {e}")))?;
+        if let Some(saved) = &st.hooks.file_saved {
+            saved(&final_path);
+        }
     }
 
     let done = session.done.fetch_add(1, Ordering::SeqCst) + 1;

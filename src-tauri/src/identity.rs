@@ -36,12 +36,24 @@ pub fn os_name() -> &'static str {
         "mac"
     } else if cfg!(windows) {
         "windows"
+    } else if cfg!(target_os = "android") {
+        "android"
+    } else if cfg!(target_os = "ios") {
+        "ios"
     } else {
         "linux"
     }
 }
 
-fn default_name() -> String {
+/// Giá trị mặc định khi tạo cài đặt lần đầu. Trên điện thoại, tên máy và thư mục
+/// lưu do hệ điều hành cung cấp (qua plugin), nên được truyền vào từ ngoài.
+#[derive(Default)]
+pub struct Defaults {
+    pub name: Option<String>,
+    pub download_dir: Option<PathBuf>,
+}
+
+pub fn default_name() -> String {
     let host = hostname::get()
         .map(|h| h.to_string_lossy().into_owned())
         .unwrap_or_else(|_| "Máy tính".into());
@@ -52,7 +64,7 @@ fn default_name() -> String {
     }
 }
 
-fn default_download_dir() -> PathBuf {
+pub fn default_download_dir() -> PathBuf {
     let base = dirs::download_dir()
         .or_else(dirs::home_dir)
         .unwrap_or_else(std::env::temp_dir);
@@ -62,7 +74,7 @@ fn default_download_dir() -> PathBuf {
     }
 }
 
-pub fn load_settings(dir: &Path) -> Settings {
+pub fn load_settings(dir: &Path, defaults: Defaults) -> Settings {
     let path = dir.join("settings.json");
     if let Some(s) = fs::read(&path)
         .ok()
@@ -72,8 +84,12 @@ pub fn load_settings(dir: &Path) -> Settings {
     }
     let s = Settings {
         device_id: uuid::Uuid::new_v4().to_string(),
-        name: default_name(),
-        download_dir: default_download_dir().to_string_lossy().into_owned(),
+        name: defaults.name.unwrap_or_else(default_name),
+        download_dir: defaults
+            .download_dir
+            .unwrap_or_else(default_download_dir)
+            .to_string_lossy()
+            .into_owned(),
         receive_enabled: true,
         hide_dock: false,
     };

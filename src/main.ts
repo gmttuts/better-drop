@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { checkPermissions, Format, requestPermissions, scan } from "@tauri-apps/plugin-barcode-scanner";
 
 // ---- Kiểu dữ liệu (khớp với src-tauri/src/models.rs) ----
 
@@ -29,6 +30,13 @@ interface SelfInfo {
   settings: Settings;
   addrs: string[];
   autostart: boolean;
+  mobile: boolean;
+}
+interface StagedItem {
+  path: string;
+  name: string;
+  is_dir: boolean;
+  size: number | null;
 }
 type Status = "waiting" | "transferring" | "done" | "rejected" | "cancelled" | "error";
 interface TransferUpdate {
@@ -85,7 +93,8 @@ function formatBytes(n: number): string {
 }
 
 const shortCode = (fp: string) => fp.slice(0, 4).toUpperCase();
-const osLabel = (os: string) => (os === "mac" ? "macOS" : os === "windows" ? "Windows" : os || "Không rõ");
+const OS_LABELS: Record<string, string> = { mac: "macOS", windows: "Windows", linux: "Linux", android: "Android", ios: "iPhone/iPad" };
+const osLabel = (os: string) => OS_LABELS[os] ?? (os || "Không rõ");
 const baseName = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
 
 function errorText(e: unknown): string {
@@ -103,13 +112,16 @@ const ICON_LAPTOP =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v9H4zM2 18h20"/></svg>';
 const ICON_DESKTOP =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zM9 20h6M12 16v4"/></svg>';
-const osIcon = (os: string) => (os === "mac" ? ICON_LAPTOP : ICON_DESKTOP);
+const ICON_PHONE =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1zM11 18h2"/></svg>';
+const osIcon = (os: string) =>
+  os === "android" || os === "ios" ? ICON_PHONE : os === "mac" ? ICON_LAPTOP : ICON_DESKTOP;
 
 // ---- Trạng thái giao diện ----
 
 let me: SelfInfo | null = null;
 let peers: Peer[] = [];
-let staged: string[] = [];
+let staged: StagedItem[] = [];
 let activeTab: "files" | "text" = "files";
 const transfers = new Map<string, TransferUpdate>();
 const busyPeers = new Set<string>();
@@ -156,22 +168,35 @@ function setTab(tab: "files" | "text") {
   renderPeers();
 }
 
-function addStaged(paths: string[]) {
-  for (const p of paths) if (!staged.includes(p)) staged.push(p);
+async function addStaged(paths: string[]) {
+  const fresh = paths.filter((p) => !staged.some((s) => s.path === p));
+  if (!fresh.length) return;
   setTab("files");
+  try {
+    staged.push(...(await invoke<StagedItem[]>("describe_paths", { paths: fresh })));
+  } catch {
+    staged.push(...fresh.map((p) => ({ path: p, name: baseName(p), is_dir: false, size: null })));
+  }
   renderStaged();
 }
 
 function renderStaged() {
   const list = $("staged");
   list.replaceChildren(
-    ...staged.map((p) => {
+    ...staged.map((item) => {
       const remove = el("button", { className: "icon-btn small", title: "Bỏ", textContent: "×" });
       remove.addEventListener("click", () => {
-        staged = staged.filter((s) => s !== p);
+        staged = staged.filter((s) => s !== item);
         renderStaged();
       });
-      return el("li", { title: p }, el("span", { className: "staged-name", textContent: baseName(p) }), remove);
+      const size = item.is_dir ? "thư mục" : item.size != null ? formatBytes(item.size) : "";
+      return el(
+        "li",
+        { title: item.path },
+        el("span", { className: "staged-name", textContent: item.name }),
+        el("span", { className: "staged-size", textContent: size }),
+        remove,
+      );
     }),
   );
   $("staged-foot").hidden = staged.length === 0;
@@ -228,7 +253,7 @@ async function sendTo(peer: Peer) {
   renderPeers();
   try {
     if (activeTab === "files") {
-      const paths = [...staged];
+      const paths = staged.map((s) => s.path);
       await invoke<string>("send_files", { peerId: peer.id, paths });
       staged = [];
       renderStaged();
@@ -271,6 +296,7 @@ function detailOf(t: TransferUpdate): string {
     if (t.speed_bps > 0) d += ` · ${formatBytes(t.speed_bps)}/s`;
     return d;
   }
+  if (t.status === "done" && t.direction === "receive" && t.dir_path && me?.mobile) return `Đã lưu vào ${t.dir_path}`;
   return t.error && t.status !== "done" ? t.error : STATUS_TEXT[t.status];
 }
 
@@ -301,7 +327,7 @@ function renderTransfer(t: TransferUpdate): HTMLLIElement {
     b.addEventListener("click", () => invoke("cancel_transfer", { id: t.id }));
     actions.append(b);
   }
-  if (t.status === "done" && t.direction === "receive" && t.dir_path) {
+  if (t.status === "done" && t.direction === "receive" && t.dir_path && !me?.mobile) {
     const b = el("button", { className: "btn small", textContent: "Mở thư mục" });
     b.addEventListener("click", () =>
       invoke("open_folder", { path: t.dir_path }).catch((e) => toast(errorText(e), "error")),
@@ -381,18 +407,66 @@ function openSettings() {
   $("set-code").textContent = shortCode(me.info.fp);
   const isMac = me.info.os === "mac";
   $("row-dock").hidden = !isMac;
-  $("bg-hint").textContent = `Khi đóng cửa sổ, BetterDrop vẫn chạy nền và nhận file. Mở lại hoặc thoát hẳn từ biểu tượng trên ${
-    isMac ? "thanh menu" : "khay hệ thống (góc dưới bên phải)"
-  }.`;
+  $("row-autostart").hidden = me.mobile;
+  $("btn-choose-dir").hidden = me.mobile;
+  $("bg-hint").textContent = me.mobile
+    ? "Trên điện thoại, hãy mở BetterDrop khi muốn nhận file."
+    : `Khi đóng cửa sổ, BetterDrop vẫn chạy nền và nhận file. Mở lại hoặc thoát hẳn từ biểu tượng trên ${
+        isMac ? "thanh menu" : "khay hệ thống (góc dưới bên phải)"
+      }.`;
   $("set-addrs").replaceChildren(
     ...(me.addrs.length ? me.addrs : ["(không có mạng)"]).map((a) => el("li", { className: "code", textContent: a })),
   );
   $<HTMLDialogElement>("dlg-settings").showModal();
 }
 
+// ---- Ghép nối bằng mã QR ----
+
+async function showPairQr() {
+  try {
+    const p = await invoke<{ link: string; svg: string }>("pair_info");
+    $("qr-svg").innerHTML = p.svg;
+    $("qr-link").textContent = p.link;
+    $<HTMLDialogElement>("dlg-qr").showModal();
+  } catch (e) {
+    toast(errorText(e), "error");
+  }
+}
+
+async function scanPairQr() {
+  try {
+    if ((await checkPermissions()) !== "granted" && (await requestPermissions()) !== "granted") {
+      toast("Cần cho phép dùng camera để quét mã QR", "error");
+      return;
+    }
+    const res = await scan({ windowed: false, formats: [Format.QRCode] });
+    const p = await invoke<Peer>("add_manual_peer", { addr: res.content });
+    toast(`Đã kết nối với ${p.name} — mã ${shortCode(p.fp)}`);
+  } catch (e) {
+    toast(errorText(e), "error");
+  }
+}
+
 // ---- Khởi động ----
 
 async function init() {
+  me = await invoke<SelfInfo>("get_self_info");
+  document.body.classList.toggle("mobile", me.mobile);
+  if (me.mobile) {
+    $("dz-title").textContent = "Chọn file để gửi";
+    $("btn-pick-folder").hidden = true;
+    $("btn-scan").hidden = false;
+  } else {
+    $("btn-show-qr").hidden = false;
+  }
+  $("btn-scan").addEventListener("click", scanPairQr);
+  $("btn-show-qr").addEventListener("click", showPairQr);
+  $("btn-qr-close").addEventListener("click", () => $<HTMLDialogElement>("dlg-qr").close());
+  $("btn-copy-link").addEventListener("click", async () => {
+    await writeText($("qr-link").textContent ?? "");
+    toast("Đã sao chép liên kết");
+  });
+
   // Tab
   document.querySelectorAll<HTMLButtonElement>(".tab").forEach((b) =>
     b.addEventListener("click", () => setTab(b.dataset.tab as "files" | "text")),
@@ -424,13 +498,15 @@ async function init() {
     }
   });
 
-  // Kéo thả trên toàn cửa sổ
-  await getCurrentWebview().onDragDropEvent((e) => {
-    const dz = $("dropzone");
-    if (e.payload.type === "enter" || e.payload.type === "over") dz.classList.add("hover");
-    else dz.classList.remove("hover");
-    if (e.payload.type === "drop" && e.payload.paths.length) addStaged(e.payload.paths);
-  });
+  // Kéo thả trên toàn cửa sổ (chỉ có trên máy tính)
+  if (!me.mobile) {
+    await getCurrentWebview().onDragDropEvent((e) => {
+      const dz = $("dropzone");
+      if (e.payload.type === "enter" || e.payload.type === "over") dz.classList.add("hover");
+      else dz.classList.remove("hover");
+      if (e.payload.type === "drop" && e.payload.paths.length) addStaged(e.payload.paths);
+    });
+  }
 
   // Thêm máy thủ công
   $("manual-form").addEventListener("submit", async (ev) => {
@@ -544,7 +620,6 @@ async function init() {
   });
   await listen<string>("fatal-error", (e) => toast(e.payload, "error"));
 
-  me = await invoke<SelfInfo>("get_self_info");
   renderMe();
   peers = await invoke<Peer[]>("get_peers");
   renderPeers();

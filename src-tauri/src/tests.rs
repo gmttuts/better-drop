@@ -123,7 +123,7 @@ async fn sends_files_and_folders_end_to_end() {
     write(&src.path().join("Photos/empty.txt"), b"");
     write(&src.path().join("Photos/.DS_Store"), b"junk");
 
-    let files = transfer::collect_files(&[
+    let files = transfer::collect_files(&a.st, &[
         src.path().join("báo cáo.txt").to_string_lossy().into_owned(),
         src.path().join("Photos").to_string_lossy().into_owned(),
     ])
@@ -157,7 +157,7 @@ async fn rejected_request_reports_rejected() {
 
     let src = tempfile::tempdir().unwrap();
     write(&src.path().join("x.txt"), b"x");
-    let files = transfer::collect_files(&[src.path().join("x.txt").to_string_lossy().into_owned()]).unwrap();
+    let files = transfer::collect_files(&a.st, &[src.path().join("x.txt").to_string_lossy().into_owned()]).unwrap();
     let tracker = sender_tracker(&a.st);
     transfer::send_files(&a.st, &peer_b, files, &tracker).await.unwrap();
     assert_eq!(tracker.status(), TransferStatus::Rejected);
@@ -173,7 +173,7 @@ async fn wrong_fingerprint_is_refused() {
 
     let src = tempfile::tempdir().unwrap();
     write(&src.path().join("x.txt"), b"x");
-    let files = transfer::collect_files(&[src.path().join("x.txt").to_string_lossy().into_owned()]).unwrap();
+    let files = transfer::collect_files(&a.st, &[src.path().join("x.txt").to_string_lossy().into_owned()]).unwrap();
     let tracker = sender_tracker(&a.st);
     let err = transfer::send_files(&a.st, &peer_b, files, &tracker).await.unwrap_err();
     assert!(err.contains("Không kết nối được"), "{err}");
@@ -204,7 +204,7 @@ async fn receive_disabled_is_refused() {
 
     let src = tempfile::tempdir().unwrap();
     write(&src.path().join("x.txt"), b"x");
-    let files = transfer::collect_files(&[src.path().join("x.txt").to_string_lossy().into_owned()]).unwrap();
+    let files = transfer::collect_files(&a.st, &[src.path().join("x.txt").to_string_lossy().into_owned()]).unwrap();
     let tracker = sender_tracker(&a.st);
     transfer::send_files(&a.st, &peer_b, files, &tracker).await.unwrap();
     assert_eq!(tracker.status(), TransferStatus::Rejected);
@@ -212,4 +212,46 @@ async fn receive_disabled_is_refused() {
 
     let err = transfer::send_text(a.st.clone(), peer_b, "hi".into()).await.unwrap_err();
     assert!(err.contains("tắt chế độ nhận"), "{err}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn receiver_remembers_sender_for_replies() {
+    let a = node("Phone").await;
+    let mut b = node("Mac").await;
+    assert!(b.st.peer_list().is_empty());
+    transfer::send_text(a.st.clone(), as_peer(&b), "hi".into()).await.unwrap();
+    let peers = b.st.peer_list();
+    assert_eq!(peers.len(), 1);
+    assert_eq!(peers[0].info.name, "Phone");
+    assert_eq!(peers[0].addrs, vec![format!("127.0.0.1:{}", a.st.port)]);
+    while let Ok((ev, _)) = b.events.try_recv() {
+        let _ = ev;
+    }
+
+    // Máy nhận gửi ngược lại được cho máy vừa gửi.
+    transfer::send_text(b.st.clone(), peers[0].clone(), "chào lại".into()).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pairs_via_qr_link() {
+    let phone = node("Phone").await;
+    let mac = node("Mac \"Studio\" & co").await;
+    let link = crate::discovery::pair_link(&mac.st.device_info(), &[
+        "127.0.0.1:1".into(), // địa chỉ không tới được, phải bỏ qua
+        format!("127.0.0.1:{}", mac.st.port),
+    ]);
+    assert!(crate::discovery::pair_svg(&link).unwrap().starts_with("<?xml"));
+
+    let peer = crate::discovery::add_from_link(&phone.st, &link).await.unwrap();
+    assert_eq!(peer.info.name, "Mac \"Studio\" & co");
+    assert_eq!(peer.addrs, vec![format!("127.0.0.1:{}", mac.st.port)]);
+    assert_eq!(phone.st.peer_list().len(), 1);
+
+    // QR giả mạo: đúng địa chỉ nhưng fingerprint khác thì bị từ chối.
+    let mut fake = mac.st.device_info();
+    fake.fp = "cd".repeat(32);
+    let bad = crate::discovery::pair_link(&fake, &[format!("127.0.0.1:{}", mac.st.port)]);
+    let other = node("Other").await;
+    assert!(crate::discovery::add_from_link(&other.st, &bad).await.is_err());
+    assert!(crate::discovery::add_from_link(&other.st, "https://example.com").await.is_err());
 }
