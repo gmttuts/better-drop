@@ -3,7 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { checkPermissions, Format, requestPermissions, scan } from "@tauri-apps/plugin-barcode-scanner";
+import { cancel as cancelScan, checkPermissions, Format, requestPermissions, scan } from "@tauri-apps/plugin-barcode-scanner";
+import { onBackButtonPress } from "@tauri-apps/api/app";
 
 // ---- Kiểu dữ liệu (khớp với src-tauri/src/models.rs) ----
 
@@ -696,23 +697,62 @@ async function showPairQr() {
     const p = await invoke<{ link: string; svg: string }>("pair_info");
     $("qr-svg").innerHTML = p.svg;
     $("qr-link").textContent = p.link;
+    const addrs = me?.addrs ?? [];
+    $("qr-addrs-block").hidden = addrs.length === 0;
+    // Cổng mặc định (53318) được tự điền nên chỉ cần nhập IP.
+    $("qr-addrs").replaceChildren(
+      ...addrs.map((a) => el("li", { className: "code", textContent: a.endsWith(":53318") ? a.slice(0, -6) : a })),
+    );
     $<HTMLDialogElement>("dlg-qr").showModal();
   } catch (e) {
     toast(errorText(e), "error");
   }
 }
 
+let scanning = false;
+
+/** Thoát màn hình quét: huỷ camera và hiện lại giao diện. */
+async function stopScanning() {
+  if (!scanning) return;
+  scanning = false;
+  try {
+    await cancelScan();
+  } catch {
+    /* camera đã đóng */
+  }
+}
+
 async function scanPairQr() {
+  if (scanning) return;
   try {
     if ((await checkPermissions()) !== "granted" && (await requestPermissions()) !== "granted") {
-      toast("Cần cho phép dùng camera để quét mã QR", "error");
+      toast("Cần cho phép dùng camera để quét mã QR. Hoặc dùng “Thêm bằng địa chỉ IP”.", "error");
       return;
     }
-    const res = await scan({ windowed: false, formats: [Format.QRCode] });
-    const p = await invoke<Peer>("add_manual_peer", { addr: res.content });
-    toast(`Đã kết nối với ${p.name} — mã ${shortCode(p.fp)}`);
   } catch (e) {
     toast(errorText(e), "error");
+    return;
+  }
+
+  // Camera hiện phía sau trang (windowed), trang trong suốt với khung ngắm và nút Huỷ.
+  scanning = true;
+  document.documentElement.classList.add("scanning");
+  $("scan-overlay").hidden = false;
+  // Nút Quay lại của Android: chỉ huỷ quét, không đóng app.
+  const back = await onBackButtonPress(() => stopScanning()).catch(() => null);
+  try {
+    const res = await scan({ windowed: true, formats: [Format.QRCode] });
+    if (scanning) {
+      const p = await invoke<Peer>("add_manual_peer", { addr: res.content });
+      toast(`Đã kết nối với ${p.name} — mã ${shortCode(p.fp)}`);
+    }
+  } catch (e) {
+    if (scanning) toast(errorText(e), "error"); // Lỗi thật, không phải do người dùng bấm Huỷ.
+  } finally {
+    scanning = false;
+    document.documentElement.classList.remove("scanning");
+    $("scan-overlay").hidden = true;
+    await back?.unregister();
   }
 }
 
@@ -727,9 +767,12 @@ async function init() {
     $("btn-scan").hidden = false;
   } else {
     $("btn-show-qr").hidden = false;
+    $("btn-topbar-qr").hidden = false;
   }
   $("btn-scan").addEventListener("click", scanPairQr);
+  $("btn-scan-cancel").addEventListener("click", stopScanning);
   $("btn-show-qr").addEventListener("click", showPairQr);
+  $("btn-topbar-qr").addEventListener("click", showPairQr);
   $("btn-qr-close").addEventListener("click", () => $<HTMLDialogElement>("dlg-qr").close());
   $("btn-copy-link").addEventListener("click", async () => {
     await writeText($("qr-link").textContent ?? "");

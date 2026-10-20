@@ -15,6 +15,10 @@
         </svg>
         <span>BetterDrop</span>
       </div>
+      <button class="btn small topbar-qr" id="btn-topbar-qr" hidden title="Hiện mã QR để điện thoại quét và kết nối">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1zM11 18h2"/></svg>
+        <span>Kết nối điện thoại</span>
+      </button>
       <button class="paused-chip" id="paused-chip" hidden title="Bấm để bật lại nhận file">Đang tắt nhận file</button>
       <div class="me" id="me" title="Thông tin máy này">
         <span class="me-name" id="me-name">…</span>
@@ -154,8 +158,12 @@
       <h3>Quét để kết nối</h3>
       <div class="qr" id="qr-svg"></div>
       <p class="muted small">Trên điện thoại, mở BetterDrop và bấm <strong>Quét mã QR của máy tính</strong>. Hai máy cần dùng chung mạng Wi‑Fi.</p>
+      <div class="qr-addrs" id="qr-addrs-block">
+        <div class="muted small">Không quét được? Trên điện thoại, bấm <em>“Thêm bằng địa chỉ IP”</em> và nhập:</div>
+        <ul class="addrs big" id="qr-addrs"></ul>
+      </div>
       <details class="small">
-        <summary>Không quét được? Dùng liên kết</summary>
+        <summary>Liên kết ghép nối (dán vào ô nhập IP)</summary>
         <p class="qr-link code" id="qr-link"></p>
         <button class="btn small" id="btn-copy-link">Sao chép liên kết</button>
       </details>
@@ -199,6 +207,13 @@
         </div>
       </form>
     </dialog>
+
+    <!-- Màn hình quét QR (điện thoại): camera hiện phía sau trang -->
+    <div class="scan-overlay" id="scan-overlay" hidden>
+      <p class="scan-hint">Đưa mã QR trên máy tính vào khung</p>
+      <div class="scan-frame"></div>
+      <button class="btn scan-cancel" id="btn-scan-cancel">Huỷ</button>
+    </div>
 
     <div class="toasts" id="toasts" aria-live="polite"></div>
   </body>

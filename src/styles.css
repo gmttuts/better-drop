@@ -331,6 +331,32 @@ textarea:focus, input:focus { outline: 2px solid var(--accent-soft); border-colo
 .hidden-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .hidden-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 
+/* ---- Nút kết nối điện thoại (máy tính) ---- */
+.topbar-qr { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.topbar-qr svg { width: 16px; height: 16px; }
+.topbar-qr:not([hidden]) ~ .paused-chip, .topbar-qr:not([hidden]) ~ .me { margin-left: 0; }
+@media (max-width: 560px) { .topbar-qr span { display: none; } }
+.qr-addrs { background: var(--bg); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+.addrs.big li { font-size: 16px; font-weight: 600; padding: 2px 0; }
+
+/* ---- Màn hình quét QR: trang trong suốt để thấy camera phía sau ---- */
+html.scanning, html.scanning body { background: transparent !important; }
+html.scanning body > :not(.scan-overlay):not(.toasts) { visibility: hidden; }
+.scan-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: max(24px, env(safe-area-inset-top)) 24px max(32px, env(safe-area-inset-bottom));
+}
+.scan-overlay[hidden] { display: none; }
+.scan-hint { color: #fff; background: rgba(0, 0, 0, 0.55); padding: 8px 14px; border-radius: 999px; margin: 0; font-weight: 600; }
+.scan-frame { width: min(70vw, 280px); aspect-ratio: 1; border: 3px solid #fff; border-radius: 20px; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.35); }
+.scan-cancel { min-width: 160px; padding: 12px 24px; font-size: 16px; background: #fff; color: #111; border: none; }
+
 /* ---- Hộp thoại ---- */
 .dialog {
   border: 1px solid var(--border);
