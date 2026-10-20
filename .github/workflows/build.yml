@@ -175,4 +175,4 @@ jobs:
         with:
           draft: true
           generate_release_notes: true
-          files: files/*
+          files: files/**/*
