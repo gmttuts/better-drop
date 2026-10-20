@@ -23,6 +23,9 @@ pub struct Peer {
     /// true nếu được thêm thủ công bằng IP.
     #[serde(default)]
     pub manual: bool,
+    /// false khi máy đã lưu nhưng hiện không kết nối được.
+    #[serde(default = "default_true")]
+    pub online: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

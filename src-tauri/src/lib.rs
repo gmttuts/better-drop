@@ -1,4 +1,5 @@
 mod client;
+mod devices;
 mod discovery;
 mod identity;
 mod models;
@@ -120,6 +121,79 @@ async fn add_manual_peer(st: AppStateRef<'_>, addr: String) -> Result<Peer, Stri
     }
 }
 
+#[derive(serde::Serialize)]
+struct DevicesInfo {
+    groups: Vec<devices::Group>,
+    hidden: Vec<devices::DeviceRef>,
+}
+
+fn devices_info(st: &AppState) -> DevicesInfo {
+    let book = st.devices.lock().unwrap();
+    DevicesInfo {
+        groups: book.groups.clone(),
+        hidden: book.hidden.clone(),
+    }
+}
+
+/// Lưu sổ thiết bị sau khi sửa, rồi báo UI cập nhật danh sách máy và nhóm.
+fn change_devices(st: &AppState, f: impl FnOnce(&mut devices::DeviceBook)) -> Result<DevicesInfo, String> {
+    {
+        let mut book = st.devices.lock().unwrap();
+        f(&mut book);
+        book.save(&st.data_dir).map_err(|e| e.to_string())?;
+    }
+    st.emit_peers();
+    st.emit_devices();
+    Ok(devices_info(st))
+}
+
+#[tauri::command]
+fn get_devices(st: AppStateRef) -> DevicesInfo {
+    devices_info(&st)
+}
+
+/// Quên một máy: xoá máy đã lưu, và ẩn nó khỏi danh sách (kể cả khi tự tìm thấy lại).
+#[tauri::command]
+fn forget_peer(st: AppStateRef, id: String) -> Result<DevicesInfo, String> {
+    let dev = st
+        .peer_list()
+        .into_iter()
+        .find(|p| p.info.id == id)
+        .map(|p| devices::DeviceRef { id: p.info.id, name: p.info.name, os: p.info.os })
+        .unwrap_or(devices::DeviceRef { id: id.clone(), name: "Máy không tên".into(), os: String::new() });
+    st.peers.lock().unwrap().remove(&format!("manual:{id}"));
+    change_devices(&st, |b| b.forget(dev))
+}
+
+#[tauri::command]
+fn unhide_peer(st: AppStateRef, id: String) -> Result<DevicesInfo, String> {
+    change_devices(&st, |b| b.unhide(&id))
+}
+
+#[tauri::command]
+fn save_group(
+    st: AppStateRef,
+    id: Option<String>,
+    name: String,
+    members: Vec<devices::DeviceRef>,
+) -> Result<DevicesInfo, String> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err("Tên nhóm không được để trống".into());
+    }
+    if members.is_empty() {
+        return Err("Nhóm cần ít nhất một máy".into());
+    }
+    change_devices(&st, |b| {
+        b.save_group(id, name, members);
+    })
+}
+
+#[tauri::command]
+fn delete_group(st: AppStateRef, id: String) -> Result<DevicesInfo, String> {
+    change_devices(&st, |b| b.delete_group(&id))
+}
+
 #[tauri::command]
 fn pair_info(app: tauri::AppHandle) -> Result<PairInfo, String> {
     let st = app.state::<Arc<AppState>>();
@@ -206,6 +280,7 @@ pub fn run() {
                     server_state.emit("fatal-error", format!("Máy chủ nhận file dừng: {e}"));
                 }
             });
+            tauri::async_runtime::spawn(discovery::health_check_loop(st.clone()));
             platform::before_discovery(app.handle());
             if let Err(e) = discovery::start(st.clone()) {
                 st.emit("fatal-error", format!("Không bật được tự tìm máy: {e}"));
@@ -228,6 +303,11 @@ pub fn run() {
             update_settings,
             add_manual_peer,
             pair_info,
+            get_devices,
+            forget_peer,
+            unhide_peer,
+            save_group,
+            delete_group,
             describe_paths,
             send_files,
             send_text,

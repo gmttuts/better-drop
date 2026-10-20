@@ -17,6 +17,7 @@ interface DeviceInfo {
 interface Peer extends DeviceInfo {
   addrs: string[];
   manual: boolean;
+  online: boolean;
 }
 interface Settings {
   device_id: string;
@@ -209,66 +210,304 @@ function hasContent(): boolean {
   return activeTab === "files" ? staged.length > 0 : $<HTMLTextAreaElement>("text-input").value.trim() !== "";
 }
 
-// ---- Danh sách máy ----
+// ---- Danh sách máy, chọn nhiều, nhóm ----
+
+interface DeviceRef {
+  id: string;
+  name: string;
+  os: string;
+}
+interface Group {
+  id: string;
+  name: string;
+  members: DeviceRef[];
+}
+
+let groups: Group[] = [];
+let hiddenDevices: DeviceRef[] = [];
+/** Nhóm đang lọc; null = tất cả máy. */
+let activeGroup: string | null = null;
+const selected = new Set<string>();
+
+const ICON_FORGET =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>';
+
+const currentGroup = () => groups.find((g) => g.id === activeGroup) ?? null;
+const peerById = (id: string) => peers.find((p) => p.id === id);
+const isOnline = (id: string) => peerById(id)?.online ?? false;
+
+/** Các máy hiển thị: tất cả máy, hoặc thành viên nhóm đang chọn (kể cả máy đang tắt). */
+function visibleDevices(): (DeviceRef & { peer?: Peer })[] {
+  const g = currentGroup();
+  if (!g) return peers.map((p) => ({ id: p.id, name: p.name, os: p.os, peer: p }));
+  return g.members.map((m) => {
+    const p = peerById(m.id);
+    return p ? { id: p.id, name: p.name, os: p.os, peer: p } : m;
+  });
+}
+
+function confirmDialog(title: string, body: string, yes = "Đồng ý"): Promise<boolean> {
+  const dlg = $<HTMLDialogElement>("dlg-confirm");
+  $("confirm-title").textContent = title;
+  $("confirm-body").textContent = body;
+  $("btn-confirm-yes").textContent = yes;
+  dlg.showModal();
+  return new Promise((resolve) => {
+    const done = (v: boolean) => {
+      dlg.close();
+      $("btn-confirm-yes").removeEventListener("click", ok);
+      $("btn-confirm-no").removeEventListener("click", no);
+      resolve(v);
+    };
+    const ok = () => done(true);
+    const no = () => done(false);
+    $("btn-confirm-yes").addEventListener("click", ok);
+    $("btn-confirm-no").addEventListener("click", no);
+  });
+}
+
+function renderChips() {
+  const chips: HTMLElement[] = [];
+  const chip = (label: string, active: boolean, onClick: () => void, extra = "") => {
+    const b = el("button", { className: `chip${active ? " active" : ""}${extra}`, textContent: label });
+    b.addEventListener("click", onClick);
+    chips.push(b);
+  };
+  chip("Tất cả", activeGroup === null, () => setGroup(null));
+  for (const g of groups) {
+    const on = g.members.filter((m) => isOnline(m.id)).length;
+    chip(`${g.name} · ${on}/${g.members.length}`, activeGroup === g.id, () => setGroup(g.id));
+  }
+  chip("+ Nhóm mới", false, () => openGroupDialog(null), " add");
+  $("group-chips").replaceChildren(...chips);
+  $("group-chips").hidden = groups.length === 0 && peers.length < 2;
+}
+
+function setGroup(id: string | null) {
+  activeGroup = id;
+  selected.clear();
+  renderPeers();
+}
+
+function renderBulkBar() {
+  const bar = $("bulk-bar");
+  const g = currentGroup();
+  const ready = hasContent();
+  const actions: HTMLElement[] = [];
+  const action = (label: string, cls: string, onClick: () => void, disabled = false) => {
+    const b = el("button", { className: `btn small ${cls}`, textContent: label, disabled });
+    b.addEventListener("click", onClick);
+    actions.push(b);
+  };
+
+  if (selected.size > 0) {
+    const targets = [...selected].map(peerById).filter((p): p is Peer => !!p && p.online);
+    $("bulk-label").textContent = `Đã chọn ${selected.size} máy`;
+    action(`Gửi tới ${targets.length} máy`, "primary", () => sendMany(targets), !ready || targets.length === 0);
+    action("Lưu thành nhóm", "", () => openGroupDialog(null));
+    action("Bỏ chọn", "", () => {
+      selected.clear();
+      renderPeers();
+    });
+  } else if (g) {
+    const targets = g.members.map((m) => peerById(m.id)).filter((p): p is Peer => !!p && p.online);
+    $("bulk-label").textContent = `Nhóm “${g.name}”: ${targets.length}/${g.members.length} máy đang bật`;
+    action("Gửi cho cả nhóm", "primary", () => sendMany(targets), !ready || targets.length === 0);
+    action("Sửa nhóm", "", () => openGroupDialog(g));
+    action("Xoá nhóm", "", async () => {
+      if (!(await confirmDialog(`Xoá nhóm “${g.name}”?`, "Chỉ xoá nhóm, các máy trong nhóm vẫn giữ nguyên.", "Xoá nhóm"))) return;
+      try {
+        applyDevices(await invoke("delete_group", { id: g.id }));
+        setGroup(null);
+      } catch (e) {
+        toast(errorText(e), "error");
+      }
+    });
+  }
+  bar.hidden = actions.length === 0;
+  $("bulk-actions").replaceChildren(...actions);
+}
 
 function renderPeers() {
-  const list = $("peers");
+  // Bỏ chọn máy không còn trong danh sách đang xem.
+  const visible = visibleDevices();
+  for (const id of [...selected]) if (!visible.some((d) => d.id === id)) selected.delete(id);
+
   const ready = hasContent();
-  list.replaceChildren(
-    ...peers.map((p) => {
-      const busy = busyPeers.has(p.id);
-      const btn = el("button", {
+  $("peers").replaceChildren(
+    ...visible.map((d) => {
+      const p = d.peer;
+      const online = !!p?.online;
+      const busy = busyPeers.has(d.id);
+
+      const check = el("input", { type: "checkbox", className: "peer-check", checked: selected.has(d.id), title: "Chọn để gửi nhiều máy" });
+      check.setAttribute("aria-label", `Chọn ${d.name}`);
+      check.addEventListener("change", () => {
+        if (check.checked) selected.add(d.id);
+        else selected.delete(d.id);
+        renderPeers();
+      });
+
+      const send = el("button", {
         className: "btn primary",
         textContent: busy ? "Đang gửi…" : "Gửi",
-        disabled: !ready || busy,
-        title: ready ? `Gửi tới ${p.name}` : "Chọn file hoặc nhập văn bản trước",
+        disabled: !ready || busy || !online,
+        title: !online ? "Máy đang tắt hoặc không cùng mạng" : ready ? `Gửi tới ${d.name}` : "Chọn file hoặc nhập văn bản trước",
       });
-      btn.addEventListener("click", () => sendTo(p));
+      send.addEventListener("click", () => p && sendMany([p]));
+
+      const forget = el("button", { className: "icon-btn", title: "Quên máy này" });
+      forget.innerHTML = ICON_FORGET;
+      forget.setAttribute("aria-label", `Quên ${d.name}`);
+      forget.addEventListener("click", () => forgetDevice(d));
+
       const icon = el("span", { className: "peer-icon" });
-      icon.innerHTML = osIcon(p.os);
+      icon.innerHTML = osIcon(d.os);
+      const meta = el("div", { className: "muted small" });
+      if (!online) meta.append(el("span", { className: "offline-tag", textContent: "Đang tắt" }), " · ");
+      meta.append(`${osLabel(d.os)}${p?.manual ? " · đã lưu" : ""}`);
+      if (p) meta.append(" · mã ", el("span", { className: "code", textContent: shortCode(p.fp) }));
+
       return el(
         "li",
-        { className: "peer" },
+        { className: `peer${selected.has(d.id) ? " selected" : ""}${online ? "" : " offline"}` },
+        check,
         icon,
-        el(
-          "div",
-          { className: "peer-text" },
-          el("div", { className: "peer-name", textContent: p.name }),
-          el(
-            "div",
-            { className: "muted small" },
-            `${osLabel(p.os)}${p.manual ? " · thêm thủ công" : ""} · mã `,
-            el("span", { className: "code", textContent: shortCode(p.fp) }),
-          ),
-        ),
-        btn,
+        el("div", { className: "peer-text" }, el("div", { className: "peer-name", textContent: d.name }), meta),
+        send,
+        forget,
       );
     }),
   );
-  $("peers-empty").hidden = peers.length > 0;
+  const empty = visible.length === 0;
+  $("peers-empty").hidden = !empty || activeGroup !== null;
+  renderChips();
+  renderBulkBar();
 }
 
-async function sendTo(peer: Peer) {
-  busyPeers.add(peer.id);
-  renderPeers();
+async function forgetDevice(d: DeviceRef) {
+  const ok = await confirmDialog(
+    `Quên “${d.name}”?`,
+    "Máy này sẽ không hiện trong danh sách nữa, kể cả khi nó bật lại trong mạng. Bạn có thể hiện lại trong Cài đặt.",
+    "Quên máy",
+  );
+  if (!ok) return;
   try {
-    if (activeTab === "files") {
-      const paths = staged.map((s) => s.path);
-      await invoke<string>("send_files", { peerId: peer.id, paths });
+    applyDevices(await invoke("forget_peer", { id: d.id }));
+    selected.delete(d.id);
+    toast(`Đã quên ${d.name}`);
+  } catch (e) {
+    toast(errorText(e), "error");
+  }
+}
+
+function applyDevices(info: { groups: Group[]; hidden: DeviceRef[] }) {
+  groups = info.groups;
+  hiddenDevices = info.hidden;
+  if (activeGroup && !groups.some((g) => g.id === activeGroup)) activeGroup = null;
+  renderPeers();
+  renderHidden();
+}
+
+/** Gửi nội dung đang chọn tới một hoặc nhiều máy. Mỗi máy nhận tự bấm Chấp nhận. */
+async function sendMany(targets: Peer[]) {
+  if (!targets.length) return;
+  targets.forEach((p) => busyPeers.add(p.id));
+  renderPeers();
+  const isFiles = activeTab === "files";
+  const paths = staged.map((s) => s.path);
+  const text = $<HTMLTextAreaElement>("text-input").value;
+  const results = await Promise.allSettled(
+    targets.map((p) =>
+      isFiles ? invoke<string>("send_files", { peerId: p.id, paths }) : invoke("send_text", { peerId: p.id, text }),
+    ),
+  );
+  targets.forEach((p) => busyPeers.delete(p.id));
+  const failed = results
+    .map((r, i) => (r.status === "rejected" ? `${targets[i].name}: ${errorText(r.reason)}` : null))
+    .filter(Boolean);
+  if (failed.length < targets.length) {
+    if (isFiles) {
       staged = [];
       renderStaged();
     } else {
-      const input = $<HTMLTextAreaElement>("text-input");
-      await invoke("send_text", { peerId: peer.id, text: input.value });
-      input.value = "";
-      toast(`Đã gửi văn bản tới ${peer.name}`);
+      $<HTMLTextAreaElement>("text-input").value = "";
+      const ok = targets.length - failed.length;
+      toast(ok === 1 && targets.length === 1 ? `Đã gửi văn bản tới ${targets[0].name}` : `Đã gửi văn bản tới ${ok} máy`);
     }
+    if (targets.length > 1 && isFiles) toast(`Đang gửi tới ${targets.length - failed.length} máy — mỗi máy cần bấm Chấp nhận`);
+  }
+  for (const f of failed) toast(f as string, "error");
+  selected.clear();
+  renderPeers();
+}
+
+// ---- Hộp thoại nhóm ----
+
+let editingGroup: Group | null = null;
+
+function openGroupDialog(g: Group | null) {
+  editingGroup = g;
+  $("group-title").textContent = g ? "Sửa nhóm" : "Nhóm mới";
+  $<HTMLInputElement>("group-name").value = g?.name ?? "";
+  // Ứng viên: mọi máy đang thấy + thành viên cũ (có thể đang tắt).
+  const candidates = new Map<string, DeviceRef>();
+  for (const p of peers) candidates.set(p.id, { id: p.id, name: p.name, os: p.os });
+  for (const m of g?.members ?? []) if (!candidates.has(m.id)) candidates.set(m.id, m);
+  const chosen = new Set(g ? g.members.map((m) => m.id) : [...selected]);
+  $("group-pick").replaceChildren(
+    ...[...candidates.values()].map((d) => {
+      const box = el("input", { type: "checkbox", checked: chosen.has(d.id), value: d.id });
+      box.dataset.name = d.name;
+      box.dataset.os = d.os;
+      const label = el("label", { className: "check" }, box, `${d.name} `, el("span", { className: "muted small", textContent: osLabel(d.os) }));
+      return el("li", {}, label);
+    }),
+  );
+  $<HTMLDialogElement>("dlg-group").showModal();
+  $<HTMLInputElement>("group-name").focus();
+}
+
+async function saveGroupFromDialog(ev: Event) {
+  ev.preventDefault();
+  const members = [...document.querySelectorAll<HTMLInputElement>("#group-pick input:checked")].map((b) => ({
+    id: b.value,
+    name: b.dataset.name ?? "",
+    os: b.dataset.os ?? "",
+  }));
+  try {
+    const info = await invoke<{ groups: Group[]; hidden: DeviceRef[] }>("save_group", {
+      id: editingGroup?.id ?? null,
+      name: $<HTMLInputElement>("group-name").value,
+      members,
+    });
+    $<HTMLDialogElement>("dlg-group").close();
+    const name = $<HTMLInputElement>("group-name").value.trim();
+    selected.clear();
+    applyDevices(info);
+    const g = editingGroup ? groups.find((x) => x.id === editingGroup!.id) : groups[groups.length - 1];
+    if (g) setGroup(g.id);
+    toast(editingGroup ? `Đã lưu nhóm “${name}”` : `Đã tạo nhóm “${name}”`);
   } catch (e) {
     toast(errorText(e), "error");
-  } finally {
-    busyPeers.delete(peer.id);
-    renderPeers();
   }
+}
+
+function renderHidden() {
+  $("hidden-block").hidden = hiddenDevices.length === 0;
+  $("hidden-list").replaceChildren(
+    ...hiddenDevices.map((d) => {
+      const b = el("button", { className: "btn small", textContent: "Hiện lại", type: "button" });
+      b.addEventListener("click", async () => {
+        try {
+          applyDevices(await invoke("unhide_peer", { id: d.id }));
+        } catch (e) {
+          toast(errorText(e), "error");
+        }
+      });
+      return el("li", {}, el("span", {}, `${d.name} `, el("span", { className: "muted small", textContent: osLabel(d.os) })), b);
+    }),
+  );
 }
 
 // ---- Hoạt động ----
@@ -578,7 +817,11 @@ async function init() {
     }
   });
 
+  $("group-form").addEventListener("submit", saveGroupFromDialog);
+  $("btn-group-cancel").addEventListener("click", () => $<HTMLDialogElement>("dlg-group").close());
+
   // Sự kiện từ Rust
+  await listen<{ groups: Group[]; hidden: DeviceRef[] }>("devices-changed", (e) => applyDevices(e.payload));
   await listen<SelfInfo>("settings-changed", (e) => {
     me = e.payload;
     renderMe();
@@ -622,6 +865,7 @@ async function init() {
 
   renderMe();
   peers = await invoke<Peer[]>("get_peers");
+  applyDevices(await invoke("get_devices"));
   renderPeers();
   renderStaged();
 }

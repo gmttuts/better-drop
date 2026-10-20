@@ -64,6 +64,11 @@
           <h2 id="peers-title">2. Chọn máy nhận</h2>
           <span class="scanning" title="Đang tìm máy trong mạng"><i></i></span>
         </div>
+        <div class="chips" id="group-chips" role="tablist" aria-label="Nhóm máy"></div>
+        <div class="bulk-bar" id="bulk-bar" hidden>
+          <span id="bulk-label"></span>
+          <div class="bulk-actions" id="bulk-actions"></div>
+        </div>
         <ul class="peers" id="peers"></ul>
         <div class="empty" id="peers-empty">
           <p><strong>Đang tìm máy trong mạng…</strong></p>
@@ -114,6 +119,32 @@
       </div>
     </dialog>
 
+    <!-- Tạo / sửa nhóm -->
+    <dialog id="dlg-group" class="dialog">
+      <h3 id="group-title">Nhóm mới</h3>
+      <form id="group-form" class="settings">
+        <label>Tên nhóm
+          <input id="group-name" required maxlength="40" placeholder="vd Phòng kế toán" />
+        </label>
+        <div class="muted small">Chọn các máy trong nhóm:</div>
+        <ul class="group-pick" id="group-pick"></ul>
+        <div class="dialog-actions">
+          <button class="btn" type="button" id="btn-group-cancel">Huỷ</button>
+          <button class="btn primary" type="submit">Lưu nhóm</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Xác nhận -->
+    <dialog id="dlg-confirm" class="dialog">
+      <h3 id="confirm-title"></h3>
+      <p class="muted" id="confirm-body"></p>
+      <div class="dialog-actions">
+        <button class="btn" id="btn-confirm-no">Huỷ</button>
+        <button class="btn danger" id="btn-confirm-yes">Đồng ý</button>
+      </div>
+    </dialog>
+
     <!-- Mã QR để điện thoại quét -->
     <dialog id="dlg-qr" class="dialog">
       <h3>Quét để kết nối</h3>
@@ -149,6 +180,10 @@
           <label class="check" id="row-dock" hidden><input type="checkbox" id="set-dock" /> Ẩn biểu tượng trên Dock</label>
           <p class="muted small" id="bg-hint"></p>
         </fieldset>
+        <div class="hidden-block" id="hidden-block" hidden>
+          <div class="legend">Máy đã quên</div>
+          <ul class="hidden-list" id="hidden-list"></ul>
+        </div>
         <div class="info-block">
           <div class="muted small">Địa chỉ của máy này (để nhập ở máy kia nếu không tự thấy):</div>
           <ul id="set-addrs" class="addrs"></ul>

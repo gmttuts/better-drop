@@ -148,7 +148,54 @@ fn peer_from(svc: &mdns_sd::ResolvedService) -> Option<Peer> {
         },
         addrs: ips.iter().map(|ip| format!("{ip}:{port}")).collect(),
         manual: false,
+        online: true,
     })
+}
+
+/// Định kỳ kiểm tra các máy thêm thủ công còn bật không (để hiện mờ máy đang tắt).
+pub async fn health_check_loop(st: Arc<AppState>) {
+    loop {
+        let manual: Vec<(String, Peer)> = st
+            .peers
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(k, _)| k.starts_with("manual:"))
+            .map(|(k, p)| (k.clone(), p.clone()))
+            .collect();
+        let mut changed = false;
+        for (key, peer) in manual {
+            let online = ping(&peer).await;
+            if let Some(p) = st.peers.lock().unwrap().get_mut(&key) {
+                if p.online != online {
+                    p.online = online;
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            st.emit_peers();
+        }
+        tokio::time::sleep(Duration::from_secs(15)).await;
+    }
+}
+
+async fn ping(peer: &Peer) -> bool {
+    let Ok(client) = build_client(Pin::Fingerprint(peer.info.fp.clone())) else {
+        return false;
+    };
+    for addr in &peer.addrs {
+        let ok = client
+            .get(api_url(addr, "info"))
+            .timeout(Duration::from_secs(3))
+            .send()
+            .await
+            .is_ok_and(|r| r.status().is_success());
+        if ok {
+            return true;
+        }
+    }
+    false
 }
 
 /// Thêm máy bằng địa chỉ IP (khi mạng chặn mDNS). Tin chứng chỉ ở lần đầu.
@@ -181,12 +228,9 @@ pub async fn add_manual(st: &AppState, addr: &str) -> Result<Peer, String> {
         info: DeviceInfo { fp: seen_fp, ..info },
         addrs: vec![addr],
         manual: true,
+        online: true,
     };
-    st.peers
-        .lock()
-        .unwrap()
-        .insert(format!("manual:{}", peer.info.id), peer.clone());
-    st.emit_peers();
+    st.remember_peer(peer.clone());
     Ok(peer)
 }
 
@@ -277,11 +321,8 @@ pub async fn add_from_link(st: &AppState, link: &str) -> Result<Peer, String> {
         info: DeviceInfo { fp, ..info },
         addrs: reachable,
         manual: true,
+        online: true,
     };
-    st.peers
-        .lock()
-        .unwrap()
-        .insert(format!("manual:{}", peer.info.id), peer.clone());
-    st.emit_peers();
+    st.remember_peer(peer.clone());
     Ok(peer)
 }

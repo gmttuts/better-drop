@@ -84,24 +84,20 @@ fn remember_sender(st: &AppState, sender: &DeviceInfo, remote: SocketAddr) {
         return;
     }
     let addr = format!("{}:{}", remote.ip().to_canonical(), sender.port);
-    {
-        let mut peers = st.peers.lock().unwrap();
-        let known = peers
-            .values()
-            .any(|p| p.info.id == sender.id && (!p.manual || p.addrs.contains(&addr)));
-        if known {
-            return;
-        }
-        peers.insert(
-            format!("manual:{}", sender.id),
-            Peer {
-                info: sender.clone(),
-                addrs: vec![addr],
-                manual: true,
-            },
-        );
+    let known = st
+        .peers
+        .lock()
+        .unwrap()
+        .values()
+        .any(|p| p.info.id == sender.id && (!p.manual || (p.online && p.addrs.contains(&addr))));
+    if !known {
+        st.remember_peer(Peer {
+            info: sender.clone(),
+            addrs: vec![addr],
+            manual: true,
+            online: true,
+        });
     }
-    st.emit_peers();
 }
 
 async fn prepare(

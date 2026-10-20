@@ -175,6 +175,7 @@ mod imp {
                         port: p.port,
                     },
                     manual: false,
+                    online: true,
                 })
                 .collect()
         }

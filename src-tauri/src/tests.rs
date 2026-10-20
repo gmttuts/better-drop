@@ -42,6 +42,7 @@ fn as_peer(n: &Node) -> Peer {
         info: n.st.device_info(),
         addrs: vec![format!("127.0.0.1:{}", n.st.port)],
         manual: false,
+        online: true,
     }
 }
 
@@ -283,4 +284,37 @@ fn mobile_download_dir_is_refreshed_on_start() {
     );
     assert_eq!(fresh.download_dir, "/new/container/Documents");
     assert_eq!(fresh.device_id, old.device_id);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn remembered_peers_survive_restart_and_forget_hides() {
+    let phone = node("Phone").await;
+    let mac = node("Mac").await;
+    let link = crate::discovery::pair_link(&mac.st.device_info(), &[format!("127.0.0.1:{}", mac.st.port)]);
+    crate::discovery::add_from_link(&phone.st, &link).await.unwrap();
+
+    // "Khởi động lại": tạo AppState mới từ cùng thư mục dữ liệu.
+    let restart = |st: &AppState| {
+        AppState::new(
+            Arc::new(|_, _| {}),
+            st.data_dir.clone(),
+            identity::load_or_create_identity(&st.data_dir).unwrap(),
+            1,
+            st.settings.read().unwrap().clone(),
+        )
+    };
+    let again = restart(&phone.st);
+    let peers = again.peer_list();
+    assert_eq!(peers.len(), 1);
+    assert_eq!(peers[0].info.name, "Mac");
+    assert!(!peers[0].online, "máy đã lưu coi là tắt cho tới khi kiểm tra lại");
+
+    // Quên: biến mất khỏi danh sách, kể cả sau khi khởi động lại.
+    {
+        let mut book = again.devices.lock().unwrap();
+        book.forget(crate::devices::DeviceRef { id: peers[0].info.id.clone(), name: "Mac".into(), os: "mac".into() });
+        book.save(&again.data_dir).unwrap();
+    }
+    assert!(again.peer_list().is_empty());
+    assert!(restart(&again).peer_list().is_empty());
 }

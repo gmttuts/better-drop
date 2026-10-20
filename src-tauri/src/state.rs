@@ -1,5 +1,6 @@
 //! Trạng thái dùng chung của app và bộ theo dõi tiến trình chuyển file.
 
+use crate::devices::DeviceBook;
 use crate::identity::{self, Identity};
 use crate::models::*;
 use std::collections::{HashMap, HashSet};
@@ -50,10 +51,19 @@ pub struct AppState {
     pub rename_lock: Mutex<()>,
     pub mdns: Mutex<Option<mdns_sd::ServiceDaemon>>,
     pub hooks: Hooks,
+    /// Máy đã lưu, đã ẩn và nhóm máy (lưu trong devices.json).
+    pub devices: Mutex<DeviceBook>,
 }
 
 impl AppState {
     pub fn new(emit: EmitFn, data_dir: PathBuf, identity: Identity, port: u16, settings: Settings) -> Self {
+        let devices = DeviceBook::load(&data_dir);
+        // Máy đã lưu được nạp lại, coi là đang tắt cho tới khi kiểm tra kết nối được.
+        let peers = devices
+            .known
+            .iter()
+            .map(|p| (format!("manual:{}", p.info.id), Peer { online: false, ..p.clone() }))
+            .collect();
         AppState {
             emit,
             data_dir,
@@ -63,10 +73,11 @@ impl AppState {
             pending: Mutex::default(),
             incoming: Mutex::default(),
             outgoing: Mutex::default(),
-            peers: Mutex::default(),
+            peers: Mutex::new(peers),
             rename_lock: Mutex::default(),
             mdns: Mutex::default(),
             hooks: Hooks::default(),
+            devices: Mutex::new(devices),
         }
     }
 
@@ -87,13 +98,14 @@ impl AppState {
         }
     }
 
-    /// Danh sách máy, gộp trùng theo id (ưu tiên bản tìm qua mDNS).
+    /// Danh sách máy, gộp trùng theo id (ưu tiên bản tìm qua mDNS), bỏ máy đã ẩn.
     pub fn peer_list(&self) -> Vec<Peer> {
+        let hidden: Vec<String> = self.devices.lock().unwrap().hidden.iter().map(|d| d.id.clone()).collect();
         let peers = self.peers.lock().unwrap();
         let mut by_id: HashMap<String, Peer> = HashMap::new();
-        for p in peers.values() {
+        for p in peers.values().filter(|p| !hidden.contains(&p.info.id)) {
             match by_id.get(&p.info.id) {
-                Some(existing) if !existing.manual => {}
+                Some(existing) if !existing.manual || (existing.online && !p.online) => {}
                 _ => {
                     by_id.insert(p.info.id.clone(), p.clone());
                 }
@@ -115,6 +127,25 @@ impl AppState {
             (Some(open), true) => open(src),
             _ => std::fs::File::open(src),
         }
+    }
+
+    /// Thêm/cập nhật một máy thủ công (IP, QR, hoặc máy vừa gửi tới) và lưu lại.
+    pub fn remember_peer(&self, peer: Peer) {
+        {
+            let mut book = self.devices.lock().unwrap();
+            book.remember(&peer);
+            let _ = book.save(&self.data_dir);
+        }
+        self.peers
+            .lock()
+            .unwrap()
+            .insert(format!("manual:{}", peer.info.id), Peer { manual: true, online: true, ..peer });
+        self.emit_peers();
+    }
+
+    pub fn emit_devices(&self) {
+        let book = self.devices.lock().unwrap().clone();
+        self.emit("devices-changed", serde_json::json!({ "groups": book.groups, "hidden": book.hidden }));
     }
 
     pub fn emit_peers(&self) {

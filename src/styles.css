@@ -210,7 +210,7 @@ textarea:focus, input:focus { outline: 2px solid var(--accent-soft); border-colo
 }
 @keyframes ping { to { transform: scale(2.6); opacity: 0; } }
 
-.peers { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.peers { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .peer {
   display: flex;
   align-items: center;
@@ -230,6 +230,12 @@ textarea:focus, input:focus { outline: 2px solid var(--accent-soft); border-colo
   flex: none;
 }
 .peer-text { flex: 1; min-width: 0; }
+.peer { min-width: 0; }
+@media (max-width: 420px) {
+  .peer { gap: 8px; padding: 8px 10px; }
+  .peer-icon { display: none; }
+  .peer .btn { padding: 6px 10px; }
+}
 .peer-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .empty { text-align: center; padding: 16px 8px; }
 .empty p { margin: 4px 0; }
@@ -271,6 +277,48 @@ textarea:focus, input:focus { outline: 2px solid var(--accent-soft); border-colo
 .qr-link { word-break: break-all; background: var(--bg); padding: 8px; border-radius: 8px; -webkit-user-select: text; user-select: text; }
 .staged-size { color: var(--muted); font-size: 12px; margin-left: auto; padding-left: 8px; white-space: nowrap; }
 .layout { padding-bottom: max(24px, env(safe-area-inset-bottom)); }
+
+/* ---- Nhóm & chọn nhiều ---- */
+.chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 4px; scrollbar-width: none; }
+.chip {
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  cursor: pointer;
+}
+.chip.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.chip.add { color: var(--accent); border-style: dashed; }
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  font-size: 13px;
+}
+.bulk-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.peer-check { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--accent); cursor: pointer; }
+.peer.selected { border-color: var(--accent); background: var(--accent-soft); }
+.peer.offline .peer-icon, .peer.offline .peer-name { opacity: 0.5; }
+.peer .offline-tag { color: var(--danger); }
+.btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; font-weight: 600; }
+.group-pick { list-style: none; margin: 6px 0 0; padding: 0; max-height: 240px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.group-pick li { border-bottom: 1px solid var(--border); }
+.group-pick li:last-child { border-bottom: none; }
+.group-pick label.check { padding: 8px 10px; margin: 0 !important; }
+.hidden-block { background: var(--bg); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+.hidden-block .legend { font-weight: 500; margin-bottom: 6px; }
+.hidden-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.hidden-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 
 /* ---- Hộp thoại ---- */
 .dialog {
