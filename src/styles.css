@@ -306,6 +306,17 @@ textarea:focus, input:focus { outline: 2px solid var(--accent-soft); border-colo
   font-size: 13px;
 }
 .bulk-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.select-all {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 13px 8px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
 .peer-check { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--accent); cursor: pointer; }
 .peer.selected { border-color: var(--accent); background: var(--accent-soft); }
 .peer.offline .peer-icon, .peer.offline .peer-name { opacity: 0.5; }

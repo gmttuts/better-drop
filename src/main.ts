@@ -328,6 +328,30 @@ function renderBulkBar() {
   $("bulk-actions").replaceChildren(...actions);
 }
 
+/** Ô "Chọn tất cả": chọn mọi máy đang bật trong danh sách đang xem (cả nhóm hoặc tất cả). */
+function renderSelectAll(visible: (DeviceRef & { peer?: Peer })[]) {
+  const ids = visible.filter((d) => d.peer?.online).map((d) => d.id);
+  const chosen = ids.filter((id) => selected.has(id)).length;
+  const box = $<HTMLInputElement>("select-all");
+  box.checked = ids.length > 0 && chosen === ids.length;
+  box.indeterminate = chosen > 0 && chosen < ids.length;
+  const where = currentGroup() ? `trong nhóm “${currentGroup()!.name}”` : "";
+  $("select-all-label").textContent = box.checked
+    ? `Bỏ chọn tất cả ${where}`.trim()
+    : `Chọn tất cả ${ids.length} máy đang bật ${where}`.trim();
+  $("select-all-row").hidden = ids.length < 2;
+}
+
+function toggleSelectAll() {
+  const ids = visibleDevices()
+    .filter((d) => d.peer?.online)
+    .map((d) => d.id);
+  const all = ids.every((id) => selected.has(id));
+  if (all) ids.forEach((id) => selected.delete(id));
+  else ids.forEach((id) => selected.add(id));
+  renderPeers();
+}
+
 function renderPeers() {
   // Bỏ chọn máy không còn trong danh sách đang xem.
   const visible = visibleDevices();
@@ -381,6 +405,7 @@ function renderPeers() {
   );
   const empty = visible.length === 0;
   $("peers-empty").hidden = !empty || activeGroup !== null;
+  renderSelectAll(visible);
   renderChips();
   renderBulkBar();
 }
@@ -817,6 +842,7 @@ async function init() {
     }
   });
 
+  $("select-all").addEventListener("change", toggleSelectAll);
   $("group-form").addEventListener("submit", saveGroupFromDialog);
   $("btn-group-cancel").addEventListener("click", () => $<HTMLDialogElement>("dlg-group").close());
 
