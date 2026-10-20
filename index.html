@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BetterDrop</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <svg viewBox="0 0 24 24" class="brand-icon" aria-hidden="true">
+          <path d="M12 3c-2.4 3.1-5 6.3-5 9.4a5 5 0 0 0 10 0C17 9.3 14.4 6.1 12 3z" />
+        </svg>
+        <span>BetterDrop</span>
+      </div>
+      <div class="me" id="me" title="Thông tin máy này">
+        <span class="me-name" id="me-name">…</span>
+        <span class="code" id="me-code" title="Mã nhận dạng — so với mã hiện ở máy kia"></span>
+      </div>
+      <button class="icon-btn" id="btn-settings" title="Cài đặt" aria-label="Cài đặt">
+        <svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zm7.4-2.5a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-1.7-1L15 3.5h-4l-.4 2.5a7.4 7.4 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7.6 7.6 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.4 7.4 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7.4 7.4 0 0 0 1.7-1l2.4 1 2-3.4z"/></svg>
+      </button>
+    </header>
+
+    <main class="layout">
+      <section class="card" aria-labelledby="send-title">
+        <div class="card-head">
+          <h2 id="send-title">1. Chọn nội dung</h2>
+          <div class="tabs" role="tablist">
+            <button role="tab" class="tab active" data-tab="files">Tệp</button>
+            <button role="tab" class="tab" data-tab="text">Văn bản</button>
+          </div>
+        </div>
+
+        <div class="tab-panel" id="panel-files">
+          <div class="dropzone" id="dropzone">
+            <svg viewBox="0 0 24 24" class="dz-icon" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+            <p class="dz-title">Kéo thả file hoặc thư mục vào đây</p>
+            <div class="dz-actions">
+              <button class="btn" id="btn-pick-files">Chọn file</button>
+              <button class="btn" id="btn-pick-folder">Chọn thư mục</button>
+            </div>
+          </div>
+          <ul class="staged" id="staged"></ul>
+          <div class="staged-foot" id="staged-foot" hidden>
+            <span id="staged-count"></span>
+            <button class="link" id="btn-clear">Xoá hết</button>
+          </div>
+        </div>
+
+        <div class="tab-panel" id="panel-text" hidden>
+          <textarea id="text-input" rows="7" placeholder="Nhập hoặc dán văn bản, đường link…"></textarea>
+          <div class="row-end">
+            <button class="btn" id="btn-paste">Dán từ clipboard</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="peers-title">
+        <div class="card-head">
+          <h2 id="peers-title">2. Chọn máy nhận</h2>
+          <span class="scanning" title="Đang tìm máy trong mạng"><i></i></span>
+        </div>
+        <ul class="peers" id="peers"></ul>
+        <div class="empty" id="peers-empty">
+          <p><strong>Đang tìm máy trong mạng…</strong></p>
+          <p class="muted">Mở BetterDrop trên máy kia và kết nối cùng một mạng Wi‑Fi/LAN.</p>
+        </div>
+        <details class="manual" id="manual">
+          <summary>Không thấy máy? Thêm bằng địa chỉ IP</summary>
+          <form id="manual-form" class="manual-form">
+            <input id="manual-addr" placeholder="vd 192.168.1.20 hoặc 192.168.1.20:53318" autocomplete="off" spellcheck="false" />
+            <button class="btn primary" type="submit">Thêm</button>
+          </form>
+          <p class="muted small">Địa chỉ của máy kia nằm ở <em>Cài đặt</em> trong BetterDrop trên máy đó.</p>
+        </details>
+      </section>
+
+      <section class="card wide" aria-labelledby="activity-title">
+        <div class="card-head">
+          <h2 id="activity-title">Hoạt động</h2>
+        </div>
+        <ul class="transfers" id="transfers"></ul>
+        <p class="empty muted" id="transfers-empty">Chưa có lượt chuyển nào.</p>
+      </section>
+    </main>
+
+    <!-- Yêu cầu nhận file -->
+    <dialog id="dlg-request" class="dialog">
+      <h3><span id="req-sender"></span> muốn gửi cho bạn</h3>
+      <p class="req-summary" id="req-summary"></p>
+      <ul class="req-preview" id="req-preview"></ul>
+      <div class="countdown"><i id="req-bar"></i></div>
+      <div class="dialog-actions">
+        <button class="btn" id="btn-reject">Từ chối</button>
+        <button class="btn primary" id="btn-accept">Chấp nhận</button>
+      </div>
+    </dialog>
+
+    <!-- Nhận văn bản -->
+    <dialog id="dlg-text" class="dialog">
+      <h3><span id="txt-sender"></span> đã gửi văn bản</h3>
+      <pre class="received-text" id="txt-body"></pre>
+      <div class="dialog-actions">
+        <button class="btn" id="btn-text-close">Đóng</button>
+        <button class="btn primary" id="btn-text-copy">Sao chép</button>
+      </div>
+    </dialog>
+
+    <!-- Cài đặt -->
+    <dialog id="dlg-settings" class="dialog">
+      <h3>Cài đặt</h3>
+      <form id="settings-form" method="dialog" class="settings">
+        <label>Tên hiển thị
+          <input id="set-name" required maxlength="60" />
+        </label>
+        <label>Thư mục lưu file nhận được
+          <div class="input-row">
+            <input id="set-dir" readonly />
+            <button class="btn" type="button" id="btn-choose-dir">Chọn…</button>
+          </div>
+        </label>
+        <div class="info-block">
+          <div class="muted small">Địa chỉ của máy này (để nhập ở máy kia nếu không tự thấy):</div>
+          <ul id="set-addrs" class="addrs"></ul>
+          <div class="muted small">Mã nhận dạng: <span class="code" id="set-code"></span></div>
+        </div>
+        <div class="dialog-actions">
+          <button class="btn" type="button" id="btn-settings-cancel">Huỷ</button>
+          <button class="btn primary" type="submit" value="save">Lưu</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+  </body>
+</html>
