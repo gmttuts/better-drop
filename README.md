@@ -1,6 +1,6 @@
 # BetterDrop
 
-Chuyển file, thư mục và văn bản giữa Mac ⇄ Windows qua mạng Wi‑Fi/LAN, giống AirDrop.
+Chuyển file, thư mục và văn bản giữa Mac ⇄ Windows ⇄ Linux qua mạng Wi‑Fi/LAN, giống AirDrop.
 
 - Tự tìm máy trong cùng mạng (mDNS/Bonjour), hoặc thêm thủ công bằng IP.
 - Máy nhận phải bấm **Chấp nhận** mới bắt đầu nhận.
