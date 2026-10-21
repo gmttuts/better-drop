@@ -33,6 +33,15 @@ impl<R: Runtime> BetterdropMobile<R> {
       .map_err(Into::into)
   }
 
+  /// Android 17+: xin quyền truy cập mạng cục bộ. Chờ người dùng trả lời.
+  pub fn request_local_network(&self) -> crate::Result<bool> {
+    self
+      .0
+      .run_mobile_plugin::<GrantedResponse>("requestLocalNetwork", ())
+      .map(|r| r.granted)
+      .map_err(Into::into)
+  }
+
   /// Tên và kích thước của file do bộ chọn file trả về (content:// hoặc file://).
   pub fn file_info(&self, uri: &str) -> crate::Result<FileInfo> {
     self

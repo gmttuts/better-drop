@@ -89,6 +89,21 @@ fn set_hide_dock(app: tauri::AppHandle, hide: bool) -> Result<SelfInfo, String> 
     change_settings(&app, |s| s.hide_dock = hide)
 }
 
+/// Xin quyền mạng cục bộ (Android 17+). Được cấp thì dựng lại phần tìm máy ngay.
+#[tauri::command]
+async fn ensure_local_network(app: tauri::AppHandle) -> bool {
+    let a = app.clone();
+    let granted = tauri::async_runtime::spawn_blocking(move || platform::request_local_network(&a))
+        .await
+        .unwrap_or(false);
+    if granted && cfg!(mobile) {
+        app.state::<Arc<AppState>>()
+            .rediscover
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+    granted
+}
+
 #[tauri::command]
 fn get_peers(st: AppStateRef) -> Vec<Peer> {
     st.peer_list()
@@ -299,6 +314,7 @@ pub fn run() {
             set_receive_enabled,
             set_autostart,
             set_hide_dock,
+            ensure_local_network,
             get_peers,
             update_settings,
             add_manual_peer,

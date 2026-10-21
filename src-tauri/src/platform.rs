@@ -56,6 +56,10 @@ mod imp {
         app.autolaunch().is_enabled().unwrap_or(false)
     }
 
+    pub fn request_local_network(_app: &AppHandle) -> bool {
+        true
+    }
+
     pub fn set_autostart(app: &AppHandle, enabled: bool) -> Result<(), String> {
         let al = app.autolaunch();
         if enabled { al.enable() } else { al.disable() }.map_err(|e| e.to_string())
@@ -197,6 +201,11 @@ mod imp {
 
     pub fn autostart_enabled(_app: &AppHandle) -> bool {
         false
+    }
+
+    /// Android 17+: xin quyền mạng cục bộ (chặn tới khi người dùng trả lời).
+    pub fn request_local_network(app: &AppHandle) -> bool {
+        app.betterdrop_mobile().request_local_network().unwrap_or(false)
     }
 
     pub fn set_autostart(_app: &AppHandle, _enabled: bool) -> Result<(), String> {

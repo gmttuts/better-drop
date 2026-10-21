@@ -9,8 +9,11 @@ import android.os.Build
 import android.os.Environment
 import android.provider.Settings
 import android.provider.OpenableColumns
+import app.tauri.PermissionState
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
+import app.tauri.annotation.Permission
+import app.tauri.annotation.PermissionCallback
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
@@ -26,9 +29,37 @@ class PathArgs {
     lateinit var path: String
 }
 
-@TauriPlugin
+private const val LOCAL_NETWORK = "localNetwork"
+
+/**
+ * Android 17 (API 37) chặn app kết nối tới máy trong mạng LAN và nhận gói mDNS
+ * ("Local network protection") cho tới khi người dùng cấp quyền ACCESS_LOCAL_NETWORK
+ * (nhóm "Thiết bị lân cận"). Thiếu quyền này thì kết nối chỉ treo tới hết giờ.
+ */
+@TauriPlugin(
+    permissions = [Permission(strings = ["android.permission.ACCESS_LOCAL_NETWORK"], alias = LOCAL_NETWORK)]
+)
 class BetterDropPlugin(private val activity: Activity) : Plugin(activity) {
     private var multicastLock: WifiManager.MulticastLock? = null
+
+    /** Xin quyền truy cập mạng cục bộ (chỉ cần từ Android 17). Trả về {granted}. */
+    @Command
+    fun requestLocalNetwork(invoke: Invoke) {
+        if (Build.VERSION.SDK_INT < 37 || getPermissionState(LOCAL_NETWORK) == PermissionState.GRANTED) {
+            val ret = JSObject()
+            ret.put("granted", true)
+            invoke.resolve(ret)
+            return
+        }
+        requestPermissionForAlias(LOCAL_NETWORK, invoke, "localNetworkCallback")
+    }
+
+    @PermissionCallback
+    fun localNetworkCallback(invoke: Invoke) {
+        val ret = JSObject()
+        ret.put("granted", getPermissionState(LOCAL_NETWORK) == PermissionState.GRANTED)
+        invoke.resolve(ret)
+    }
 
     /**
      * Android bỏ qua gói tin multicast (mDNS) nếu app không giữ khoá này.

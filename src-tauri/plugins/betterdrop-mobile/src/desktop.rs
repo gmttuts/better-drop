@@ -18,6 +18,10 @@ impl<R: Runtime> BetterdropMobile<R> {
     Ok(())
   }
 
+  pub fn request_local_network(&self) -> crate::Result<bool> {
+    Ok(true)
+  }
+
   pub fn file_info(&self, uri: &str) -> crate::Result<FileInfo> {
     let meta = std::fs::metadata(uri)?;
     Ok(FileInfo {

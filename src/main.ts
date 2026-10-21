@@ -938,6 +938,16 @@ async function init() {
   await listen<string>("fatal-error", (e) => toast(e.payload, "error"));
 
   renderMe();
+  if (me.mobile) {
+    // Android 17+ chặn kết nối trong mạng LAN tới khi người dùng cho phép "Thiết bị lân cận".
+    invoke<boolean>("ensure_local_network").then((ok) => {
+      if (!ok)
+        toast(
+          "BetterDrop cần quyền “Thiết bị lân cận” để tìm và kết nối máy trong mạng Wi‑Fi. Vào Cài đặt › Ứng dụng › BetterDrop › Quyền để bật.",
+          "error",
+        );
+    });
+  }
   peers = await invoke<Peer[]>("get_peers");
   applyDevices(await invoke("get_devices"));
   renderPeers();

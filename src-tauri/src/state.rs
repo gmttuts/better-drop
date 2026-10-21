@@ -55,6 +55,8 @@ pub struct AppState {
     pub hooks: Hooks,
     /// Máy đã lưu, đã ẩn và nhóm máy (lưu trong devices.json).
     pub devices: Mutex<DeviceBook>,
+    /// Yêu cầu dựng lại phần tìm máy (vd vừa được cấp quyền mạng cục bộ trên Android).
+    pub rediscover: AtomicBool,
 }
 
 impl AppState {
@@ -80,6 +82,7 @@ impl AppState {
             mdns: Mutex::default(),
             hooks: Hooks::default(),
             devices: Mutex::new(devices),
+            rediscover: AtomicBool::new(false),
         }
     }
 

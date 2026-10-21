@@ -48,6 +48,11 @@ class BetterDropPlugin: Plugin {
     invoke.resolve(["path": UIDevice.current.name])
   }
 
+  /// iOS tự hỏi quyền "Mạng cục bộ" khi app dùng mạng lần đầu.
+  @objc public func requestLocalNetwork(_ invoke: Invoke) throws {
+    invoke.resolve(["granted": true])
+  }
+
   @objc public func scanFile(_ invoke: Invoke) throws {
     invoke.resolve()
   }

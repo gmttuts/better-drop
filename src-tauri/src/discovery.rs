@@ -68,6 +68,9 @@ fn watch_mdns(st: Arc<AppState>, mut daemon: ServiceDaemon, mut rx: mdns_sd::Rec
                     return; // App đang thoát.
                 }
                 let now = local_ipv4();
+                if st.rediscover.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                    retries = retries.max(2);
+                }
                 if now != ips {
                     // Mạng thay đổi (đổi Wi‑Fi, Wi‑Fi kết nối lại, cắm/rút dây):
                     // bỏ máy của mạng cũ, rồi dựng lại mDNS như lúc mới mở app.

@@ -7,6 +7,11 @@ pub struct FileInfo {
   pub size: i64,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct GrantedResponse {
+  pub granted: bool,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub(crate) struct PathResponse {
   pub path: String,
