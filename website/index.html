@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BetterDrop — gửi file giữa mọi thiết bị, như AirDrop</title>
+  <meta name="description" content="BetterDrop chuyển file, thư mục và văn bản qua Wi‑Fi giữa Mac, Windows, Linux, Android và iPhone. Không cần Internet, không cần tài khoản, miễn phí.">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0c0d10" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="BetterDrop">
+  <meta property="og:description" content="Gửi file giữa Mac, Windows, Linux, Android và iPhone qua Wi‑Fi, như AirDrop. Miễn phí.">
+  <meta property="og:image" content="https://gmttuts.github.io/better-drop/assets/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="assets/favicon.png">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="nav">
+    <a class="brand" href="#top"><img src="assets/icon.png" alt="" width="28" height="28">BetterDrop</a>
+    <nav class="links">
+      <a href="#how" data-i18n="nav.how"></a>
+      <a href="#features" data-i18n="nav.features"></a>
+      <a href="#browser" data-i18n="nav.browser"></a>
+      <a href="#faq" data-i18n="nav.faq"></a>
+    </nav>
+    <div class="lang" role="group" aria-label="Ngôn ngữ / Language"><button data-lang="vi">VI</button><button data-lang="en">EN</button></div>
+    <a class="btn btn-small" href="#download" data-i18n="nav.download"></a>
+  </header>
+
+  <main id="top">
+    <section class="hero wrap">
+      <div class="hero-sky">
+        <a class="pill" href="#browser"><span class="pill-new" data-i18n="hero.new"></span><span data-i18n="hero.pill"></span> <span aria-hidden="true">→</span></a>
+        <h1 data-i18n="hero.title"></h1>
+        <p class="lead" data-i18n="hero.sub"></p>
+        <div class="cta-row">
+          <a class="btn" data-primary-download href="https://github.com/gmttuts/better-drop/releases/latest"><span data-os-icon></span><span data-primary-label></span></a>
+          <a class="btn btn-soft" href="#download" data-i18n="hero.other"></a>
+        </div>
+        <p class="fine"><span data-version-label></span> · <span data-i18n="hero.fine"></span></p>
+        <div class="os-row" aria-hidden="true" data-os-row></div>
+        <figure class="window">
+          <div class="chrome"><i></i><i></i><i></i></div>
+          <img src="assets/app.jpg" width="1600" height="1270" alt="Cửa sổ BetterDrop: chọn file bên trái, danh sách máy nhận bên phải, tiến trình gửi bên dưới" data-i18n-alt>
+        </figure>
+      </div>
+    </section>
+
+    <section class="wrap">
+      <dl class="stats">
+        <div><dt>5</dt><dd data-i18n="stats.platforms"></dd></div>
+        <div><dt data-i18n="stats.cloudN"></dt><dd data-i18n="stats.cloud"></dd></div>
+        <div><dt>TLS</dt><dd data-i18n="stats.tls"></dd></div>
+        <div><dt data-i18n="stats.freeN"></dt><dd data-i18n="stats.free"></dd></div>
+      </dl>
+    </section>
+
+    <section id="how" class="block wrap">
+      <h2><span data-i18n="how.kicker"></span>. <span class="soft" data-i18n="how.title"></span></h2>
+      <ol class="how">
+        <li>
+          <div class="how-art" aria-hidden="true">
+            <div class="radar"><span></span><span></span><span></span><b class="dev d1"></b><b class="dev d2"></b><b class="dev d3"></b><img src="assets/icon.png" alt="" width="44" height="44"></div>
+          </div>
+          <h3 data-i18n="how.1.t"></h3><p data-i18n="how.1.d"></p>
+        </li>
+        <li>
+          <div class="how-art" aria-hidden="true">
+            <div class="mini-list">
+              <i class="file"><b>📄</b>Báo cáo quý 3.xlsx</i>
+              <i class="file"><b>📁</b>Hợp đồng 2026</i>
+              <i class="to on"><b>☑</b>Pixel 9</i>
+              <i class="to on"><b>☑</b>PC Thiết kế</i>
+            </div>
+          </div>
+          <h3 data-i18n="how.2.t"></h3><p data-i18n="how.2.d"></p>
+        </li>
+        <li>
+          <div class="how-art" aria-hidden="true">
+            <div class="mini-ask">
+              <strong>MacBook</strong>
+              <span>3 file · 700 MB</span>
+              <div><em>✕</em><em class="ok">✓</em></div>
+            </div>
+          </div>
+          <h3 data-i18n="how.3.t"></h3><p data-i18n="how.3.d"></p>
+        </li>
+      </ol>
+    </section>
+
+    <section id="features" class="block wrap">
+      <h2><span data-i18n="feat.kicker"></span>. <span class="soft" data-i18n="feat.title"></span></h2>
+      <div class="features" data-features></div>
+    </section>
+
+    <section id="browser" class="block wrap">
+      <div class="browser-card">
+        <div class="browser-text">
+          <h2><span data-i18n="br.kicker"></span>. <span class="soft" data-i18n="br.title"></span></h2>
+          <p class="lead-sm" data-i18n="br.sub"></p>
+          <ul class="ticks">
+            <li data-i18n="br.1"></li>
+            <li data-i18n="br.2"></li>
+            <li data-i18n="br.3"></li>
+          </ul>
+        </div>
+        <div class="phone" aria-hidden="true">
+          <div class="phone-screen">
+            <div class="url">🔒︎ 192.168.1.12:53319</div>
+            <div class="web-head"><img src="assets/icon.png" alt="" width="28" height="28"><div><b data-i18n="br.mock.title"></b><small data-i18n="br.mock.files"></small></div></div>
+            <ul class="web-files">
+              <li><span>Hồ sơ khách hàng.pdf</span><small>2.4 MB</small><i>↓</i></li>
+              <li><span>Ảnh sự kiện.zip</span><small>700 MB</small><i>↓</i></li>
+              <li><span>Ghi chú họp.txt</span><small>3 KB</small><i>↓</i></li>
+            </ul>
+            <div class="web-btn" data-i18n="br.mock.all"></div>
+            <div class="web-btn ghost" data-i18n="br.mock.send"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="download" class="block wrap">
+      <h2><span data-i18n="dl.kicker"></span>. <span class="soft" data-i18n="dl.title"></span></h2>
+      <p class="release-line fine" data-release-line></p>
+      <div class="platforms" data-platforms></div>
+
+      <div class="notes">
+        <div class="warn">
+          <h3>⚠️ <span data-i18n="warn.title"></span></h3>
+          <p data-i18n="warn.body"></p>
+        </div>
+        <div class="netbox">
+          <h3 data-i18n="net.title"></h3>
+          <ul>
+            <li data-i18n="net.1"></li>
+            <li data-i18n="net.2"></li>
+            <li data-i18n="net.3"></li>
+            <li data-i18n="net.4"></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="faq" class="block wrap narrow">
+      <h2 data-i18n="faq.title"></h2>
+      <div class="faq" data-faq></div>
+    </section>
+
+    <section class="block wrap">
+      <div class="cta-card">
+        <img src="assets/icon.png" alt="" width="88" height="88">
+        <h2 data-i18n="cta.title"></h2>
+        <p data-i18n="cta.sub"></p>
+        <div class="cta-row">
+          <a class="btn" data-primary-download href="https://github.com/gmttuts/better-drop/releases/latest"><span data-os-icon></span><span data-primary-label></span></a>
+          <a class="btn btn-soft" href="#download" data-i18n="hero.other"></a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer wrap">
+    <div class="foot-brand"><img src="assets/icon.png" alt="" width="36" height="36"><span data-i18n="footer.made"></span></div>
+    <nav>
+      <a href="https://github.com/gmttuts/better-drop"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
+      <a href="https://github.com/gmttuts/better-drop/releases" data-i18n="footer.releases"></a>
+      <a href="https://github.com/gmttuts/better-drop/issues" data-i18n="footer.issues"></a>
+    </nav>
+    <span class="fine">© <span data-year></span> BetterDrop</span>
+  </footer>
+
+  <script src="content.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
