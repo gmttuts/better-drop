@@ -95,7 +95,14 @@ function formatBytes(n: number): string {
 }
 
 const shortCode = (fp: string) => fp.slice(0, 4).toUpperCase();
-const OS_LABELS: Record<string, string> = { mac: "macOS", windows: "Windows", linux: "Linux", android: "Android", ios: "iPhone/iPad" };
+const OS_LABELS: Record<string, string> = {
+  mac: "macOS",
+  windows: "Windows",
+  linux: "Linux",
+  android: "Android",
+  ios: "iPhone/iPad",
+  web: "trình duyệt",
+};
 const osLabel = (os: string) => OS_LABELS[os] ?? (os || "Không rõ");
 const baseName = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
 
@@ -643,7 +650,7 @@ function showNextRequest() {
   }
   const r = currentRequest;
   $("req-sender").textContent = r.sender_name;
-  $("req-summary").textContent = `${r.file_count} file · ${formatBytes(r.total_bytes)} · từ máy ${osLabel(r.sender_os)}`;
+  $("req-summary").textContent = `${r.file_count} file · ${formatBytes(r.total_bytes)} · ${r.sender_os === "web" ? "gửi qua trình duyệt" : `từ máy ${osLabel(r.sender_os)}`}`;
   const more = r.file_count - r.preview.length;
   $("req-preview").replaceChildren(
     ...r.preview.map((p) => el("li", { textContent: p })),
@@ -756,6 +763,55 @@ async function scanPairQr() {
   }
 }
 
+// ---- Chia sẻ qua trình duyệt ----
+
+interface WebInfo {
+  pin: string;
+  urls: string[];
+  qr_svg: string;
+  files: { id: string; rel_path: string; size: number }[];
+  text: string | null;
+}
+
+let webInfo: WebInfo | null = null;
+
+function renderWeb() {
+  const on = !!webInfo;
+  $("web-off").hidden = on;
+  $("web-on").hidden = !on;
+  $("web-dot").hidden = !on;
+  if (!webInfo) return;
+  $("web-qr").innerHTML = webInfo.qr_svg;
+  $("web-urls").replaceChildren(...webInfo.urls.map((u) => el("li", { className: "code", textContent: u })));
+  $("web-pin").textContent = webInfo.pin;
+  $("web-files").replaceChildren(
+    ...webInfo.files.map((f) =>
+      el("li", {}, el("span", { className: "staged-name", textContent: f.rel_path }), el("span", { className: "staged-size", textContent: formatBytes(f.size) })),
+    ),
+  );
+  $("web-files-empty").hidden = webInfo.files.length > 0;
+  $("btn-web-unshare").hidden = webInfo.files.length === 0;
+  const shareBtn = $<HTMLButtonElement>("btn-web-share-files");
+  shareBtn.disabled = staged.length === 0;
+  shareBtn.title = staged.length ? "" : "Chọn file ở mục 1 trước";
+  if (document.activeElement !== $("web-text")) $<HTMLTextAreaElement>("web-text").value = webInfo.text ?? "";
+}
+
+async function webCall(cmd: string, args: Record<string, unknown> = {}) {
+  try {
+    webInfo = await invoke<WebInfo | null>(cmd, args);
+    renderWeb();
+  } catch (e) {
+    toast(errorText(e), "error");
+  }
+}
+
+async function openWebDialog() {
+  webInfo = await invoke<WebInfo | null>("web_share_status");
+  renderWeb();
+  $<HTMLDialogElement>("dlg-web").showModal();
+}
+
 // ---- Khởi động ----
 
 async function init() {
@@ -770,6 +826,26 @@ async function init() {
     $("btn-topbar-qr").hidden = false;
   }
   $("btn-scan").addEventListener("click", scanPairQr);
+  $("btn-web").addEventListener("click", openWebDialog);
+  $("btn-web-start").addEventListener("click", () => webCall("web_share_start"));
+  $("btn-web-stop").addEventListener("click", async () => {
+    await invoke("web_share_stop");
+    webInfo = null;
+    renderWeb();
+    toast("Đã tắt chia sẻ qua trình duyệt");
+  });
+  $("btn-web-pin").addEventListener("click", () => webCall("web_share_new_pin"));
+  $("btn-web-share-files").addEventListener("click", async () => {
+    await webCall("web_share_set_files", { paths: staged.map((s) => s.path) });
+    toast("Trình duyệt đã có thể tải các file này");
+  });
+  $("btn-web-unshare").addEventListener("click", () => webCall("web_share_set_files", { paths: [] }));
+  $("btn-web-text").addEventListener("click", async () => {
+    await webCall("web_share_set_text", { text: $<HTMLTextAreaElement>("web-text").value });
+    toast(webInfo?.text ? "Đã chia sẻ văn bản" : "Đã bỏ chia sẻ văn bản");
+  });
+  for (const id of ["btn-web-close1", "btn-web-close2"])
+    $(id).addEventListener("click", () => $<HTMLDialogElement>("dlg-web").close());
   $("btn-scan-cancel").addEventListener("click", stopScanning);
   $("btn-show-qr").addEventListener("click", showPairQr);
   $("btn-topbar-qr").addEventListener("click", showPairQr);

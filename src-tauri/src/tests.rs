@@ -340,3 +340,138 @@ async fn merges_addresses_so_unreachable_mdns_address_is_not_a_dead_end() {
     assert_eq!(list[0].addrs.len(), 2);
     transfer::send_text(a.st.clone(), list[0].clone(), "qua địa chỉ thêm tay".into()).await.unwrap();
 }
+
+/// Trình duyệt (không cài app) đăng nhập bằng PIN, gửi văn bản + file lên, tải file về.
+#[tokio::test(flavor = "multi_thread")]
+async fn browser_share_end_to_end() {
+    let mut desk = node("Mac").await;
+    crate::web::start(desk.st.clone()).await.unwrap();
+    let (pin, port) = {
+        let w = desk.st.web.lock().unwrap();
+        let w = w.as_ref().unwrap();
+        (w.pin.clone(), w.port)
+    };
+    let base = format!("http://127.0.0.1:{port}");
+    let http = reqwest::Client::new();
+
+    // Trang web phục vụ được, API khoá khi chưa nhập PIN.
+    let page = http.get(&base).send().await.unwrap().text().await.unwrap();
+    assert!(page.contains("BetterDrop"));
+    assert_eq!(http.get(format!("{base}/api/state")).send().await.unwrap().status(), 401);
+
+    // Sai PIN 5 lần thì bị khoá tạm, kể cả khi sau đó nhập đúng.
+    let login = |p: String| {
+        let http = http.clone();
+        let base = base.clone();
+        async move {
+            http.post(format!("{base}/api/login"))
+                .json(&serde_json::json!({ "pin": p }))
+                .send()
+                .await
+                .unwrap()
+        }
+    };
+    for _ in 0..5 {
+        assert_eq!(login("000000x".into()).await.status(), 401);
+    }
+    assert_eq!(login(pin.clone()).await.status(), 429);
+    // Mở khoá (giả lập hết thời gian khoá) rồi đăng nhập đúng.
+    crate::web::renew_pin(&desk.st);
+    let pin = desk.st.web.lock().unwrap().as_ref().unwrap().pin.clone();
+    let ok = login(pin).await;
+    assert_eq!(ok.status(), 200);
+    let cookie = ok.headers()["set-cookie"].to_str().unwrap().split(';').next().unwrap().to_string();
+
+    // Máy tính chia sẻ file + văn bản, trình duyệt tải về được.
+    let src = tempfile::tempdir().unwrap();
+    write(&src.path().join("Báo cáo.txt"), b"noi dung bao cao");
+    let files = transfer::collect_files(&desk.st, &[src.path().join("Báo cáo.txt").to_string_lossy().into_owned()]).unwrap();
+    crate::web::set_files(&desk.st, files);
+    crate::web::set_text(&desk.st, Some("link: https://example.com".into()));
+    let state: serde_json::Value = http
+        .get(format!("{base}/api/state"))
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(state["text"], "link: https://example.com");
+    let id = state["files"][0]["id"].as_str().unwrap().to_string();
+    let dl = http.get(format!("{base}/api/file/{id}")).header("cookie", &cookie).send().await.unwrap();
+    assert!(dl.headers()["content-disposition"].to_str().unwrap().contains("B%C3%A1o"));
+    assert_eq!(dl.bytes().await.unwrap().as_ref(), b"noi dung bao cao");
+
+    // Trình duyệt gửi văn bản lên.
+    let r = http
+        .post(format!("{base}/api/text"))
+        .header("cookie", &cookie)
+        .json(&serde_json::json!({ "name": "Lan", "text": "xin chào" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+
+    // Trình duyệt gửi file lên: máy tính phải bấm Chấp nhận.
+    let st = desk.st.clone();
+    let accepter = tokio::spawn(async move {
+        while let Some((ev, v)) = desk.events.recv().await {
+            if ev == "incoming-text" {
+                assert_eq!(v["sender_name"], "Lan (trình duyệt)");
+            }
+            if ev == "incoming-request" {
+                let id = v["request_id"].as_str().unwrap().to_string();
+                st.pending.lock().unwrap().remove(&id).unwrap().send(true).unwrap();
+                return desk;
+            }
+        }
+        panic!("không có yêu cầu nhận");
+    });
+    let prep: crate::models::PrepareResponse = http
+        .post(format!("{base}/api/prepare"))
+        .header("cookie", &cookie)
+        .json(&serde_json::json!({ "name": "Lan", "files": [{ "id": "f0", "rel_path": "ảnh.jpg", "size": 5 }] }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let desk = accepter.await.unwrap();
+    let up = http
+        .post(format!(
+            "{base}/api/upload?session={}&file=f0&token={}",
+            prep.session_id, prep.tokens["f0"]
+        ))
+        .header("cookie", &cookie)
+        .body("12345")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(up.status(), 200);
+    let dl_dir = desk.st.settings.read().unwrap().download_dir.clone();
+    assert_eq!(std::fs::read(Path::new(&dl_dir).join("ảnh.jpg")).unwrap(), b"12345");
+
+    crate::web::stop(&desk.st);
+}
+
+/// Chạy tay để xem trang web: `cargo test web_preview -- --ignored --nocapture`
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn web_preview() {
+    let desk = node("Mac-Studio").await;
+    crate::web::start(desk.st.clone()).await.unwrap();
+    let src = tempfile::tempdir().unwrap();
+    write(&src.path().join("Báo cáo quý 3.pdf"), &vec![7u8; 1_234_567]);
+    write(&src.path().join("ảnh chụp.png"), &vec![1u8; 52_000]);
+    let files = transfer::collect_files(&desk.st, &[
+        src.path().join("Báo cáo quý 3.pdf").to_string_lossy().into_owned(),
+        src.path().join("ảnh chụp.png").to_string_lossy().into_owned(),
+    ]).unwrap();
+    crate::web::set_files(&desk.st, files);
+    crate::web::set_text(&desk.st, Some("Link họp: https://meet.example.com/abc".into()));
+    let (pin, port) = { let w = desk.st.web.lock().unwrap(); let w = w.as_ref().unwrap(); (w.pin.clone(), w.port) };
+    println!("WEB_PREVIEW http://127.0.0.1:{port}/#pin={pin}");
+    tokio::time::sleep(std::time::Duration::from_secs(600)).await;
+}

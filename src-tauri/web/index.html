@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>BetterDrop</title>
+<style>
+  :root {
+    --bg: #f4f6fa; --card: #fff; --text: #16202e; --muted: #6b7686; --border: #e2e7ef;
+    --accent: #2563eb; --accent-soft: #e8efff; --ok: #0f9d6b; --danger: #d93a3a;
+    color-scheme: light dark;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, sans-serif;
+    font-size: 15px; line-height: 1.45;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f141b; --card: #171e27; --text: #e6ebf2; --muted: #8b96a6; --border: #263040;
+      --accent: #4f8cff; --accent-soft: #1b2a45; --ok: #34c38f; --danger: #ff6b6b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); }
+  [hidden] { display: none !important; }
+  header { display: flex; align-items: center; gap: 8px; padding: max(14px, env(safe-area-inset-top)) 16px 14px;
+    background: var(--card); border-bottom: 1px solid var(--border); font-weight: 700; font-size: 17px; }
+  header .to { margin-left: auto; font-weight: 500; font-size: 13px; color: var(--muted); text-align: right; }
+  .drop { width: 22px; height: 22px; fill: var(--accent); }
+  main { max-width: 640px; margin: 0 auto; padding: 16px; display: grid; gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+  h2 { font-size: 16px; margin: 0 0 10px; }
+  .muted { color: var(--muted); } .small { font-size: 13px; }
+  input, textarea { font: inherit; width: 100%; padding: 10px 12px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  textarea { min-height: 90px; resize: vertical; }
+  .btn { font: inherit; font-weight: 600; padding: 10px 16px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text); cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  .row > .grow { flex: 1; }
+  .pick { display: block; border: 2px dashed var(--border); border-radius: 12px; padding: 22px 12px; text-align: center; cursor: pointer; }
+  .pick input { display: none; }
+  ul { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+  li.item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; background: var(--bg); }
+  li.item .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  li.item a { color: var(--accent); font-weight: 600; text-decoration: none; white-space: nowrap; }
+  .bar { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; margin-top: 8px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .status { margin-top: 8px; font-size: 13px; }
+  .status.ok { color: var(--ok); } .status.err { color: var(--danger); }
+  .pin input { font-size: 28px; letter-spacing: .4em; text-align: center; }
+  pre.text { white-space: pre-wrap; word-break: break-word; background: var(--bg); padding: 10px 12px; border-radius: 10px; margin: 0; font-family: inherit; }
+</style>
+</head>
+<body>
+<header>
+  <svg class="drop" viewBox="0 0 24 24"><path d="M12 3c-2.4 3.1-5 6.3-5 9.4a5 5 0 0 0 10 0C17 9.3 14.4 6.1 12 3z"/></svg>
+  BetterDrop
+  <span class="to" id="to"></span>
+</header>
+
+<main>
+  <!-- Nhập PIN -->
+  <section class="card pin" id="login" hidden>
+    <h2>Nhập mã PIN</h2>
+    <p class="muted small">Mã PIN hiện trên máy tính, trong BetterDrop › <em>Chia sẻ qua trình duyệt</em>.</p>
+    <form id="login-form">
+      <input id="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••" />
+      <div class="row"><button class="btn primary grow" type="submit">Kết nối</button></div>
+      <div class="status err" id="login-err"></div>
+    </form>
+  </section>
+
+  <div id="app" hidden>
+    <!-- Gửi lên máy tính -->
+    <section class="card">
+      <h2>Gửi tới máy tính</h2>
+      <label class="small muted" for="me">Tên của bạn (hiện trên máy tính)</label>
+      <input id="me" maxlength="40" placeholder="vd Điện thoại của Lan" />
+      <div style="height:10px"></div>
+      <label class="pick" id="pick">
+        <input type="file" id="files" multiple />
+        <strong>Chọn file để gửi</strong><br />
+        <span class="muted small" id="picked">Chưa chọn file nào</span>
+      </label>
+      <div class="row"><button class="btn primary grow" id="send" disabled>Gửi file</button></div>
+      <div class="bar" id="bar" hidden><i id="bar-fill"></i></div>
+      <div class="status" id="send-status"></div>
+
+      <div style="height:16px"></div>
+      <textarea id="text" placeholder="Hoặc nhập văn bản, đường link để gửi…"></textarea>
+      <div class="row"><button class="btn grow" id="send-text">Gửi văn bản</button></div>
+      <div class="status" id="text-status"></div>
+    </section>
+
+    <!-- Tải về -->
+    <section class="card">
+      <h2>Tải về từ máy tính</h2>
+      <p class="muted small" id="no-share">Máy tính chưa chia sẻ gì. Trên máy tính, chọn file rồi bấm <em>Chia sẻ các file đã chọn</em>.</p>
+      <ul id="shared"></ul>
+      <div id="shared-text-block" hidden>
+        <div style="height:10px"></div>
+        <pre class="text" id="shared-text"></pre>
+        <div class="row"><button class="btn" id="copy">Sao chép văn bản</button></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => {
+  if (n < 1024) return `${n} B`;
+  const u = ["KB", "MB", "GB", "TB"]; let v = n / 1024, i = 0;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return `${v.toFixed(v < 10 ? 1 : 0)} ${u[i]}`;
+};
+const setStatus = (el, text, kind = "") => { el.textContent = text; el.className = `status ${kind}`; };
+
+// Tên hiển thị: nhớ trong trình duyệt, mặc định đoán từ thiết bị.
+function guessName() {
+  const ua = navigator.userAgent;
+  if (/iPhone/.test(ua)) return "iPhone";
+  if (/iPad/.test(ua)) return "iPad";
+  if (/Android/.test(ua)) return "Điện thoại Android";
+  if (/Windows/.test(ua)) return "Máy Windows";
+  if (/Mac/.test(ua)) return "Máy Mac";
+  return "";
+}
+try { $("me").value = localStorage.getItem("bd_name") || guessName(); } catch { $("me").value = guessName(); }
+$("me").addEventListener("change", () => { try { localStorage.setItem("bd_name", $("me").value); } catch {} });
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { credentials: "same-origin", ...opts });
+  if (r.status === 401) { showLogin(); throw new Error("Cần nhập lại mã PIN"); }
+  if (r.status === 503) throw new Error("Máy tính đang tắt nhận hoặc đã tắt chia sẻ qua trình duyệt");
+  return r;
+}
+
+function showLogin() { $("login").hidden = false; $("app").hidden = true; $("pin").focus(); }
+function showApp() { $("login").hidden = true; $("app").hidden = false; }
+
+async function login(pin) {
+  const r = await fetch("/api/login", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pin }),
+  });
+  if (!r.ok) { setStatus($("login-err"), (await r.text()) || "Không kết nối được", "err"); return false; }
+  setStatus($("login-err"), "");
+  showApp(); refresh();
+  return true;
+}
+
+$("login-form").addEventListener("submit", (e) => { e.preventDefault(); login($("pin").value.trim()); });
+
+// ---- Tải về ----
+let lastShared = "";
+async function refresh() {
+  let s;
+  try { s = await (await api("/api/state")).json(); } catch { return; }
+  $("to").textContent = `tới ${s.name}`;
+  const key = JSON.stringify([s.files, s.text]);
+  if (key === lastShared) return;
+  lastShared = key;
+  $("shared").replaceChildren(...s.files.map((f) => {
+    const li = document.createElement("li"); li.className = "item";
+    const name = document.createElement("span"); name.className = "name"; name.textContent = f.rel_path;
+    const size = document.createElement("span"); size.className = "muted small"; size.textContent = fmt(f.size);
+    const a = document.createElement("a"); a.href = `/api/file/${encodeURIComponent(f.id)}`; a.textContent = "Tải";
+    a.setAttribute("download", f.rel_path.split("/").pop());
+    li.append(name, size, a); return li;
+  }));
+  $("shared-text-block").hidden = !s.text;
+  $("shared-text").textContent = s.text || "";
+  $("no-share").hidden = s.files.length > 0 || !!s.text;
+}
+setInterval(refresh, 3000);
+
+$("copy").addEventListener("click", async () => {
+  const t = $("shared-text").textContent;
+  try { await navigator.clipboard.writeText(t); $("copy").textContent = "Đã sao chép"; }
+  catch {
+    // HTTP thường không cho dùng clipboard API: chọn sẵn để người dùng tự sao chép.
+    const r = document.createRange(); r.selectNodeContents($("shared-text"));
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    $("copy").textContent = "Đã chọn văn bản, hãy bấm Sao chép";
+  }
+  setTimeout(() => ($("copy").textContent = "Sao chép văn bản"), 2500);
+});
+
+// ---- Gửi file ----
+$("files").addEventListener("change", () => {
+  const fs = [...$("files").files];
+  const total = fs.reduce((a, f) => a + f.size, 0);
+  $("picked").textContent = fs.length ? `${fs.length} file · ${fmt(total)}` : "Chưa chọn file nào";
+  $("send").disabled = fs.length === 0;
+});
+
+function uploadOne(url, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open("POST", url);
+    x.upload.onprogress = (e) => onProgress(e.loaded);
+    x.onload = () => (x.status >= 200 && x.status < 300 ? resolve() : reject(new Error(x.responseText || `Lỗi ${x.status}`)));
+    x.onerror = () => reject(new Error("Mất kết nối với máy tính"));
+    x.send(file);
+  });
+}
+
+$("send").addEventListener("click", async () => {
+  const fs = [...$("files").files];
+  if (!fs.length) return;
+  const st = $("send-status");
+  const metas = fs.map((f, i) => ({ id: `f${i}`, rel_path: f.name, size: f.size }));
+  const total = fs.reduce((a, f) => a + f.size, 0);
+  $("send").disabled = true;
+  setStatus(st, "Đang chờ máy tính bấm Chấp nhận…");
+  try {
+    const r = await api("/api/prepare", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: $("me").value, files: metas }),
+    });
+    if (r.status === 403) throw new Error("Máy tính đã từ chối (hoặc không trả lời trong 60 giây)");
+    if (!r.ok) throw new Error(`Lỗi ${r.status}`);
+    const prep = await r.json();
+    $("bar").hidden = false;
+    let done = 0;
+    const started = Date.now();
+    for (let i = 0; i < fs.length; i++) {
+      const q = new URLSearchParams({ session: prep.session_id, file: metas[i].id, token: prep.tokens[metas[i].id] });
+      await uploadOne(`/api/upload?${q}`, fs[i], (loaded) => {
+        const sent = done + loaded;
+        const pct = total ? (sent / total) * 100 : 100;
+        $("bar-fill").style.width = `${pct}%`;
+        const speed = sent / Math.max(0.001, (Date.now() - started) / 1000);
+        setStatus(st, `Đang gửi ${i + 1}/${fs.length} · ${pct.toFixed(0)}% · ${fmt(speed)}/s`);
+      });
+      done += fs[i].size;
+    }
+    $("bar-fill").style.width = "100%";
+    setStatus(st, `Đã gửi xong ${fs.length} file`, "ok");
+    $("files").value = ""; $("picked").textContent = "Chưa chọn file nào";
+  } catch (e) {
+    setStatus(st, e.message, "err");
+  } finally {
+    $("send").disabled = $("files").files.length === 0;
+  }
+});
+
+// ---- Gửi văn bản ----
+$("send-text").addEventListener("click", async () => {
+  const text = $("text").value;
+  if (!text.trim()) return;
+  const st = $("text-status");
+  try {
+    const r = await api("/api/text", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: $("me").value, text }),
+    });
+    if (!r.ok) throw new Error(`Lỗi ${r.status}`);
+    $("text").value = "";
+    setStatus(st, "Đã gửi văn bản", "ok");
+  } catch (e) { setStatus(st, e.message, "err"); }
+});
+
+// ---- Khởi động: PIN trong mã QR nằm sau dấu #, không bao giờ gửi lên máy chủ ----
+(async () => {
+  const m = location.hash.match(/pin=(\d{6})/);
+  if (m) {
+    history.replaceState(null, "", location.pathname);
+    if (await login(m[1])) return;
+  }
+  try { await api("/api/state"); showApp(); refresh(); } catch { showLogin(); }
+})();
+</script>
+</body>
+</html>

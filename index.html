@@ -19,6 +19,10 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1zM11 18h2"/></svg>
         <span>Kết nối điện thoại</span>
       </button>
+      <button class="btn small topbar-web" id="btn-web" title="Cho thiết bị không cài BetterDrop gửi/nhận qua trình duyệt">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3.6 9h16.8M3.6 15h16.8M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+        <span>Trình duyệt</span><i class="web-dot" id="web-dot" hidden></i>
+      </button>
       <button class="paused-chip" id="paused-chip" hidden title="Bấm để bật lại nhận file">Đang tắt nhận file</button>
       <div class="me" id="me" title="Thông tin máy này">
         <span class="me-name" id="me-name">…</span>
@@ -150,6 +154,45 @@
       <div class="dialog-actions">
         <button class="btn" id="btn-confirm-no">Huỷ</button>
         <button class="btn danger" id="btn-confirm-yes">Đồng ý</button>
+      </div>
+    </dialog>
+
+    <!-- Chia sẻ qua trình duyệt -->
+    <dialog id="dlg-web" class="dialog wide-dialog">
+      <h3>Chia sẻ qua trình duyệt</h3>
+      <div id="web-off">
+        <p class="muted">Cho điện thoại hoặc máy tính <strong>không cài BetterDrop</strong> gửi file, văn bản tới máy này và tải những gì bạn chia sẻ, chỉ bằng trình duyệt. Chỉ dùng trong cùng mạng Wi‑Fi/LAN, cần nhập mã PIN.</p>
+        <div class="dialog-actions">
+          <button class="btn" id="btn-web-close1">Đóng</button>
+          <button class="btn primary" id="btn-web-start">Bật chia sẻ</button>
+        </div>
+      </div>
+      <div id="web-on" hidden>
+        <div class="web-grid">
+          <div class="qr" id="web-qr"></div>
+          <div>
+            <div class="muted small">Quét mã QR, hoặc mở trong trình duyệt:</div>
+            <ul class="addrs big" id="web-urls"></ul>
+            <div class="muted small">Mã PIN</div>
+            <div class="web-pin code" id="web-pin"></div>
+            <button class="link small" id="btn-web-pin">Đổi mã PIN</button>
+          </div>
+        </div>
+        <div class="web-share">
+          <div class="legend">Đang chia sẻ để tải về</div>
+          <ul class="staged" id="web-files"></ul>
+          <p class="muted small" id="web-files-empty">Chưa chia sẻ file nào.</p>
+          <div class="row-start">
+            <button class="btn small" id="btn-web-share-files">Chia sẻ các file đang chọn</button>
+            <button class="btn small" id="btn-web-unshare" hidden>Bỏ chia sẻ file</button>
+          </div>
+          <textarea id="web-text" rows="2" placeholder="Văn bản, đường link muốn chia sẻ (tuỳ chọn)"></textarea>
+          <div class="row-start"><button class="btn small" id="btn-web-text">Chia sẻ văn bản</button></div>
+        </div>
+        <div class="dialog-actions">
+          <button class="btn" id="btn-web-stop">Tắt chia sẻ</button>
+          <button class="btn primary" id="btn-web-close2">Xong</button>
+        </div>
       </div>
     </dialog>
 

@@ -5,6 +5,7 @@ Chuyển file, thư mục và văn bản giữa Mac ⇄ Windows ⇄ Linux ⇄ An
 - Tự tìm máy trong cùng mạng (mDNS/Bonjour). Nếu không thấy, điện thoại **quét mã QR** trên máy tính (Cài đặt › "Kết nối điện thoại bằng mã QR"), hoặc nhập IP.
 - Máy nhận tự nhớ máy vừa gửi tới, nên gửi ngược lại được ngay.
 - Máy nhận phải bấm **Chấp nhận** mới bắt đầu nhận.
+- **Chia sẻ qua trình duyệt** (nút 🌐 Trình duyệt): thiết bị không cài BetterDrop mở `http://<ip-máy-tính>:53319` (hoặc quét QR), nhập mã PIN, rồi gửi file/văn bản lên hoặc tải những gì máy tính chia sẻ. Chỉ trong mạng LAN, mặc định tắt.
 - Dữ liệu đi qua HTTPS (TLS). Mỗi máy có chứng chỉ riêng, và bên gửi chỉ chấp nhận đúng chứng chỉ đã quảng bá. Mã 4 ký tự (vd `520D`) dùng để so với máy kia.
 - File nhận được lưu vào `~/Downloads/BetterDrop` (đổi được trong Cài đặt). Nếu trùng tên, file mới được thêm hậu tố ` (1)`, không ghi đè file cũ.
 
@@ -57,7 +58,7 @@ Build Android trên máy: `source scripts/mobile-env.sh && npm run tauri android
 
 - **Windows**: lần đầu mở app, Windows Firewall sẽ hỏi. Hãy cho phép **Private networks**. Mạng Wi‑Fi phải được đặt là *Private*, nếu để *Public* thì mDNS bị chặn.
 - **macOS**: khi hiện hộp thoại "Local Network", hãy bấm **Allow**.
-- Cổng mặc định là `53318/TCP`, còn mDNS dùng `5353/UDP`.
+- Cổng mặc định là `53318/TCP` (app với app) và `53319/TCP` (chia sẻ qua trình duyệt), còn mDNS dùng `5353/UDP`.
 - Wi‑Fi khách hoặc Wi‑Fi công ty có thể bật "client isolation". Khi đó hai máy không thể nói chuyện trực tiếp với nhau, kể cả khi nhập IP.
 
 ## Cấu trúc

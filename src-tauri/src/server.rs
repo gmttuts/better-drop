@@ -110,37 +110,53 @@ async fn prepare(
     }
     if req.kind == TransferKind::Text {
         remember_sender(&st, &req.sender, remote);
-        let text = req.text.unwrap_or_default();
-        st.emit(
-            "incoming-text",
-            IncomingText {
-                sender_name: req.sender.name.clone(),
-                text: text.clone(),
-            },
-        );
-        Tracker::new(
-            st.emit.clone(),
-            TransferUpdate {
-                id: uuid::Uuid::new_v4().to_string(),
-                direction: Direction::Receive,
-                peer_name: req.sender.name,
-                kind: TransferKind::Text,
-                file_count: 0,
-                total_bytes: text.len() as u64,
-                transferred: 0,
-                speed_bps: 0.0,
-                status: TransferStatus::Done,
-                error: None,
-                dir_path: None,
-            },
-        );
+        receive_text(&st, &req.sender.name, req.text.unwrap_or_default());
         return Ok(Json(PrepareResponse::default()));
     }
+    let resp = accept_files(&st, &req.sender.name, &req.sender.os, &req.files).await?;
+    remember_sender(&st, &req.sender, remote);
+    Ok(Json(resp))
+}
 
-    if req.files.is_empty() {
+/// Nhận một đoạn văn bản: hiện cho người dùng và ghi vào mục Hoạt động.
+pub fn receive_text(st: &AppState, sender_name: &str, text: String) {
+    st.emit(
+        "incoming-text",
+        IncomingText {
+            sender_name: sender_name.to_string(),
+            text: text.clone(),
+        },
+    );
+    Tracker::new(
+        st.emit.clone(),
+        TransferUpdate {
+            id: uuid::Uuid::new_v4().to_string(),
+            direction: Direction::Receive,
+            peer_name: sender_name.to_string(),
+            kind: TransferKind::Text,
+            file_count: 0,
+            total_bytes: text.len() as u64,
+            transferred: 0,
+            speed_bps: 0.0,
+            status: TransferStatus::Done,
+            error: None,
+            dir_path: None,
+        },
+    );
+}
+
+/// Hỏi người dùng có nhận các file này không (chờ tối đa ACCEPT_TIMEOUT). Nếu đồng ý,
+/// tạo phiên nhận và trả về token cho từng file. Dùng chung cho app và trang web.
+pub async fn accept_files(
+    st: &Arc<AppState>,
+    sender_name: &str,
+    sender_os: &str,
+    req_files: &[FileMeta],
+) -> Result<PrepareResponse, StatusCode> {
+    if req_files.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
-    let total_bytes: u64 = req.files.iter().map(|f| f.size).sum();
+    let total_bytes: u64 = req_files.iter().map(|f| f.size).sum();
 
     let request_id = uuid::Uuid::new_v4().to_string();
     let (tx, rx) = oneshot::channel();
@@ -153,11 +169,11 @@ async fn prepare(
         "incoming-request",
         IncomingRequest {
             request_id: request_id.clone(),
-            sender_name: req.sender.name.clone(),
-            sender_os: req.sender.os.clone(),
-            file_count: req.files.len(),
+            sender_name: sender_name.to_string(),
+            sender_os: sender_os.to_string(),
+            file_count: req_files.len(),
             total_bytes,
-            preview: req.files.iter().take(5).map(|f| f.rel_path.clone()).collect(),
+            preview: req_files.iter().take(5).map(|f| f.rel_path.clone()).collect(),
             timeout_secs: ACCEPT_TIMEOUT.as_secs(),
         },
     );
@@ -167,13 +183,12 @@ async fn prepare(
     if !accepted {
         return Err(StatusCode::FORBIDDEN);
     }
-    remember_sender(&st, &req.sender, remote);
 
     let session_id = uuid::Uuid::new_v4().to_string();
     let base_dir = PathBuf::from(st.settings.read().unwrap().download_dir.clone());
     let mut tokens = HashMap::new();
     let mut files = HashMap::new();
-    for f in &req.files {
+    for f in req_files {
         let token = uuid::Uuid::new_v4().simple().to_string();
         tokens.insert(f.id.clone(), token.clone());
         files.insert(
@@ -190,7 +205,7 @@ async fn prepare(
         TransferUpdate {
             id: session_id.clone(),
             direction: Direction::Receive,
-            peer_name: req.sender.name.clone(),
+            peer_name: sender_name.to_string(),
             kind: TransferKind::Files,
             file_count: files.len(),
             total_bytes,
@@ -213,12 +228,21 @@ async fn prepare(
             done: Default::default(),
         }),
     );
-    Ok(Json(PrepareResponse { session_id, tokens }))
+    Ok(PrepareResponse { session_id, tokens })
 }
 
 async fn upload(
     State(st): St,
     Query(q): Query<UploadQuery>,
+    body: Body,
+) -> Result<StatusCode, (StatusCode, String)> {
+    receive_upload(&st, q, body).await
+}
+
+/// Nhận dữ liệu một file của phiên đã được chấp nhận (dùng chung cho app và trang web).
+pub async fn receive_upload(
+    st: &Arc<AppState>,
+    q: UploadQuery,
     body: Body,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let session = st

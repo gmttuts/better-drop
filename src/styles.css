@@ -339,6 +339,23 @@ textarea:focus, input:focus { outline: 2px solid var(--accent-soft); border-colo
 .qr-addrs { background: var(--bg); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
 .addrs.big li { font-size: 16px; font-weight: 600; padding: 2px 0; }
 
+/* ---- Chia sẻ qua trình duyệt ---- */
+.topbar-web { display: inline-flex; align-items: center; gap: 6px; position: relative; }
+.topbar-web svg { width: 16px; height: 16px; }
+.web-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); display: inline-block; }
+@media (max-width: 560px) { .topbar-web span { display: none; } }
+.wide-dialog { width: min(560px, calc(100vw - 32px)); }
+.web-grid { display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: center; }
+.web-grid .qr { margin: 0; }
+.web-grid .qr svg { width: 170px; height: 170px; }
+@media (max-width: 480px) { .web-grid { grid-template-columns: 1fr; justify-items: center; text-align: center; } }
+.web-pin { font-size: clamp(22px, 8vw, 30px); font-weight: 700; letter-spacing: 0.2em; color: var(--accent); }
+.web-grid > div { min-width: 0; }
+.addrs li { overflow-wrap: anywhere; }
+.web-share { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); display: grid; gap: 8px; }
+.web-share .legend { font-weight: 600; }
+.row-start { display: flex; gap: 8px; flex-wrap: wrap; }
+
 /* ---- Màn hình quét QR: trang trong suốt để thấy camera phía sau ---- */
 html.scanning, html.scanning body { background: transparent !important; }
 html.scanning body > :not(.scan-overlay):not(.toasts) { visibility: hidden; }

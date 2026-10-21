@@ -10,6 +10,7 @@ mod state;
 mod transfer;
 #[cfg(desktop)]
 mod tray;
+mod web;
 
 use models::{PairInfo, Peer, SelfInfo, Settings, StagedItem};
 use state::AppState;
@@ -209,6 +210,62 @@ fn delete_group(st: AppStateRef, id: String) -> Result<DevicesInfo, String> {
     change_devices(&st, |b| b.delete_group(&id))
 }
 
+// ---- Chia sẻ qua trình duyệt ----
+
+fn local_ips(st: &AppState) -> Vec<String> {
+    local_addrs(st.port)
+        .into_iter()
+        .filter_map(|a| a.rsplit_once(':').map(|(ip, _)| ip.to_string()))
+        .collect()
+}
+
+fn web_info(st: &AppState) -> Option<web::WebInfo> {
+    web::info(st, &local_ips(st))
+}
+
+#[tauri::command]
+fn web_share_status(st: AppStateRef) -> Option<web::WebInfo> {
+    web_info(&st)
+}
+
+#[tauri::command]
+async fn web_share_start(st: AppStateRef<'_>) -> Result<web::WebInfo, String> {
+    web::start(st.inner().clone()).await?;
+    web_info(&st).ok_or_else(|| "Không bật được chia sẻ qua trình duyệt".into())
+}
+
+#[tauri::command]
+fn web_share_stop(st: AppStateRef) {
+    web::stop(&st);
+}
+
+#[tauri::command]
+fn web_share_new_pin(st: AppStateRef) -> Option<web::WebInfo> {
+    web::renew_pin(&st);
+    web_info(&st)
+}
+
+/// Chia sẻ các file/thư mục đã chọn cho trình duyệt tải về (thay danh sách cũ).
+#[tauri::command]
+async fn web_share_set_files(st: AppStateRef<'_>, paths: Vec<String>) -> Result<Option<web::WebInfo>, String> {
+    let state = st.inner().clone();
+    let files = if paths.is_empty() {
+        Vec::new()
+    } else {
+        tauri::async_runtime::spawn_blocking(move || transfer::collect_files(&state, &paths))
+            .await
+            .map_err(|e| e.to_string())??
+    };
+    web::set_files(&st, files);
+    Ok(web_info(&st))
+}
+
+#[tauri::command]
+fn web_share_set_text(st: AppStateRef, text: Option<String>) -> Option<web::WebInfo> {
+    web::set_text(&st, text);
+    web_info(&st)
+}
+
 #[tauri::command]
 fn pair_info(app: tauri::AppHandle) -> Result<PairInfo, String> {
     let st = app.state::<Arc<AppState>>();
@@ -319,6 +376,12 @@ pub fn run() {
             update_settings,
             add_manual_peer,
             pair_info,
+            web_share_status,
+            web_share_start,
+            web_share_stop,
+            web_share_new_pin,
+            web_share_set_files,
+            web_share_set_text,
             get_devices,
             forget_peer,
             unhide_peer,

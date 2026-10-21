@@ -57,6 +57,8 @@ pub struct AppState {
     pub devices: Mutex<DeviceBook>,
     /// Yêu cầu dựng lại phần tìm máy (vd vừa được cấp quyền mạng cục bộ trên Android).
     pub rediscover: AtomicBool,
+    /// Chia sẻ qua trình duyệt (None = đang tắt).
+    pub web: Mutex<Option<crate::web::WebShare>>,
 }
 
 impl AppState {
@@ -83,6 +85,7 @@ impl AppState {
             hooks: Hooks::default(),
             devices: Mutex::new(devices),
             rediscover: AtomicBool::new(false),
+            web: Mutex::new(None),
         }
     }
 
