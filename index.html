@@ -171,20 +171,29 @@
         <div class="web-grid">
           <div class="qr" id="web-qr"></div>
           <div>
-            <div class="muted small">Quét mã QR, hoặc mở trong trình duyệt:</div>
-            <ul class="addrs big" id="web-urls"></ul>
             <div class="muted small">Mã PIN</div>
             <div class="web-pin code" id="web-pin"></div>
             <button class="link small" id="btn-web-pin">Đổi mã PIN</button>
           </div>
+        </div>
+        <div class="web-addr">
+          <div class="muted small">Quét mã QR, hoặc gõ địa chỉ này vào trình duyệt:</div>
+          <div class="web-url code" id="web-url"></div>
+          <details class="small web-more" id="web-more">
+            <summary>Không mở được? Thử địa chỉ khác</summary>
+            <p class="muted">Máy này nối mạng bằng nhiều cách (vd cả dây LAN lẫn Wi‑Fi) nên có nhiều địa chỉ. Địa chỉ nào cũng dùng được nếu cùng mạng.</p>
+            <ul class="addrs" id="web-urls"></ul>
+          </details>
         </div>
         <div class="web-share">
           <div class="legend">Đang chia sẻ để tải về</div>
           <ul class="staged" id="web-files"></ul>
           <p class="muted small" id="web-files-empty">Chưa chia sẻ file nào.</p>
           <div class="row-start">
-            <button class="btn small" id="btn-web-share-files">Chia sẻ các file đang chọn</button>
-            <button class="btn small" id="btn-web-unshare" hidden>Bỏ chia sẻ file</button>
+            <button class="btn small primary" id="btn-web-add-files">Thêm file…</button>
+            <button class="btn small" id="btn-web-add-folder">Thêm thư mục…</button>
+            <button class="btn small" id="btn-web-share-files" hidden></button>
+            <button class="btn small" id="btn-web-unshare" hidden>Bỏ chia sẻ tất cả</button>
           </div>
           <textarea id="web-text" rows="2" placeholder="Văn bản, đường link muốn chia sẻ (tuỳ chọn)"></textarea>
           <div class="row-start"><button class="btn small" id="btn-web-text">Chia sẻ văn bản</button></div>

@@ -260,6 +260,23 @@ async fn web_share_set_files(st: AppStateRef<'_>, paths: Vec<String>) -> Result<
     Ok(web_info(&st))
 }
 
+/// Thêm file/thư mục vào danh sách chia sẻ (giữ các file đã chia sẻ trước đó).
+#[tauri::command]
+async fn web_share_add_files(st: AppStateRef<'_>, paths: Vec<String>) -> Result<Option<web::WebInfo>, String> {
+    let state = st.inner().clone();
+    let files = tauri::async_runtime::spawn_blocking(move || transfer::collect_files(&state, &paths))
+        .await
+        .map_err(|e| e.to_string())??;
+    web::add_files(&st, files);
+    Ok(web_info(&st))
+}
+
+#[tauri::command]
+fn web_share_remove_file(st: AppStateRef, id: String) -> Option<web::WebInfo> {
+    web::remove_file(&st, &id);
+    web_info(&st)
+}
+
 #[tauri::command]
 fn web_share_set_text(st: AppStateRef, text: Option<String>) -> Option<web::WebInfo> {
     web::set_text(&st, text);
@@ -382,6 +399,8 @@ pub fn run() {
             web_share_new_pin,
             web_share_set_files,
             web_share_set_text,
+            web_share_add_files,
+            web_share_remove_file,
             get_devices,
             forget_peer,
             unhide_peer,

@@ -142,6 +142,23 @@ pub fn set_files(st: &AppState, files: Vec<LocalFile>) {
     }
 }
 
+/// Thêm file vào danh sách chia sẻ (bỏ qua file đã có).
+pub fn add_files(st: &AppState, files: Vec<LocalFile>) {
+    if let Some(w) = st.web.lock().unwrap().as_mut() {
+        for f in files {
+            if !w.files.iter().any(|x| x.source == f.source) {
+                w.files.push(SharedFile { meta: f.meta, source: f.source });
+            }
+        }
+    }
+}
+
+pub fn remove_file(st: &AppState, id: &str) {
+    if let Some(w) = st.web.lock().unwrap().as_mut() {
+        w.files.retain(|f| f.meta.id != id);
+    }
+}
+
 pub fn set_text(st: &AppState, text: Option<String>) {
     if let Some(w) = st.web.lock().unwrap().as_mut() {
         w.text = text.filter(|t| !t.trim().is_empty());

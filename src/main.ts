@@ -782,18 +782,31 @@ function renderWeb() {
   $("web-dot").hidden = !on;
   if (!webInfo) return;
   $("web-qr").innerHTML = webInfo.qr_svg;
-  $("web-urls").replaceChildren(...webInfo.urls.map((u) => el("li", { className: "code", textContent: u })));
+  // Một địa chỉ chính (cũng là địa chỉ trong mã QR); các địa chỉ khác gấp gọn bên dưới.
+  $("web-url").textContent = webInfo.urls[0] ?? "(không có mạng)";
+  $("web-more").hidden = webInfo.urls.length < 2;
+  $("web-urls").replaceChildren(...webInfo.urls.slice(1).map((u) => el("li", { className: "code", textContent: u })));
   $("web-pin").textContent = webInfo.pin;
   $("web-files").replaceChildren(
-    ...webInfo.files.map((f) =>
-      el("li", {}, el("span", { className: "staged-name", textContent: f.rel_path }), el("span", { className: "staged-size", textContent: formatBytes(f.size) })),
-    ),
+    ...webInfo.files.map((f) => {
+      const rm = el("button", { className: "icon-btn small", title: "Bỏ chia sẻ file này", textContent: "×" });
+      rm.addEventListener("click", () => webCall("web_share_remove_file", { id: f.id }));
+      return el(
+        "li",
+        {},
+        el("span", { className: "staged-name", textContent: f.rel_path }),
+        el("span", { className: "staged-size", textContent: formatBytes(f.size) }),
+        rm,
+      );
+    }),
   );
   $("web-files-empty").hidden = webInfo.files.length > 0;
   $("btn-web-unshare").hidden = webInfo.files.length === 0;
-  const shareBtn = $<HTMLButtonElement>("btn-web-share-files");
-  shareBtn.disabled = staged.length === 0;
-  shareBtn.title = staged.length ? "" : "Chọn file ở mục 1 trước";
+  // Lối tắt: chia sẻ luôn những file đã chọn ở màn hình chính (nếu có).
+  const shareBtn = $("btn-web-share-files");
+  shareBtn.hidden = staged.length === 0;
+  shareBtn.textContent = `Thêm ${staged.length} mục đang chọn`;
+  $("btn-web-add-folder").hidden = !!me?.mobile;
   if (document.activeElement !== $("web-text")) $<HTMLTextAreaElement>("web-text").value = webInfo.text ?? "";
 }
 
@@ -835,10 +848,20 @@ async function init() {
     toast("Đã tắt chia sẻ qua trình duyệt");
   });
   $("btn-web-pin").addEventListener("click", () => webCall("web_share_new_pin"));
-  $("btn-web-share-files").addEventListener("click", async () => {
-    await webCall("web_share_set_files", { paths: staged.map((s) => s.path) });
+  const addShared = async (paths: string[]) => {
+    if (!paths.length) return;
+    await webCall("web_share_add_files", { paths });
     toast("Trình duyệt đã có thể tải các file này");
+  };
+  $("btn-web-add-files").addEventListener("click", async () => {
+    const r = await open({ multiple: true, directory: false });
+    if (r) await addShared(Array.isArray(r) ? r : [r]);
   });
+  $("btn-web-add-folder").addEventListener("click", async () => {
+    const r = await open({ multiple: true, directory: true });
+    if (r) await addShared(Array.isArray(r) ? r : [r]);
+  });
+  $("btn-web-share-files").addEventListener("click", () => addShared(staged.map((s) => s.path)));
   $("btn-web-unshare").addEventListener("click", () => webCall("web_share_set_files", { paths: [] }));
   $("btn-web-text").addEventListener("click", async () => {
     await webCall("web_share_set_text", { text: $<HTMLTextAreaElement>("web-text").value });

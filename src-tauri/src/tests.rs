@@ -386,7 +386,11 @@ async fn browser_share_end_to_end() {
     let src = tempfile::tempdir().unwrap();
     write(&src.path().join("Báo cáo.txt"), b"noi dung bao cao");
     let files = transfer::collect_files(&desk.st, &[src.path().join("Báo cáo.txt").to_string_lossy().into_owned()]).unwrap();
-    crate::web::set_files(&desk.st, files);
+    crate::web::add_files(&desk.st, files);
+    // Thêm lại cùng file thì không bị trùng.
+    let again = transfer::collect_files(&desk.st, &[src.path().join("Báo cáo.txt").to_string_lossy().into_owned()]).unwrap();
+    crate::web::add_files(&desk.st, again);
+    assert_eq!(desk.st.web.lock().unwrap().as_ref().unwrap().files.len(), 1);
     crate::web::set_text(&desk.st, Some("link: https://example.com".into()));
     let state: serde_json::Value = http
         .get(format!("{base}/api/state"))
