@@ -46,6 +46,7 @@
   .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
   .status { margin-top: 8px; font-size: 13px; }
   .status.ok { color: var(--ok); } .status.err { color: var(--danger); }
+  a.btn.all { display: block; text-align: center; text-decoration: none; margin-bottom: 4px; }
   .pin input { font-size: 28px; letter-spacing: .4em; text-align: center; }
   pre.text { white-space: pre-wrap; word-break: break-word; background: var(--bg); padding: 10px 12px; border-radius: 10px; margin: 0; font-family: inherit; }
 </style>
@@ -95,6 +96,7 @@
     <section class="card">
       <h2>Tải về từ máy tính</h2>
       <p class="muted small" id="no-share">Máy tính chưa chia sẻ gì. Trên máy tính, chọn file rồi bấm <em>Chia sẻ các file đã chọn</em>.</p>
+      <a class="btn primary all" id="all" href="/api/zip" hidden>Tải tất cả (.zip)</a>
       <ul id="shared"></ul>
       <div id="shared-text-block" hidden>
         <div style="height:10px"></div>
@@ -170,6 +172,9 @@ async function refresh() {
   $("shared-text-block").hidden = !s.text;
   $("shared-text").textContent = s.text || "";
   $("no-share").hidden = s.files.length > 0 || !!s.text;
+  const total = s.files.reduce((a, f) => a + f.size, 0);
+  $("all").hidden = s.files.length < 2;
+  $("all").textContent = `Tải tất cả ${s.files.length} file (.zip · ${fmt(total)})`;
 }
 setInterval(refresh, 3000);
 

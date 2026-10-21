@@ -406,6 +406,23 @@ async fn browser_share_end_to_end() {
     let dl = http.get(format!("{base}/api/file/{id}")).header("cookie", &cookie).send().await.unwrap();
     assert!(dl.headers()["content-disposition"].to_str().unwrap().contains("B%C3%A1o"));
     assert_eq!(dl.bytes().await.unwrap().as_ref(), b"noi dung bao cao");
+    // Tải tất cả: một file .zip chứa đủ file, giữ nguyên tên tiếng Việt.
+    let more = transfer::collect_files(&desk.st, &[src.path().join("Báo cáo.txt").to_string_lossy().into_owned()]).unwrap();
+    write(&src.path().join("Thư mục/ảnh.bin"), &vec![9u8; 300_000]);
+    let folder = transfer::collect_files(&desk.st, &[src.path().join("Thư mục").to_string_lossy().into_owned()]).unwrap();
+    crate::web::add_files(&desk.st, more);
+    crate::web::add_files(&desk.st, folder);
+    let zipped = http.get(format!("{base}/api/zip")).header("cookie", &cookie).send().await.unwrap();
+    assert_eq!(zipped.headers()["content-type"], "application/zip");
+    let bytes = zipped.bytes().await.unwrap();
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes.to_vec())).unwrap();
+    let mut names: Vec<String> = (0..archive.len()).map(|i| archive.by_index(i).unwrap().name().unwrap().to_string()).collect();
+    names.sort();
+    assert_eq!(names, vec!["Báo cáo.txt".to_string(), "Thư mục/ảnh.bin".to_string()]);
+    let mut content = Vec::new();
+    std::io::Read::read_to_end(&mut archive.by_name("Thư mục/ảnh.bin").unwrap(), &mut content).unwrap();
+    assert_eq!(content, vec![9u8; 300_000]);
+
     // Lượt tải được ghi vào Hoạt động với trạng thái Hoàn tất.
     let mut saw_done = false;
     while let Ok((ev, v)) = desk.events.try_recv() {

@@ -782,17 +782,18 @@ function renderWeb() {
   $("web-on").hidden = !on;
   $("web-dot").hidden = !on;
   $("web-live").hidden = !on;
+  $("web-foot").hidden = !on;
   if (!webInfo) return;
-  $("web-clients").textContent =
-    webInfo.clients > 0
-      ? `${webInfo.clients} trình duyệt đã kết nối bằng mã PIN này.`
-      : "Chưa có trình duyệt nào kết nối.";
+  $("web-live").textContent =
+    webInfo.clients > 0 ? `● Đang chia sẻ · ${webInfo.clients} trình duyệt đã vào` : "● Đang chia sẻ";
   $("web-text-state").textContent = webInfo.text ? "✓ Đang chia sẻ văn bản này" : "";
   $("web-qr").innerHTML = webInfo.qr_svg;
   // Một địa chỉ chính (cũng là địa chỉ trong mã QR); các địa chỉ khác gấp gọn bên dưới.
-  $("web-url").textContent = webInfo.urls[0] ?? "(không có mạng)";
+  // Bỏ "http://" cho gọn: gõ "ip:cổng" vào trình duyệt vẫn mở được; QR vẫn chứa link đầy đủ.
+  const short = (u: string) => u.replace(/^http:\/\//, "");
+  $("web-url").textContent = webInfo.urls[0] ? short(webInfo.urls[0]) : "(không có mạng)";
   $("web-more").hidden = webInfo.urls.length < 2;
-  $("web-urls").replaceChildren(...webInfo.urls.slice(1).map((u) => el("li", { className: "code", textContent: u })));
+  $("web-urls").replaceChildren(...webInfo.urls.slice(1).map((u) => el("li", { className: "code", textContent: short(u) })));
   $("web-pin").textContent = webInfo.pin;
   $("web-files").replaceChildren(
     ...webInfo.files.map((f) => {

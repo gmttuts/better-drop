@@ -179,6 +179,7 @@ fn router(st: Arc<AppState>) -> Router {
         .route("/api/login", post(login))
         .route("/api/state", get(state))
         .route("/api/file/{id}", get(download))
+        .route("/api/zip", get(download_all))
         .route("/api/text", post(send_text))
         .route("/api/prepare", post(prepare).layer(DefaultBodyLimit::max(8 * 1024 * 1024)))
         .route("/api/upload", post(upload).layer(DefaultBodyLimit::disable()))
@@ -331,6 +332,114 @@ async fn download(State(st): St, headers: HeaderMap, Path(id): Path<String>) -> 
             (header::CONTENT_TYPE, "application/octet-stream".to_string()),
             (header::CONTENT_LENGTH, meta.size.to_string()),
             (header::CONTENT_DISPOSITION, content_disposition(&name)),
+        ],
+        Body::from_stream(stream),
+    )
+        .into_response())
+}
+
+/// Ghi vào kênh gửi về trình duyệt theo từng khối 256 KB (dùng trong luồng nén zip).
+struct ChannelWriter {
+    tx: tokio::sync::mpsc::Sender<std::io::Result<axum::body::Bytes>>,
+    buf: Vec<u8>,
+}
+
+impl ChannelWriter {
+    fn send_buf(&mut self) -> std::io::Result<()> {
+        if self.buf.is_empty() {
+            return Ok(());
+        }
+        let chunk = axum::body::Bytes::from(std::mem::take(&mut self.buf));
+        self.tx
+            .blocking_send(Ok(chunk))
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "trình duyệt dừng tải"))
+    }
+}
+
+impl std::io::Write for ChannelWriter {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        self.buf.extend_from_slice(data);
+        if self.buf.len() >= 256 * 1024 {
+            self.send_buf()?;
+        }
+        Ok(data.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.send_buf()
+    }
+}
+
+/// Tải tất cả file đang chia sẻ trong một file .zip, nén ngay trong lúc gửi (không
+/// tạo file tạm). Dùng kiểu "store" (không nén lại) cho nhanh: ảnh/video đã nén sẵn.
+async fn download_all(State(st): St, headers: HeaderMap) -> Result<Response, StatusCode> {
+    authed(&st, &headers)?;
+    let files: Vec<(FileMeta, String)> = {
+        let web = st.web.lock().unwrap();
+        let w = web.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+        w.files.iter().map(|f| (f.meta.clone(), f.source.clone())).collect()
+    };
+    if files.is_empty() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let total: u64 = files.iter().map(|(m, _)| m.size).sum();
+    let tracker = Tracker::new(
+        st.emit.clone(),
+        TransferUpdate {
+            id: uuid::Uuid::new_v4().to_string(),
+            direction: Direction::Send,
+            peer_name: format!("trình duyệt · tất cả ({} file, .zip)", files.len()),
+            kind: TransferKind::Files,
+            file_count: files.len(),
+            total_bytes: total,
+            transferred: 0,
+            speed_bps: 0.0,
+            status: TransferStatus::Waiting,
+            error: None,
+            dir_path: None,
+        },
+    );
+    tracker.set_status(TransferStatus::Transferring, None);
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<std::io::Result<axum::body::Bytes>>(8);
+    let state = st.clone();
+    let t = tracker.clone();
+    tokio::task::spawn_blocking(move || {
+        use std::io::{Read, Write};
+        use zip::write::SimpleFileOptions;
+        let result = (|| -> Result<(), String> {
+            let mut zw = zip::ZipWriter::new_stream(ChannelWriter { tx, buf: Vec::with_capacity(512 * 1024) });
+            let mut buf = vec![0u8; 256 * 1024];
+            for (meta, source) in &files {
+                let opts = SimpleFileOptions::default()
+                    .compression_method(zip::CompressionMethod::Stored)
+                    .large_file(meta.size >= u32::MAX as u64);
+                zw.start_file(meta.rel_path.as_str(), opts).map_err(|e| e.to_string())?;
+                let mut f = state.open_source(source).map_err(|e| e.to_string())?;
+                loop {
+                    let n = f.read(&mut buf).map_err(|e| e.to_string())?;
+                    if n == 0 {
+                        break;
+                    }
+                    zw.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+                    t.add(n as u64);
+                }
+            }
+            let mut inner = zw.finish().map_err(|e| e.to_string())?;
+            inner.flush().map_err(|e| e.to_string())?;
+            Ok(())
+        })();
+        match result {
+            Ok(()) => t.set_status(TransferStatus::Done, None),
+            Err(_) => t.set_status(TransferStatus::Cancelled, Some("Trình duyệt dừng tải".into())),
+        };
+    });
+
+    let stream = futures_util::stream::poll_fn(move |cx| rx.poll_recv(cx));
+    let device = st.device_info().name;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/zip".to_string()),
+            (header::CONTENT_DISPOSITION, content_disposition(&format!("BetterDrop - {device}.zip"))),
         ],
         Body::from_stream(stream),
     )

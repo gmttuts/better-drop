@@ -158,8 +158,11 @@
     </dialog>
 
     <!-- Chia sẻ qua trình duyệt -->
-    <dialog id="dlg-web" class="dialog wide-dialog">
-      <h3 class="web-title">Chia sẻ qua trình duyệt <span class="live-badge" id="web-live" hidden>● Đang chia sẻ</span></h3>
+    <dialog id="dlg-web" class="dialog web-dialog">
+      <div class="web-head">
+        <h3>Chia sẻ qua trình duyệt</h3>
+        <span class="live-badge" id="web-live" hidden></span>
+      </div>
       <div id="web-off">
         <p class="muted">Cho điện thoại hoặc máy tính <strong>không cài BetterDrop</strong> gửi file, văn bản tới máy này và tải những gì bạn chia sẻ, chỉ bằng trình duyệt. Chỉ dùng trong cùng mạng Wi‑Fi/LAN, cần nhập mã PIN.</p>
         <div class="dialog-actions">
@@ -167,48 +170,52 @@
           <button class="btn primary" id="btn-web-start">Bật chia sẻ</button>
         </div>
       </div>
-      <div id="web-on" hidden>
-        <div class="web-grid">
+      <div id="web-on" class="web-cols" hidden>
+        <section class="web-connect">
           <div class="qr" id="web-qr"></div>
-          <div>
-            <div class="muted small">Mã PIN</div>
-            <div class="web-pin code" id="web-pin"></div>
-            <button class="link small" id="btn-web-pin">Đổi mã PIN</button>
-          </div>
-        </div>
-        <div class="web-addr">
-          <div class="muted small">Quét mã QR, hoặc gõ địa chỉ này vào trình duyệt:</div>
+          <div class="muted small">Quét QR, hoặc mở trong trình duyệt:</div>
           <div class="web-url code" id="web-url"></div>
+          <div class="web-pin-row">
+            <span class="muted small">PIN</span>
+            <span class="web-pin code" id="web-pin"></span>
+            <button class="link small" id="btn-web-pin" title="Đổi mã PIN: trình duyệt đang kết nối phải nhập lại">Đổi</button>
+          </div>
           <details class="small web-more" id="web-more">
-            <summary>Không mở được? Thử địa chỉ khác</summary>
-            <p class="muted">Máy này nối mạng bằng nhiều cách (vd cả dây LAN lẫn Wi‑Fi) nên có nhiều địa chỉ. Địa chỉ nào cũng dùng được nếu cùng mạng.</p>
+            <summary>Địa chỉ khác</summary>
+            <p class="muted">Máy nối mạng bằng nhiều cách (dây LAN, Wi‑Fi) nên có nhiều địa chỉ. Dùng địa chỉ nào cũng được.</p>
             <ul class="addrs" id="web-urls"></ul>
           </details>
-        </div>
-        <div class="web-share">
-          <div class="legend">File cho người khác tải về</div>
-          <p class="muted small web-hint">File trong danh sách đã sẵn sàng: ai mở trang sẽ thấy và tải được ngay, <strong>không cần bấm gửi</strong>. Mỗi lượt tải sẽ hiện trong mục Hoạt động.</p>
+        </section>
+        <section class="web-share">
+          <div class="legend-row">
+            <span class="legend">File cho người khác tải</span>
+            <span class="muted small">tải được ngay, không cần bấm gửi</span>
+          </div>
           <ul class="staged" id="web-files"></ul>
-          <p class="muted small" id="web-files-empty">Chưa có file nào. Bấm “Thêm file…” để chọn.</p>
+          <p class="muted small web-empty" id="web-files-empty">Chưa có file nào.</p>
           <div class="row-start">
             <button class="btn small primary" id="btn-web-add-files">Thêm file…</button>
             <button class="btn small" id="btn-web-add-folder">Thêm thư mục…</button>
             <button class="btn small" id="btn-web-share-files" hidden></button>
-            <button class="btn small" id="btn-web-unshare" hidden>Bỏ chia sẻ tất cả</button>
+            <button class="btn small" id="btn-web-unshare" hidden>Bỏ tất cả</button>
           </div>
-          <div class="legend">Văn bản cho người khác sao chép <span class="muted small">(tuỳ chọn)</span></div>
+          <div class="legend-row">
+            <span class="legend">Văn bản</span>
+            <span class="muted small">tuỳ chọn</span>
+          </div>
           <textarea id="web-text" rows="2" placeholder="Dán văn bản, đường link…"></textarea>
           <div class="row-start web-text-row">
             <button class="btn small" id="btn-web-text">Chia sẻ văn bản</button>
             <span class="small web-text-state" id="web-text-state"></span>
           </div>
-        </div>
-        <p class="muted small web-clients" id="web-clients"></p>
-        <div class="dialog-actions">
+        </section>
+      </div>
+      <div class="web-foot" id="web-foot" hidden>
+        <span class="muted small">Đóng cửa sổ vẫn tiếp tục chia sẻ.</span>
+        <div class="web-foot-actions">
           <button class="btn" id="btn-web-stop">Tắt chia sẻ</button>
           <button class="btn primary" id="btn-web-close2">Đóng</button>
         </div>
-        <p class="muted small web-close-hint">Đóng hộp thoại thì vẫn tiếp tục chia sẻ. Bấm “Tắt chia sẻ” để dừng hẳn.</p>
       </div>
     </dialog>
 

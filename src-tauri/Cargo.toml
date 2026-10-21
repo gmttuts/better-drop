@@ -1,6 +1,6 @@
 [package]
 name = "better-drop"
-version = "0.3.0"
+version = "0.3.1"
 description = "Chuyển file giữa Mac và Windows qua mạng LAN"
 edition = "2021"
 
@@ -37,6 +37,7 @@ hostname = "0.4"
 if-addrs = "0.15"
 unicode-normalization = "0.1"
 dirs = "6"
+zip = { version = "9", default-features = false }
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 
 # Chỉ có trên máy tính: tự mở cùng máy, chỉ chạy một bản.

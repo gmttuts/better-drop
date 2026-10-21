@@ -344,30 +344,35 @@ textarea:focus, input:focus { outline: 2px solid var(--accent-soft); border-colo
 .topbar-web svg { width: 16px; height: 16px; }
 .web-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); display: inline-block; }
 @media (max-width: 560px) { .topbar-web span { display: none; } }
-.wide-dialog { width: min(560px, calc(100vw - 32px)); }
-.web-grid { display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: center; }
-.web-grid .qr { margin: 0; }
-.web-grid .qr svg { width: 170px; height: 170px; }
-@media (max-width: 480px) { .web-grid { grid-template-columns: 1fr; justify-items: center; text-align: center; } }
-.web-pin { font-size: clamp(22px, 8vw, 30px); font-weight: 700; letter-spacing: 0.2em; color: var(--accent); }
-.web-grid > div { min-width: 0; }
-.web-addr { margin-top: 12px; text-align: center; }
-.web-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.live-badge { font-size: 12px; font-weight: 600; color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); padding: 2px 10px; border-radius: 999px; }
-.web-hint { margin: -2px 0 2px; }
+.dialog.web-dialog { width: min(760px, calc(100vw - 32px)); }
+.web-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.web-head h3 { margin: 0; }
+.live-badge { font-size: 12px; font-weight: 600; color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); padding: 2px 10px; border-radius: 999px; white-space: nowrap; }
+.web-cols { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 20px; }
+.web-connect { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; }
+.web-connect .qr { margin: 0 0 6px; padding: 6px; }
+.web-connect .qr svg { width: 168px; height: 168px; }
+.web-url { font-size: 15px; font-weight: 700; white-space: nowrap; color: var(--text); -webkit-user-select: text; user-select: text; }
+.web-pin-row { display: flex; align-items: baseline; gap: 8px; margin-top: 4px; }
+.web-pin { font-size: 24px; font-weight: 700; letter-spacing: 0.15em; color: var(--accent); }
+.web-more { margin-top: 4px; }
+.web-more summary { cursor: pointer; color: var(--accent); }
+.web-more .addrs li { white-space: nowrap; }
+.web-share { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.legend-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.legend-row .legend { font-weight: 600; }
+.web-share .staged { margin: 0; max-height: 132px; }
+.web-empty { margin: 0; }
+.web-share textarea { min-height: 0; }
 .web-text-row { align-items: center; }
 .web-text-state { color: var(--ok); }
-.web-clients { margin: 12px 0 0; }
-.web-close-hint { text-align: right; margin: 6px 0 0; }
-.web-url { font-size: clamp(15px, 4.6vw, 20px); font-weight: 700; white-space: nowrap; margin: 4px 0 6px; color: var(--text); -webkit-user-select: text; user-select: text; }
-.web-more { margin-bottom: 10px; }
-.web-more summary { cursor: pointer; color: var(--accent); }
-.web-more .addrs li { white-space: nowrap; overflow-wrap: normal; }
-#web-files li .icon-btn { margin-left: 4px; }
-.addrs li { overflow-wrap: anywhere; }
-.web-share { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); display: grid; gap: 8px; }
-.web-share .legend { font-weight: 600; }
+.web-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+.web-foot-actions { display: flex; gap: 8px; margin-left: auto; }
+@media (max-width: 640px) {
+  .web-cols { grid-template-columns: 1fr; }
+}
 .row-start { display: flex; gap: 8px; flex-wrap: wrap; }
+#web-files li .icon-btn { margin-left: 4px; }
 
 /* ---- Màn hình quét QR: trang trong suốt để thấy camera phía sau ---- */
 html.scanning, html.scanning body { background: transparent !important; }
