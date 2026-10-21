@@ -97,6 +97,7 @@ impl AppState {
             os: identity::os_name().to_string(),
             fp: self.identity.fingerprint.clone(),
             port: self.port,
+            version: APP_VERSION.to_string(),
         }
     }
 

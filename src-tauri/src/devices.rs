@@ -119,7 +119,7 @@ mod tests {
 
     fn peer(id: &str, name: &str) -> Peer {
         Peer {
-            info: DeviceInfo { id: id.into(), name: name.into(), os: "mac".into(), fp: "aa".into(), port: 1 },
+            info: DeviceInfo { id: id.into(), name: name.into(), os: "mac".into(), fp: "aa".into(), port: 1, version: String::new() },
             addrs: vec!["10.0.0.1:1".into()],
             manual: true,
             online: true,

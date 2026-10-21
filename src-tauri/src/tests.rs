@@ -504,3 +504,134 @@ async fn web_preview() {
     println!("WEB_PREVIEW http://127.0.0.1:{port}/#pin={pin}");
     tokio::time::sleep(std::time::Duration::from_secs(600)).await;
 }
+
+// ---- Tương thích giữa các phiên bản ----
+// Dữ liệu dưới đây là ĐÚNG định dạng bản v0.1.0 gửi/nhận. Nếu một thay đổi làm các
+// test này hỏng, nghĩa là bản mới sẽ không nói chuyện được với máy đang dùng bản cũ.
+
+/// /api/v1/info và các trường `sender` do bản v0.1.0 tạo ra (không có `version`).
+const V010_DEVICE_INFO: &str = r#"{"id":"old-id","name":"Máy cũ","os":"windows","fp":"ab","port":53318}"#;
+
+#[test]
+fn new_version_reads_old_wire_format() {
+    let info: crate::models::DeviceInfo = serde_json::from_str(V010_DEVICE_INFO).unwrap();
+    assert_eq!(info.name, "Máy cũ");
+    assert_eq!(info.version, "", "bản cũ không gửi phiên bản");
+
+    let req: crate::models::PrepareRequest = serde_json::from_str(&format!(
+        r#"{{"sender":{V010_DEVICE_INFO},"kind":"files","files":[{{"id":"f1","rel_path":"a/b.txt","size":3}}],"text":null}}"#
+    ))
+    .unwrap();
+    assert_eq!(req.files[0].rel_path, "a/b.txt");
+
+    let resp: crate::models::PrepareResponse =
+        serde_json::from_str(r#"{"session_id":"s","tokens":{"f1":"t"}}"#).unwrap();
+    assert_eq!(resp.tokens["f1"], "t");
+}
+
+#[test]
+fn old_version_can_read_new_wire_format() {
+    // Mọi trường bản v0.1.0 bắt buộc phải có, đúng tên và kiểu; trường mới chỉ được thêm.
+    let info = serde_json::to_value(crate::models::DeviceInfo {
+        id: "x".into(),
+        name: "Mới".into(),
+        os: "mac".into(),
+        fp: "cd".into(),
+        port: 1,
+        version: crate::models::APP_VERSION.into(),
+    })
+    .unwrap();
+    for key in ["id", "name", "os", "fp"] {
+        assert!(info[key].is_string(), "thiếu/sai kiểu trường `{key}`");
+    }
+    assert!(info["port"].is_u64());
+    let req = serde_json::to_value(crate::models::PrepareRequest {
+        sender: serde_json::from_value(info).unwrap(),
+        kind: crate::models::TransferKind::Files,
+        files: vec![crate::models::FileMeta { id: "f".into(), rel_path: "x".into(), size: 1 }],
+        text: None,
+    })
+    .unwrap();
+    assert_eq!(req["kind"], "files");
+    assert!(req["files"][0]["rel_path"].is_string() && req["files"][0]["size"].is_u64());
+}
+
+/// Một máy chạy bản cũ (gửi đúng JSON của v0.1.0) gửi văn bản và file tới bản mới.
+#[tokio::test(flavor = "multi_thread")]
+async fn old_client_can_send_to_new_version() {
+    let mut new = node("Bản mới").await;
+    let base = format!("127.0.0.1:{}", new.st.port);
+    let http = crate::client::build_client(crate::client::Pin::Fingerprint(new.st.identity.fingerprint.clone())).unwrap();
+    let url = |p: &str| crate::client::api_url(&base, p);
+
+    // Bản cũ đọc /info của bản mới (có thêm `version`, bản cũ bỏ qua).
+    let info: serde_json::Value = http.get(url("info")).send().await.unwrap().json().await.unwrap();
+    assert_eq!(info["name"], "Bản mới");
+
+    let text = format!(r#"{{"sender":{V010_DEVICE_INFO},"kind":"text","files":[],"text":"chào từ bản cũ"}}"#);
+    let r = http.post(url("prepare")).header("content-type", "application/json").body(text).send().await.unwrap();
+    assert_eq!(r.status(), 200);
+
+    let st = new.st.clone();
+    let accepter = tokio::spawn(async move {
+        while let Some((ev, v)) = new.events.recv().await {
+            if ev == "incoming-request" {
+                let id = v["request_id"].as_str().unwrap().to_string();
+                st.pending.lock().unwrap().remove(&id).unwrap().send(true).unwrap();
+                return new;
+            }
+        }
+        panic!("không có yêu cầu nhận");
+    });
+    let files = format!(
+        r#"{{"sender":{V010_DEVICE_INFO},"kind":"files","files":[{{"id":"f1","rel_path":"cũ.txt","size":3}}],"text":null}}"#
+    );
+    let prep: serde_json::Value = http
+        .post(url("prepare"))
+        .header("content-type", "application/json")
+        .body(files)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let new = accepter.await.unwrap();
+    let up = http
+        .post(url("upload"))
+        .query(&[
+            ("session", prep["session_id"].as_str().unwrap()),
+            ("file", "f1"),
+            ("token", prep["tokens"]["f1"].as_str().unwrap()),
+        ])
+        .body("abc")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(up.status(), 200);
+    let dir = new.st.settings.read().unwrap().download_dir.clone();
+    assert_eq!(std::fs::read(Path::new(&dir).join("cũ.txt")).unwrap(), b"abc");
+}
+
+/// File cài đặt/sổ thiết bị do bản cũ ghi (thiếu các trường mới) vẫn đọc được.
+#[test]
+fn old_saved_files_still_load() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("settings.json"),
+        r#"{"device_id":"d","name":"Máy","download_dir":"/tmp/x"}"#,
+    )
+    .unwrap();
+    let s = identity::load_settings(dir.path(), identity::Defaults::default());
+    assert_eq!(s.device_id, "d");
+    assert!(s.receive_enabled, "mặc định bật nhận file");
+
+    std::fs::write(
+        dir.path().join("devices.json"),
+        format!(r#"{{"known":[{{"id":"old-id","name":"Máy cũ","os":"windows","fp":"ab","port":53318,"addrs":["1.2.3.4:53318"]}}]}}"#),
+    )
+    .unwrap();
+    let book = crate::devices::DeviceBook::load(dir.path());
+    assert_eq!(book.known.len(), 1);
+    assert!(book.groups.is_empty());
+}

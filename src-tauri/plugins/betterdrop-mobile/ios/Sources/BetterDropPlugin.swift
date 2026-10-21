@@ -75,6 +75,7 @@ class StartBonjourArgs: Decodable {
   let os: String
   let fp: String
   let port: Int
+  let version: String?
 }
 
 final class Bonjour: NSObject, NetServiceBrowserDelegate, NetServiceDelegate {
@@ -91,6 +92,7 @@ final class Bonjour: NSObject, NetServiceBrowserDelegate, NetServiceDelegate {
       let s = NetService(domain: "local.", type: Bonjour.type, name: a.id, port: Int32(a.port))
       let txt: [String: Data] = [
         "id": Data(a.id.utf8), "name": Data(a.name.utf8), "os": Data(a.os.utf8), "fp": Data(a.fp.utf8),
+        "v": Data((a.version ?? "").utf8),
       ]
       s.setTXTRecord(NetService.data(fromTXTRecord: txt))
       s.publish()
@@ -139,7 +141,7 @@ final class Bonjour: NSObject, NetServiceBrowserDelegate, NetServiceDelegate {
     lock.lock()
     peers[s.name] = [
       "id": id, "name": str("name") ?? "Không tên", "os": str("os") ?? "", "fp": fp,
-      "port": s.port, "ips": ips,
+      "port": s.port, "ips": ips, "version": str("v") ?? "",
     ]
     lock.unlock()
   }

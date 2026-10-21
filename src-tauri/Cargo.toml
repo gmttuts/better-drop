@@ -1,6 +1,6 @@
 [package]
 name = "better-drop"
-version = "0.3.1"
+version = "0.3.2"
 description = "Chuyển file giữa Mac và Windows qua mạng LAN"
 edition = "2021"
 

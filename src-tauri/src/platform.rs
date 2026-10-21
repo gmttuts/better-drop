@@ -165,7 +165,7 @@ mod imp {
         fn announce(&self, me: &DeviceInfo) -> Result<(), String> {
             self.0
                 .betterdrop_mobile()
-                .start_bonjour(&me.id, &me.name, &me.os, &me.fp, me.port)
+                .start_bonjour(&me.id, &me.name, &me.os, &me.fp, me.port, &me.version)
                 .map_err(|e| e.to_string())
         }
 
@@ -183,6 +183,7 @@ mod imp {
                         os: p.os,
                         fp: p.fp,
                         port: p.port,
+                        version: p.version,
                     },
                     manual: false,
                     online: true,

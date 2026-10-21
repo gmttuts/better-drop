@@ -36,6 +36,8 @@ pub struct BonjourPeer {
   pub fp: String,
   pub port: u16,
   pub ips: Vec<String>,
+  #[serde(default)]
+  pub version: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -50,4 +52,5 @@ pub(crate) struct StartBonjourArgs<'a> {
   pub os: &'a str,
   pub fp: &'a str,
   pub port: u16,
+  pub version: &'a str,
 }

@@ -170,6 +170,8 @@ pub fn register(daemon: &ServiceDaemon, me: &DeviceInfo) -> Result<(), String> {
         ("name", me.name.clone()),
         ("os", me.os.clone()),
         ("fp", me.fp.clone()),
+        // Từ 0.3.2. Bản cũ không có khoá này và cũng bỏ qua khi đọc.
+        ("v", me.version.clone()),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_string(), v))
@@ -215,6 +217,7 @@ fn peer_from(svc: &mdns_sd::ResolvedService) -> Option<Peer> {
             os: prop("os").unwrap_or_default(),
             fp: prop("fp")?,
             port,
+            version: prop("v").unwrap_or_default(),
         },
         addrs: ips.iter().map(|ip| format!("{ip}:{port}")).collect(),
         manual: false,

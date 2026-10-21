@@ -11,7 +11,14 @@ pub struct DeviceInfo {
     /// SHA-256 (hex) của chứng chỉ TLS.
     pub fp: String,
     pub port: u16,
+    /// Phiên bản app (vd "0.3.2"). Thêm từ 0.3.2: bản cũ hơn không gửi trường này
+    /// (để trống), và bỏ qua nó khi nhận. Xem "Tương thích giữa các phiên bản" trong README.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub version: String,
 }
+
+/// Phiên bản của app này.
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Một máy khác trong mạng mà ta có thể gửi tới.
 #[derive(Debug, Clone, Serialize, Deserialize)]

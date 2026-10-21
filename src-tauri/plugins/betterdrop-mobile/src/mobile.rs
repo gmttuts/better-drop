@@ -69,10 +69,10 @@ impl<R: Runtime> BetterdropMobile<R> {
   }
 
   /// iOS: quảng bá máy này qua Bonjour và bắt đầu tìm máy khác.
-  pub fn start_bonjour(&self, id: &str, name: &str, os: &str, fp: &str, port: u16) -> crate::Result<()> {
+  pub fn start_bonjour(&self, id: &str, name: &str, os: &str, fp: &str, port: u16, version: &str) -> crate::Result<()> {
     self
       .0
-      .run_mobile_plugin::<serde_json::Value>("startBonjour", StartBonjourArgs { id, name, os, fp, port })
+      .run_mobile_plugin::<serde_json::Value>("startBonjour", StartBonjourArgs { id, name, os, fp, port, version })
       .map(|_| ())
       .map_err(Into::into)
   }

@@ -14,6 +14,8 @@ interface DeviceInfo {
   os: string;
   fp: string;
   port: number;
+  /** Phiên bản app; trống với bản trước 0.3.2. */
+  version?: string;
 }
 interface Peer extends DeviceInfo {
   addrs: string[];
@@ -95,6 +97,24 @@ function formatBytes(n: number): string {
 }
 
 const shortCode = (fp: string) => fp.slice(0, 4).toUpperCase();
+
+/** So sánh "0.3.1" với "0.3.2": âm nếu a cũ hơn b. */
+function compareVersion(a: string, b: string): number {
+  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d) return d;
+  }
+  return 0;
+}
+
+/** Nhãn phiên bản của máy khác; báo khi máy đó cũ hơn máy này (vẫn gửi nhận được). */
+function versionNote(v: string | undefined): { text: string; old: boolean } {
+  const mine = me?.info.version ?? "";
+  if (!v) return { text: "bản cũ (trước 0.3.2)", old: true };
+  return { text: `v${v}`, old: !!mine && compareVersion(v, mine) < 0 };
+}
 const OS_LABELS: Record<string, string> = {
   mac: "macOS",
   windows: "Windows",
@@ -403,7 +423,18 @@ function renderPeers() {
       if (!online)
         meta.append(el("span", { className: "offline-tag", textContent: p ? "Không kết nối được" : "Đang tắt" }), " · ");
       meta.append(`${osLabel(d.os)}${p?.manual ? " · đã lưu" : ""}`);
-      if (p) meta.append(" · mã ", el("span", { className: "code", textContent: shortCode(p.fp) }));
+      if (p) {
+        meta.append(" · mã ", el("span", { className: "code", textContent: shortCode(p.fp) }));
+        const vn = versionNote(p.version);
+        const tag = el("span", {
+          className: vn.old ? "version-tag old" : "version-tag",
+          textContent: vn.text,
+          title: vn.old
+            ? "Máy này dùng phiên bản cũ hơn. Vẫn gửi nhận được, nhưng nên cập nhật để có bản sửa lỗi mới nhất."
+            : "Phiên bản BetterDrop của máy này",
+        });
+        meta.append(" · ", tag);
+      }
 
       return el(
         "li",
@@ -681,7 +712,7 @@ function openSettings() {
   if (!me) return;
   $<HTMLInputElement>("set-name").value = me.settings.name;
   $<HTMLInputElement>("set-dir").value = me.settings.download_dir;
-  $("set-code").textContent = shortCode(me.info.fp);
+  $("set-code").textContent = `${shortCode(me.info.fp)} · BetterDrop v${me.info.version ?? "?"}`;
   const isMac = me.info.os === "mac";
   $("row-dock").hidden = !isMac;
   $("row-autostart").hidden = me.mobile;
