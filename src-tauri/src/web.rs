@@ -5,9 +5,10 @@
 //! Dùng HTTP thường (không phải HTTPS) vì chứng chỉ tự ký làm trình duyệt hiện cảnh
 //! báo đáng sợ. Dữ liệu chỉ đi trong mạng nội bộ.
 
-use crate::models::{FileMeta, UploadQuery};
+use crate::models::{Direction, FileMeta, TransferKind, TransferStatus, TransferUpdate, UploadQuery};
+use futures_util::StreamExt;
 use crate::server::{accept_files, receive_text, receive_upload};
-use crate::state::AppState;
+use crate::state::{AppState, Tracker};
 use crate::transfer::LocalFile;
 use axum::body::Body;
 use axum::extract::{ConnectInfo, DefaultBodyLimit, Path, Query, State};
@@ -54,6 +55,8 @@ pub struct WebInfo {
     pub qr_svg: String,
     pub files: Vec<FileMeta>,
     pub text: Option<String>,
+    /// Số trình duyệt đã nhập đúng PIN (kể từ khi bật hoặc đổi PIN).
+    pub clients: usize,
 }
 
 fn new_pin() -> String {
@@ -80,6 +83,7 @@ pub fn info(st: &AppState, local_ips: &[String]) -> Option<WebInfo> {
         qr_svg,
         files: w.files.iter().map(|f| f.meta.clone()).collect(),
         text: w.text.clone(),
+        clients: w.sessions.len(),
     })
 }
 
@@ -235,6 +239,8 @@ async fn login(
     let token = new_token();
     w.sessions.insert(token.clone());
     drop(web);
+    // Báo giao diện máy tính cập nhật số trình duyệt đã kết nối.
+    st.emit("web-changed", serde_json::json!({}));
     let cookie = format!("{COOKIE}={token}; Path=/; HttpOnly; SameSite=Strict");
     let mut resp = Json(serde_json::json!({ "name": st.device_info().name })).into_response();
     resp.headers_mut()
@@ -282,8 +288,44 @@ async fn download(State(st): St, headers: HeaderMap, Path(id): Path<String>) -> 
         (f.meta.clone(), f.source.clone())
     };
     let file = st.open_source(&source).map_err(|_| StatusCode::GONE)?;
-    let stream = ReaderStream::with_capacity(tokio::fs::File::from_std(file), 256 * 1024);
     let name = meta.rel_path.rsplit('/').next().unwrap_or(&meta.rel_path).to_string();
+
+    // Ghi lượt tải vào mục Hoạt động trên máy tính: tiến trình, rồi Hoàn tất hoặc
+    // "Trình duyệt dừng tải" nếu người dùng huỷ giữa chừng.
+    let tracker = Tracker::new(
+        st.emit.clone(),
+        TransferUpdate {
+            id: uuid::Uuid::new_v4().to_string(),
+            direction: Direction::Send,
+            peer_name: format!("trình duyệt · {name}"),
+            kind: TransferKind::Files,
+            file_count: 1,
+            total_bytes: meta.size,
+            transferred: 0,
+            speed_bps: 0.0,
+            status: TransferStatus::Waiting,
+            error: None,
+            dir_path: None,
+        },
+    );
+    tracker.set_status(TransferStatus::Transferring, None);
+    if meta.size == 0 {
+        tracker.set_status(TransferStatus::Done, None);
+    }
+    let guard = DownloadGuard(tracker.clone());
+    let total = meta.size;
+    let mut sent = 0u64;
+    let stream = ReaderStream::with_capacity(tokio::fs::File::from_std(file), 256 * 1024).map(move |chunk| {
+        let _keep = &guard;
+        if let Ok(b) = &chunk {
+            sent += b.len() as u64;
+            tracker.add(b.len() as u64);
+            if sent >= total {
+                tracker.set_status(TransferStatus::Done, None);
+            }
+        }
+        chunk
+    });
     Ok((
         [
             (header::CONTENT_TYPE, "application/octet-stream".to_string()),
@@ -293,6 +335,16 @@ async fn download(State(st): St, headers: HeaderMap, Path(id): Path<String>) -> 
         Body::from_stream(stream),
     )
         .into_response())
+}
+
+/// Khi luồng tải bị huỷ trước khi xong (trình duyệt đóng/huỷ), đánh dấu đã dừng.
+struct DownloadGuard(Arc<Tracker>);
+
+impl Drop for DownloadGuard {
+    fn drop(&mut self) {
+        self.0
+            .set_status(TransferStatus::Cancelled, Some("Trình duyệt dừng tải".into()));
+    }
 }
 
 #[derive(Deserialize)]

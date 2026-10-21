@@ -352,6 +352,13 @@ textarea:focus, input:focus { outline: 2px solid var(--accent-soft); border-colo
 .web-pin { font-size: clamp(22px, 8vw, 30px); font-weight: 700; letter-spacing: 0.2em; color: var(--accent); }
 .web-grid > div { min-width: 0; }
 .web-addr { margin-top: 12px; text-align: center; }
+.web-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.live-badge { font-size: 12px; font-weight: 600; color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); padding: 2px 10px; border-radius: 999px; }
+.web-hint { margin: -2px 0 2px; }
+.web-text-row { align-items: center; }
+.web-text-state { color: var(--ok); }
+.web-clients { margin: 12px 0 0; }
+.web-close-hint { text-align: right; margin: 6px 0 0; }
 .web-url { font-size: clamp(15px, 4.6vw, 20px); font-weight: 700; white-space: nowrap; margin: 4px 0 6px; color: var(--text); -webkit-user-select: text; user-select: text; }
 .web-more { margin-bottom: 10px; }
 .web-more summary { cursor: pointer; color: var(--accent); }

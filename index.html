@@ -159,7 +159,7 @@
 
     <!-- Chia sẻ qua trình duyệt -->
     <dialog id="dlg-web" class="dialog wide-dialog">
-      <h3>Chia sẻ qua trình duyệt</h3>
+      <h3 class="web-title">Chia sẻ qua trình duyệt <span class="live-badge" id="web-live" hidden>● Đang chia sẻ</span></h3>
       <div id="web-off">
         <p class="muted">Cho điện thoại hoặc máy tính <strong>không cài BetterDrop</strong> gửi file, văn bản tới máy này và tải những gì bạn chia sẻ, chỉ bằng trình duyệt. Chỉ dùng trong cùng mạng Wi‑Fi/LAN, cần nhập mã PIN.</p>
         <div class="dialog-actions">
@@ -186,22 +186,29 @@
           </details>
         </div>
         <div class="web-share">
-          <div class="legend">Đang chia sẻ để tải về</div>
+          <div class="legend">File cho người khác tải về</div>
+          <p class="muted small web-hint">File trong danh sách đã sẵn sàng: ai mở trang sẽ thấy và tải được ngay, <strong>không cần bấm gửi</strong>. Mỗi lượt tải sẽ hiện trong mục Hoạt động.</p>
           <ul class="staged" id="web-files"></ul>
-          <p class="muted small" id="web-files-empty">Chưa chia sẻ file nào.</p>
+          <p class="muted small" id="web-files-empty">Chưa có file nào. Bấm “Thêm file…” để chọn.</p>
           <div class="row-start">
             <button class="btn small primary" id="btn-web-add-files">Thêm file…</button>
             <button class="btn small" id="btn-web-add-folder">Thêm thư mục…</button>
             <button class="btn small" id="btn-web-share-files" hidden></button>
             <button class="btn small" id="btn-web-unshare" hidden>Bỏ chia sẻ tất cả</button>
           </div>
-          <textarea id="web-text" rows="2" placeholder="Văn bản, đường link muốn chia sẻ (tuỳ chọn)"></textarea>
-          <div class="row-start"><button class="btn small" id="btn-web-text">Chia sẻ văn bản</button></div>
+          <div class="legend">Văn bản cho người khác sao chép <span class="muted small">(tuỳ chọn)</span></div>
+          <textarea id="web-text" rows="2" placeholder="Dán văn bản, đường link…"></textarea>
+          <div class="row-start web-text-row">
+            <button class="btn small" id="btn-web-text">Chia sẻ văn bản</button>
+            <span class="small web-text-state" id="web-text-state"></span>
+          </div>
         </div>
+        <p class="muted small web-clients" id="web-clients"></p>
         <div class="dialog-actions">
           <button class="btn" id="btn-web-stop">Tắt chia sẻ</button>
-          <button class="btn primary" id="btn-web-close2">Xong</button>
+          <button class="btn primary" id="btn-web-close2">Đóng</button>
         </div>
+        <p class="muted small web-close-hint">Đóng hộp thoại thì vẫn tiếp tục chia sẻ. Bấm “Tắt chia sẻ” để dừng hẳn.</p>
       </div>
     </dialog>
 

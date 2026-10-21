@@ -771,6 +771,7 @@ interface WebInfo {
   qr_svg: string;
   files: { id: string; rel_path: string; size: number }[];
   text: string | null;
+  clients: number;
 }
 
 let webInfo: WebInfo | null = null;
@@ -780,7 +781,13 @@ function renderWeb() {
   $("web-off").hidden = on;
   $("web-on").hidden = !on;
   $("web-dot").hidden = !on;
+  $("web-live").hidden = !on;
   if (!webInfo) return;
+  $("web-clients").textContent =
+    webInfo.clients > 0
+      ? `${webInfo.clients} trình duyệt đã kết nối bằng mã PIN này.`
+      : "Chưa có trình duyệt nào kết nối.";
+  $("web-text-state").textContent = webInfo.text ? "✓ Đang chia sẻ văn bản này" : "";
   $("web-qr").innerHTML = webInfo.qr_svg;
   // Một địa chỉ chính (cũng là địa chỉ trong mã QR); các địa chỉ khác gấp gọn bên dưới.
   $("web-url").textContent = webInfo.urls[0] ?? "(không có mạng)";
@@ -851,7 +858,7 @@ async function init() {
   const addShared = async (paths: string[]) => {
     if (!paths.length) return;
     await webCall("web_share_add_files", { paths });
-    toast("Trình duyệt đã có thể tải các file này");
+    toast("Đã đưa lên trang: người mở trang tải được ngay");
   };
   $("btn-web-add-files").addEventListener("click", async () => {
     const r = await open({ multiple: true, directory: false });
@@ -863,6 +870,11 @@ async function init() {
   });
   $("btn-web-share-files").addEventListener("click", () => addShared(staged.map((s) => s.path)));
   $("btn-web-unshare").addEventListener("click", () => webCall("web_share_set_files", { paths: [] }));
+  await listen("web-changed", async () => {
+    if (!$<HTMLDialogElement>("dlg-web").open) return;
+    webInfo = await invoke<WebInfo | null>("web_share_status");
+    renderWeb();
+  });
   $("btn-web-text").addEventListener("click", async () => {
     await webCall("web_share_set_text", { text: $<HTMLTextAreaElement>("web-text").value });
     toast(webInfo?.text ? "Đã chia sẻ văn bản" : "Đã bỏ chia sẻ văn bản");

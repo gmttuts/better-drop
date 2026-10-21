@@ -406,6 +406,14 @@ async fn browser_share_end_to_end() {
     let dl = http.get(format!("{base}/api/file/{id}")).header("cookie", &cookie).send().await.unwrap();
     assert!(dl.headers()["content-disposition"].to_str().unwrap().contains("B%C3%A1o"));
     assert_eq!(dl.bytes().await.unwrap().as_ref(), b"noi dung bao cao");
+    // Lượt tải được ghi vào Hoạt động với trạng thái Hoàn tất.
+    let mut saw_done = false;
+    while let Ok((ev, v)) = desk.events.try_recv() {
+        if ev == "transfer-update" && v["peer_name"] == "trình duyệt · Báo cáo.txt" && v["status"] == "done" {
+            saw_done = true;
+        }
+    }
+    assert!(saw_done, "lượt tải phải hiện Hoàn tất");
 
     // Trình duyệt gửi văn bản lên.
     let r = http
