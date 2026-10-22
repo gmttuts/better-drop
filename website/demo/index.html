@@ -22,13 +22,13 @@
   if (me.mobile) Object.assign(me.info, { name: "iPhone của bạn", os: "ios" }), (me.settings.name = me.info.name);
   const peer = (id, name, os, fp, version, ip) => ({ id, name, os, fp, port: 53318, version, addrs: [ip + ":53318"], manual: false, online: true });
   let peers = [
-    peer("p1", "Laptop Kế toán", "windows", "7f3ca1e0", "0.3.3", "192.168.1.21"),
-    peer("p2", "Pixel 9 của Lan", "android", "c41e02b7", "0.3.3", "192.168.1.34"),
-    peer("p3", "iPad phòng họp", "ios", "9a0b77d2", "0.3.2", "192.168.1.40"),
-    peer("p4", "Ubuntu Server", "linux", "e2d913aa", "0.3.1", "192.168.1.5"),
-    peer("p5", "PC Thiết kế", "windows", "1b7a4c90", "0.3.3", "192.168.1.27"),
+    peer("p1", "Laptop Phạm Bá Cháy", "windows", "7f3ca1e0", "0.3.3", "192.168.1.21"),
+    peer("p2", "Pixel 9 của Tuyến", "android", "c41e02b7", "0.3.3", "192.168.1.34"),
+    peer("p3", "iPad của Dương Vũ", "ios", "9a0b77d2", "0.3.2", "192.168.1.40"),
+    peer("p4", "Chande Sever", "linux", "e2d913aa", "0.3.1", "192.168.1.5"),
+    peer("p5", "PC Thiết kế chờ nâng cấp", "windows", "1b7a4c90", "0.3.3", "192.168.1.27"),
   ];
-  let groups = [{ id: "g1", name: "Phòng kế toán", members: [{ id: "p1", name: "Laptop Kế toán", os: "windows" }, { id: "p5", name: "PC Thiết kế", os: "windows" }] }];
+  let groups = [{ id: "g1", name: "Phòng kế toán", members: [{ id: "p1", name: "Laptop Phạm Bá Cháy", os: "windows" }, { id: "p5", name: "PC Thiết kế chờ nâng cấp", os: "windows" }] }];
   let hidden = [];
   const devices = () => ({ groups, hidden });
 
@@ -88,7 +88,7 @@
     demoIncomingDone = true;
     setTimeout(() => {
       emit("incoming-request", {
-        request_id: "r1", sender_name: "Laptop Kế toán", sender_os: "windows", file_count: 3, total_bytes: 5300000,
+        request_id: "r1", sender_name: "Laptop Phạm Bá Cháy", sender_os: "windows", file_count: 3, total_bytes: 5300000,
         preview: ["Bảng lương tháng 10.xlsx", "Hoá đơn VAT.pdf", "Ảnh chứng từ.jpg"], timeout_secs: 60,
       });
     }, 2500);
@@ -115,7 +115,7 @@
     },
     respond_request({ requestId, accept }) {
       emit("request-closed", { request_id: requestId });
-      if (accept) runTransfer({ id: "t" + ++tid, direction: "receive", peer_name: "Laptop Kế toán", kind: "files", file_count: 3, total_bytes: 5300000,
+      if (accept) runTransfer({ id: "t" + ++tid, direction: "receive", peer_name: "Laptop Phạm Bá Cháy", kind: "files", file_count: 3, total_bytes: 5300000,
         transferred: 0, speed_bps: 0, status: "waiting", error: null, dir_path: "~/Downloads/BetterDrop" }, 300);
     },
     open_folder: () => { throw "Đây là bản dùng thử trên web, không có thư mục thật để mở."; },
