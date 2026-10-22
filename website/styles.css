@@ -97,9 +97,14 @@ code { font: 0.88em var(--mono); background: var(--panel); padding: 1px 5px; bor
 @media (prefers-color-scheme: dark) { .pill { background: #26272d; } }
 .os-row { display: flex; justify-content: center; gap: 18px; margin-top: 18px; color: var(--soft); }
 .os-row svg { width: 18px; height: 18px; fill: currentColor; }
-.window { max-width: 1000px; margin: clamp(40px, 6vw, 64px) auto 0; border-radius: 14px 14px 0 0; overflow: hidden; background: #111318;
+.window { max-width: 1000px; margin: clamp(40px, 6vw, 64px) auto 0; border-radius: 14px; overflow: hidden; background: var(--card);
   box-shadow: 0 30px 70px rgba(0, 40, 100, .22), 0 0 0 1px rgba(0,0,0,.1); }
-.chrome { display: flex; gap: 7px; padding: 11px 13px; background: #1d1f25; }
+.chrome { position: relative; display: flex; align-items: center; gap: 7px; padding: 11px 13px; background: var(--panel-2); border-bottom: 1px solid var(--line); }
+.chrome span { position: absolute; left: 50%; transform: translateX(-50%); font-size: 12px; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.demo-box { position: relative; height: 640px; overflow: hidden; background: #f4f6fa; }
+.window iframe { position: absolute; top: 0; left: 0; width: 100%; height: 640px; border: 0; transform-origin: 0 0; }
+@media (prefers-color-scheme: dark) { .demo-box { background: #0f141b; } }
+.demo-hint { max-width: 44em; margin: 0 auto; padding: 18px 0 26px; }
 .chrome i { width: 11px; height: 11px; border-radius: 50%; background: #ff5f57; }
 .chrome i:nth-child(2) { background: #febc2e; } .chrome i:nth-child(3) { background: #28c840; }
 
@@ -287,7 +292,7 @@ code { font: 0.88em var(--mono); background: var(--panel); padding: 1px 5px; bor
   .qr { width: 180px; }
   .support-modal { padding: 28px 18px 18px; }
   .pill { font-size: 13px; }
-  .window { border-radius: 10px 10px 0 0; }
+  .window { border-radius: 10px; }
   .chrome { padding: 8px 10px; } .chrome i { width: 8px; height: 8px; }
   .nav { gap: 12px; }
   .footer { flex-direction: column; align-items: flex-start; }

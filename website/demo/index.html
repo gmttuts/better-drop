@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+<meta name="robots" content="noindex">
+<script>// Stands in for the Rust side of BetterDrop so the real app UI (src/) can run on the website as a demo.
+// Injected before the app's own script by scripts/build-website-demo.mjs. Nothing leaves the browser.
+(() => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  let nextCb = 1;
+  const handlers = {}; // event name -> [callback id]
+  const emit = (event, payload) => (handlers[event] || []).forEach((id) => window["_" + id] && window["_" + id]({ event, id, payload }));
+
+  // ---- Fake state ----
+  const me = {
+    info: { id: "me", name: "MacBook của bạn", os: "mac", fp: "520d9a1b", port: 53318, version: "0.3.3" },
+    settings: { device_id: "me", name: "MacBook của bạn", download_dir: "~/Downloads/BetterDrop", receive_enabled: true, hide_dock: false },
+    addrs: ["192.168.1.12:53318"],
+    autostart: true,
+    // Narrow frame (the website on a phone): show the app's phone layout.
+    mobile: window.innerWidth < 520,
+  };
+  if (me.mobile) Object.assign(me.info, { name: "iPhone của bạn", os: "ios" }), (me.settings.name = me.info.name);
+  const peer = (id, name, os, fp, version, ip) => ({ id, name, os, fp, port: 53318, version, addrs: [ip + ":53318"], manual: false, online: true });
+  let peers = [
+    peer("p1", "Laptop Kế toán", "windows", "7f3ca1e0", "0.3.3", "192.168.1.21"),
+    peer("p2", "Pixel 9 của Lan", "android", "c41e02b7", "0.3.3", "192.168.1.34"),
+    peer("p3", "iPad phòng họp", "ios", "9a0b77d2", "0.3.2", "192.168.1.40"),
+    peer("p4", "Ubuntu Server", "linux", "e2d913aa", "0.3.1", "192.168.1.5"),
+    peer("p5", "PC Thiết kế", "windows", "1b7a4c90", "0.3.3", "192.168.1.27"),
+  ];
+  let groups = [{ id: "g1", name: "Phòng kế toán", members: [{ id: "p1", name: "Laptop Kế toán", os: "windows" }, { id: "p5", name: "PC Thiết kế", os: "windows" }] }];
+  let hidden = [];
+  const devices = () => ({ groups, hidden });
+
+  const SIZES = { "Báo cáo quý 3.xlsx": 482133, "Ảnh sự kiện.zip": 73400320, "Hợp đồng 2026.pdf": 1843200, "Ghi chú họp.txt": 3120 };
+  const sampleFiles = ["/Users/ban/Documents/Báo cáo quý 3.xlsx", "/Users/ban/Documents/Ảnh sự kiện.zip"];
+  const sampleFolder = ["/Users/ban/Documents/Hợp đồng 2026"];
+  const baseName = (p) => p.split("/").pop();
+  const sizeOf = (p) => (baseName(p).includes(".") ? SIZES[baseName(p)] ?? 1200000 : 24117248);
+
+  // A QR-looking pattern for the pairing and browser dialogs (decorative; it's a demo).
+  function fakeQr() {
+    const n = 25, c = 8;
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
+    let cells = "";
+    const finder = (x, y) => (x < 7 && y < 7) || (x >= n - 7 && y < 7) || (x < 7 && y >= n - 7);
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      if (finder(x, y)) continue;
+      if (rnd() < 0.48) cells += `<rect x="${x * c}" y="${y * c}" width="${c}" height="${c}"/>`;
+    }
+    const eye = (x, y) => `<rect x="${x * c}" y="${y * c}" width="${7 * c}" height="${7 * c}"/><rect x="${(x + 1) * c}" y="${(y + 1) * c}" width="${5 * c}" height="${5 * c}" fill="#fff"/><rect x="${(x + 2) * c}" y="${(y + 2) * c}" width="${3 * c}" height="${3 * c}"/>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-16 -16 ${n * c + 32} ${n * c + 32}" style="width:100%;height:auto;stroke:none"><rect x="-16" y="-16" width="${n * c + 32}" height="${n * c + 32}" fill="#fff"/><g fill="#111">${cells}${eye(0, 0)}${eye(n - 7, 0)}${eye(0, n - 7)}</g></svg>`;
+  }
+  const QR = fakeQr();
+
+  let web = null; // WebInfo while browser sharing is on
+  const webInfo = () => web && { ...web, files: web.files.map((f) => ({ ...f })) };
+
+  // ---- Transfers: wait for "Accept", then stream progress ----
+  let tid = 0;
+  const live = new Map();
+  async function runTransfer(t, acceptAfter) {
+    live.set(t.id, t);
+    emit("transfer-update", { ...t });
+    await wait(acceptAfter);
+    if (t.status === "cancelled") return;
+    t.status = "transferring";
+    const speed = 40e6 + Math.random() * 30e6;
+    const step = 120;
+    while (t.transferred < t.total_bytes) {
+      await wait(step);
+      if (t.status === "cancelled") return;
+      t.transferred = Math.min(t.total_bytes, t.transferred + speed * (step / 1000) * (t.total_bytes > 2e7 ? 1 : 0.2) + 1);
+      t.speed_bps = speed;
+      emit("transfer-update", { ...t });
+    }
+    t.status = "done";
+    t.speed_bps = 0;
+    emit("transfer-update", { ...t });
+    live.delete(t.id);
+  }
+
+  // After the visitor's first send finishes, someone sends something back so they can try "Accept".
+  let demoIncomingDone = false;
+  function scheduleIncoming() {
+    if (demoIncomingDone) return;
+    demoIncomingDone = true;
+    setTimeout(() => {
+      emit("incoming-request", {
+        request_id: "r1", sender_name: "Laptop Kế toán", sender_os: "windows", file_count: 3, total_bytes: 5300000,
+        preview: ["Bảng lương tháng 10.xlsx", "Hoá đơn VAT.pdf", "Ảnh chứng từ.jpg"], timeout_secs: 60,
+      });
+    }, 2500);
+  }
+
+  // ---- Commands ----
+  const commands = {
+    get_self_info: () => me,
+    get_peers: () => peers,
+    get_devices: () => devices(),
+    ensure_local_network: () => true,
+    describe_paths: ({ paths }) => paths.map((p) => ({ path: p, name: baseName(p), is_dir: !baseName(p).includes("."), size: baseName(p).includes(".") ? sizeOf(p) : null })),
+    async send_files({ peerId, paths }) {
+      const p = peers.find((x) => x.id === peerId);
+      const t = { id: "t" + ++tid, direction: "send", peer_name: p.name, kind: "files", file_count: paths.length + (paths.some((x) => !baseName(x).includes(".")) ? 11 : 0),
+        total_bytes: paths.reduce((s, x) => s + sizeOf(x), 0), transferred: 0, speed_bps: 0, status: "waiting", error: null, dir_path: null };
+      runTransfer(t, 1200 + Math.random() * 900).then(() => { if (t.status === "done") scheduleIncoming(); });
+      return t.id;
+    },
+    async send_text() { await wait(350); setTimeout(scheduleIncoming, 1500); return null; },
+    cancel_transfer({ id }) {
+      const t = live.get(id);
+      if (t) { t.status = "cancelled"; emit("transfer-update", { ...t }); live.delete(id); }
+    },
+    respond_request({ requestId, accept }) {
+      emit("request-closed", { request_id: requestId });
+      if (accept) runTransfer({ id: "t" + ++tid, direction: "receive", peer_name: "Laptop Kế toán", kind: "files", file_count: 3, total_bytes: 5300000,
+        transferred: 0, speed_bps: 0, status: "waiting", error: null, dir_path: "~/Downloads/BetterDrop" }, 300);
+    },
+    open_folder: () => { throw "Đây là bản dùng thử trên web, không có thư mục thật để mở."; },
+    pair_info: () => ({ link: "betterdrop://pair?h=192.168.1.12&p=53318&fp=520d9a1b", svg: QR }),
+    async add_manual_peer({ addr }) {
+      await wait(500);
+      const ip = addr.replace(/:\d+$/, "");
+      if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip)) throw "Địa chỉ không hợp lệ. Ví dụ: 192.168.1.20";
+      const p = { ...peer("m" + Date.now(), "Máy " + ip, "linux", "ab12cd34", "0.3.3", ip), manual: true };
+      peers = [...peers, p];
+      setTimeout(() => emit("peers-changed", peers), 0);
+      return p;
+    },
+    save_group({ id, name, members }) {
+      name = String(name || "").trim();
+      if (!name) throw "Hãy đặt tên nhóm";
+      if (id) groups = groups.map((g) => (g.id === id ? { ...g, name, members } : g));
+      else groups = [...groups, { id: "g" + Date.now(), name, members }];
+      return devices();
+    },
+    delete_group({ id }) { groups = groups.filter((g) => g.id !== id); return devices(); },
+    forget_peer({ id }) {
+      const p = peers.find((x) => x.id === id);
+      if (p) hidden = [...hidden, { id: p.id, name: p.name, os: p.os }];
+      return devices();
+    },
+    unhide_peer({ id }) { hidden = hidden.filter((h) => h.id !== id); return devices(); },
+    update_settings({ name, downloadDir }) { me.settings.name = me.info.name = name || me.info.name; me.settings.download_dir = downloadDir; return me; },
+    set_receive_enabled({ enabled }) { me.settings.receive_enabled = enabled; return me; },
+    set_autostart({ enabled }) { me.autostart = enabled; return me; },
+    set_hide_dock({ hide }) { me.settings.hide_dock = hide; return me; },
+
+    web_share_status: () => webInfo(),
+    web_share_start() { web = { pin: "4821", urls: ["http://192.168.1.12:53319"], qr_svg: QR, files: [], text: null, clients: 0 }; setTimeout(() => { if (web) { web.clients = 1; emit("web-changed", null); } }, 4000); return webInfo(); },
+    web_share_stop() { web = null; return null; },
+    web_share_new_pin() { web.pin = String(1000 + Math.floor(Math.random() * 9000)); return webInfo(); },
+    web_share_add_files({ paths }) { for (const p of paths) web.files.push({ id: "f" + web.files.length, rel_path: baseName(p), size: sizeOf(p) }); return webInfo(); },
+    web_share_set_files({ paths }) { web.files = paths.map((p, i) => ({ id: "f" + i, rel_path: baseName(p), size: sizeOf(p) })); return webInfo(); },
+    web_share_set_text({ text }) { web.text = text || null; return webInfo(); },
+
+    // Plugins
+    "plugin:event|listen": ({ event, handler }) => { (handlers[event] = handlers[event] || []).push(handler); return handler; },
+    "plugin:event|unlisten": () => null,
+    "plugin:dialog|open": ({ options }) => (options && options.directory ? sampleFolder : sampleFiles),
+    "plugin:clipboard-manager|read_text": () => "https://gmttuts.github.io/better-drop/",
+    "plugin:clipboard-manager|write_text": () => null,
+    "plugin:barcode-scanner|checkPermissions": () => ({ camera: "granted" }),
+    "plugin:barcode-scanner|requestPermissions": () => ({ camera: "granted" }),
+    "plugin:barcode-scanner|scan": () => { throw "Bản dùng thử trên web không mở được camera. Trong app thật, bạn quét mã QR trên máy tính để ghép nối."; },
+    "plugin:barcode-scanner|cancel": () => null,
+  };
+
+  window.__TAURI_INTERNALS__ = {
+    metadata: { currentWindow: { label: "main" }, currentWebview: { windowLabel: "main", label: "main" } },
+    transformCallback: (fn, once) => {
+      const id = nextCb++;
+      window["_" + id] = (...a) => { if (once) delete window["_" + id]; return fn && fn(...a); };
+      return id;
+    },
+    unregisterCallback: (id) => { delete window["_" + id]; },
+    convertFileSrc: (s) => s,
+    invoke: async (cmd, args = {}) => {
+      const fn = commands[cmd];
+      if (!fn) return null;
+      return fn(args);
+    },
+  };
+  window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
+})();
+</script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>BetterDrop (bản dùng thử)</title>
+    <link rel="icon" type="image/png" href="./logo.png" />
+    <script type="module" crossorigin src="./assets/index-CvcsrTB4.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-DzpzBGZV.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <img src="./logo.png" class="brand-icon" alt="" />
+        <span>BetterDrop</span>
+      </div>
+      <button class="btn small topbar-qr" id="btn-topbar-qr" hidden title="Hiện mã QR để điện thoại quét và kết nối">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1zM11 18h2"/></svg>
+        <span>Kết nối điện thoại</span>
+      </button>
+      <button class="btn small topbar-web" id="btn-web" title="Cho thiết bị không cài BetterDrop gửi/nhận qua trình duyệt">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3.6 9h16.8M3.6 15h16.8M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+        <span>Trình duyệt</span><i class="web-dot" id="web-dot" hidden></i>
+      </button>
+      <button class="paused-chip" id="paused-chip" hidden title="Bấm để bật lại nhận file">Đang tắt nhận file</button>
+      <div class="me" id="me" title="Thông tin máy này">
+        <span class="me-name" id="me-name">…</span>
+        <span class="code" id="me-code" title="Mã nhận dạng — so với mã hiện ở máy kia"></span>
+      </div>
+      <button class="icon-btn" id="btn-settings" title="Cài đặt" aria-label="Cài đặt">
+        <svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zm7.4-2.5a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-1.7-1L15 3.5h-4l-.4 2.5a7.4 7.4 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7.6 7.6 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.4 7.4 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7.4 7.4 0 0 0 1.7-1l2.4 1 2-3.4z"/></svg>
+      </button>
+    </header>
+
+    <main class="layout">
+      <section class="card" aria-labelledby="send-title">
+        <div class="card-head">
+          <h2 id="send-title">1. Chọn nội dung</h2>
+          <div class="tabs" role="tablist">
+            <button role="tab" class="tab active" data-tab="files">Tệp</button>
+            <button role="tab" class="tab" data-tab="text">Văn bản</button>
+          </div>
+        </div>
+
+        <div class="tab-panel" id="panel-files">
+          <div class="dropzone" id="dropzone">
+            <svg viewBox="0 0 24 24" class="dz-icon" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+            <p class="dz-title" id="dz-title">Kéo thả file hoặc thư mục vào đây</p>
+            <div class="dz-actions">
+              <button class="btn" id="btn-pick-files">Chọn file</button>
+              <button class="btn" id="btn-pick-folder">Chọn thư mục</button>
+            </div>
+          </div>
+          <ul class="staged" id="staged"></ul>
+          <div class="staged-foot" id="staged-foot" hidden>
+            <span id="staged-count"></span>
+            <button class="link" id="btn-clear">Xoá hết</button>
+          </div>
+        </div>
+
+        <div class="tab-panel" id="panel-text" hidden>
+          <textarea id="text-input" rows="7" placeholder="Nhập hoặc dán văn bản, đường link…"></textarea>
+          <div class="row-end">
+            <button class="btn" id="btn-paste">Dán từ clipboard</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="peers-title">
+        <div class="card-head">
+          <h2 id="peers-title">2. Chọn máy nhận</h2>
+          <span class="scanning" title="Đang tìm máy trong mạng"><i></i></span>
+        </div>
+        <div class="chips" id="group-chips" role="tablist" aria-label="Nhóm máy"></div>
+        <div class="bulk-bar" id="bulk-bar" hidden>
+          <span id="bulk-label"></span>
+          <div class="bulk-actions" id="bulk-actions"></div>
+        </div>
+        <label class="select-all" id="select-all-row" hidden>
+          <input type="checkbox" class="peer-check" id="select-all" />
+          <span id="select-all-label"></span>
+        </label>
+        <ul class="peers" id="peers"></ul>
+        <div class="empty" id="peers-empty">
+          <p><strong>Đang tìm máy trong mạng…</strong></p>
+          <p class="muted">Mở BetterDrop trên máy kia và kết nối cùng một mạng Wi‑Fi/LAN.</p>
+        </div>
+        <div class="pair-actions">
+          <button class="btn primary" id="btn-scan" hidden>Quét mã QR của máy tính</button>
+          <button class="link" id="btn-show-qr" hidden>Kết nối điện thoại bằng mã QR</button>
+        </div>
+        <details class="manual" id="manual">
+          <summary>Không thấy máy? Thêm bằng địa chỉ IP</summary>
+          <form id="manual-form" class="manual-form">
+            <input id="manual-addr" placeholder="vd 192.168.1.20 hoặc liên kết betterdrop://…" autocomplete="off" spellcheck="false" />
+            <button class="btn primary" type="submit">Thêm</button>
+          </form>
+          <p class="muted small">Địa chỉ của máy kia nằm ở <em>Cài đặt</em> trong BetterDrop trên máy đó.</p>
+        </details>
+      </section>
+
+      <section class="card wide" aria-labelledby="activity-title">
+        <div class="card-head">
+          <h2 id="activity-title">Hoạt động</h2>
+        </div>
+        <ul class="transfers" id="transfers"></ul>
+        <p class="empty muted" id="transfers-empty">Chưa có lượt chuyển nào.</p>
+      </section>
+    </main>
+
+    <!-- Yêu cầu nhận file -->
+    <dialog id="dlg-request" class="dialog">
+      <h3><span id="req-sender"></span> muốn gửi cho bạn</h3>
+      <p class="req-summary" id="req-summary"></p>
+      <ul class="req-preview" id="req-preview"></ul>
+      <div class="countdown"><i id="req-bar"></i></div>
+      <div class="dialog-actions">
+        <button class="btn" id="btn-reject">Từ chối</button>
+        <button class="btn primary" id="btn-accept">Chấp nhận</button>
+      </div>
+    </dialog>
+
+    <!-- Nhận văn bản -->
+    <dialog id="dlg-text" class="dialog">
+      <h3><span id="txt-sender"></span> đã gửi văn bản</h3>
+      <pre class="received-text" id="txt-body"></pre>
+      <div class="dialog-actions">
+        <button class="btn" id="btn-text-close">Đóng</button>
+        <button class="btn primary" id="btn-text-copy">Sao chép</button>
+      </div>
+    </dialog>
+
+    <!-- Tạo / sửa nhóm -->
+    <dialog id="dlg-group" class="dialog">
+      <h3 id="group-title">Nhóm mới</h3>
+      <form id="group-form" class="settings">
+        <label>Tên nhóm
+          <input id="group-name" required maxlength="40" placeholder="vd Phòng kế toán" />
+        </label>
+        <div class="muted small">Chọn các máy trong nhóm:</div>
+        <ul class="group-pick" id="group-pick"></ul>
+        <div class="dialog-actions">
+          <button class="btn" type="button" id="btn-group-cancel">Huỷ</button>
+          <button class="btn primary" type="submit">Lưu nhóm</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Xác nhận -->
+    <dialog id="dlg-confirm" class="dialog">
+      <h3 id="confirm-title"></h3>
+      <p class="muted" id="confirm-body"></p>
+      <div class="dialog-actions">
+        <button class="btn" id="btn-confirm-no">Huỷ</button>
+        <button class="btn danger" id="btn-confirm-yes">Đồng ý</button>
+      </div>
+    </dialog>
+
+    <!-- Chia sẻ qua trình duyệt -->
+    <dialog id="dlg-web" class="dialog web-dialog">
+      <div class="web-head">
+        <h3>Chia sẻ qua trình duyệt</h3>
+        <span class="live-badge" id="web-live" hidden></span>
+      </div>
+      <div id="web-off">
+        <p class="muted">Cho điện thoại hoặc máy tính <strong>không cài BetterDrop</strong> gửi file, văn bản tới máy này và tải những gì bạn chia sẻ, chỉ bằng trình duyệt. Chỉ dùng trong cùng mạng Wi‑Fi/LAN, cần nhập mã PIN.</p>
+        <div class="dialog-actions">
+          <button class="btn" id="btn-web-close1">Đóng</button>
+          <button class="btn primary" id="btn-web-start">Bật chia sẻ</button>
+        </div>
+      </div>
+      <div id="web-on" class="web-cols" hidden>
+        <section class="web-connect">
+          <div class="qr" id="web-qr"></div>
+          <div class="muted small">Quét QR, hoặc mở trong trình duyệt:</div>
+          <div class="web-url code" id="web-url"></div>
+          <div class="web-pin-row">
+            <span class="muted small">PIN</span>
+            <span class="web-pin code" id="web-pin"></span>
+            <button class="link small" id="btn-web-pin" title="Đổi mã PIN: trình duyệt đang kết nối phải nhập lại">Đổi</button>
+          </div>
+          <details class="small web-more" id="web-more">
+            <summary>Địa chỉ khác</summary>
+            <p class="muted">Máy nối mạng bằng nhiều cách (dây LAN, Wi‑Fi) nên có nhiều địa chỉ. Dùng địa chỉ nào cũng được.</p>
+            <ul class="addrs" id="web-urls"></ul>
+          </details>
+        </section>
+        <section class="web-share">
+          <div class="legend-row">
+            <span class="legend">File cho người khác tải</span>
+            <span class="muted small">tải được ngay, không cần bấm gửi</span>
+          </div>
+          <ul class="staged" id="web-files"></ul>
+          <p class="muted small web-empty" id="web-files-empty">Chưa có file nào.</p>
+          <div class="row-start">
+            <button class="btn small primary" id="btn-web-add-files">Thêm file…</button>
+            <button class="btn small" id="btn-web-add-folder">Thêm thư mục…</button>
+            <button class="btn small" id="btn-web-share-files" hidden></button>
+            <button class="btn small" id="btn-web-unshare" hidden>Bỏ tất cả</button>
+          </div>
+          <div class="legend-row">
+            <span class="legend">Văn bản</span>
+            <span class="muted small">tuỳ chọn</span>
+          </div>
+          <textarea id="web-text" rows="2" placeholder="Dán văn bản, đường link…"></textarea>
+          <div class="row-start web-text-row">
+            <button class="btn small" id="btn-web-text">Chia sẻ văn bản</button>
+            <span class="small web-text-state" id="web-text-state"></span>
+          </div>
+        </section>
+      </div>
+      <div class="web-foot" id="web-foot" hidden>
+        <span class="muted small">Đóng cửa sổ vẫn tiếp tục chia sẻ.</span>
+        <div class="web-foot-actions">
+          <button class="btn" id="btn-web-stop">Tắt chia sẻ</button>
+          <button class="btn primary" id="btn-web-close2">Đóng</button>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- Mã QR để điện thoại quét -->
+    <dialog id="dlg-qr" class="dialog">
+      <h3>Quét để kết nối</h3>
+      <div class="qr" id="qr-svg"></div>
+      <p class="muted small">Trên điện thoại, mở BetterDrop và bấm <strong>Quét mã QR của máy tính</strong>. Hai máy cần dùng chung mạng Wi‑Fi.</p>
+      <div class="qr-addrs" id="qr-addrs-block">
+        <div class="muted small">Không quét được? Trên điện thoại, bấm <em>“Thêm bằng địa chỉ IP”</em> và nhập:</div>
+        <ul class="addrs big" id="qr-addrs"></ul>
+      </div>
+      <details class="small">
+        <summary>Liên kết ghép nối (dán vào ô nhập IP)</summary>
+        <p class="qr-link code" id="qr-link"></p>
+        <button class="btn small" id="btn-copy-link">Sao chép liên kết</button>
+      </details>
+      <div class="dialog-actions">
+        <button class="btn primary" id="btn-qr-close">Xong</button>
+      </div>
+    </dialog>
+
+    <!-- Cài đặt -->
+    <dialog id="dlg-settings" class="dialog">
+      <h3>Cài đặt</h3>
+      <form id="settings-form" method="dialog" class="settings">
+        <label>Tên hiển thị
+          <input id="set-name" required maxlength="60" />
+        </label>
+        <label>Thư mục lưu file nhận được
+          <div class="input-row">
+            <input id="set-dir" readonly />
+            <button class="btn" type="button" id="btn-choose-dir">Chọn…</button>
+          </div>
+        </label>
+        <fieldset class="toggles">
+          <legend>Chạy nền</legend>
+          <label class="check"><input type="checkbox" id="set-receive" /> Cho phép nhận file</label>
+          <label class="check" id="row-autostart"><input type="checkbox" id="set-autostart" /> Mở BetterDrop khi khởi động máy</label>
+          <label class="check" id="row-dock" hidden><input type="checkbox" id="set-dock" /> Ẩn biểu tượng trên Dock</label>
+          <p class="muted small" id="bg-hint"></p>
+        </fieldset>
+        <div class="hidden-block" id="hidden-block" hidden>
+          <div class="legend">Máy đã quên</div>
+          <ul class="hidden-list" id="hidden-list"></ul>
+        </div>
+        <div class="info-block">
+          <div class="muted small">Địa chỉ của máy này (để nhập ở máy kia nếu không tự thấy):</div>
+          <ul id="set-addrs" class="addrs"></ul>
+          <div class="muted small">Mã nhận dạng: <span class="code" id="set-code"></span></div>
+        </div>
+        <div class="dialog-actions">
+          <button class="btn" type="button" id="btn-settings-cancel">Huỷ</button>
+          <button class="btn primary" type="submit" value="save">Lưu</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Màn hình quét QR (điện thoại): camera hiện phía sau trang -->
+    <div class="scan-overlay" id="scan-overlay" hidden>
+      <p class="scan-hint">Đưa mã QR trên máy tính vào khung</p>
+      <div class="scan-frame"></div>
+      <button class="btn scan-cancel" id="btn-scan-cancel">Huỷ</button>
+    </div>
+
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+  </body>
+</html>

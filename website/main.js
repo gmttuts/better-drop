@@ -9,16 +9,33 @@
   };
   const RELEASES = `https://github.com/${S.repo}/releases`;
 
-  // ---------- Language: Vietnamese if the browser says so or the visitor is in Vietnam, otherwise English ----------
-  function detectLang() {
-    const first = (navigator.languages && navigator.languages[0]) || navigator.language || "";
-    if (/^vi\b/i.test(first)) return "vi";
+  // ---------- Language: by where the visitor is (Vietnam → Vietnamese, elsewhere → English) ----------
+  // Order: ?lang= in the URL, then a language the visitor picked, then their country, then a guess from the
+  // browser while the country lookup is still running (or if it fails).
+  const browserVi = () => /^vi\b/i.test((navigator.languages && navigator.languages[0]) || navigator.language || "");
+  function guessLang() {
     let tz = "";
     try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch {}
-    return /^Asia\/(Ho_Chi_Minh|Saigon)$/.test(tz) ? "vi" : "en";
+    return browserVi() || /^Asia\/(Ho_Chi_Minh|Saigon)$/.test(tz) ? "vi" : "en";
   }
-  let lang = new URLSearchParams(location.search).get("lang") || store.get("bd.lang") || detectLang();
+  const langFor = (country) => (country === "VN" || browserVi() ? "vi" : "en");
+  const urlLang = new URLSearchParams(location.search).get("lang");
+  const picked = store.get("bd.lang");
+  const knownCountry = store.get("bd.country");
+  let lang = urlLang || picked || (knownCountry ? langFor(knownCountry) : guessLang());
   if (!["vi", "en"].includes(lang)) lang = "en";
+  async function lookupCountry() {
+    if (urlLang || picked || knownCountry) return;
+    try {
+      const ctl = new AbortController();
+      setTimeout(() => ctl.abort(), 2500);
+      const r = await fetch("https://get.geojs.io/v1/ip/country.json", { signal: ctl.signal });
+      const country = ((await r.json()).country || "").toUpperCase();
+      if (!/^[A-Z]{2}$/.test(country)) return;
+      store.set("bd.country", country);
+      if (!store.get("bd.lang") && langFor(country) !== lang) { lang = langFor(country); applyLang(); }
+    } catch {}
+  }
   const t = (key, vars = {}) => {
     const s = (S.text[key] || {})[lang] ?? (S.text[key] || {}).vi ?? key;
     return s.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "");
@@ -154,11 +171,6 @@
     each("[data-i18n]", (el) => { el.innerHTML = t(el.dataset.i18n); });
     each("[data-lang]", (b) => b.setAttribute("aria-pressed", String(b.dataset.lang === lang)));
     each("[data-i18n-label]", (el) => { el.setAttribute("aria-label", t(el.dataset.i18nLabel)); });
-    each("[data-i18n-alt]", (img) => {
-      img.alt = lang === "vi"
-        ? "Cửa sổ BetterDrop: chọn file bên trái, danh sách máy nhận bên phải, tiến trình gửi bên dưới"
-        : "The BetterDrop window: files on the left, receiving devices on the right, transfer progress below";
-    });
     renderFeatures();
     renderFaq();
     renderDownloads();
@@ -198,7 +210,35 @@
     setTimeout(() => { btn.textContent = t("copy"); }, 1500);
   });
 
+  // ---------- Live demo: the real app UI in an iframe, sized to its content so it never scrolls inside ----------
+  // Below 400px it is laid out at phone width (400px) and scaled down to fit.
+  const DEMO_MIN = 400;
+  each("[data-demo]", (frame) => {
+    const box = frame.parentElement;
+    const fit = () => {
+      const w = box.clientWidth;
+      const logical = Math.max(w, DEMO_MIN);
+      const scale = w / logical;
+      frame.style.width = logical + "px";
+      frame.style.transform = scale < 1 ? `scale(${scale})` : "";
+      try {
+        const doc = frame.contentDocument;
+        if (!doc || !doc.body) return;
+        const h = Math.max(520, doc.body.scrollHeight);
+        frame.style.height = h + "px";
+        box.style.height = Math.ceil(h * scale) + "px";
+      } catch {}
+    };
+    fit();
+    frame.addEventListener("load", () => {
+      fit();
+      try { new ResizeObserver(fit).observe(frame.contentDocument.body); } catch {}
+    });
+    window.addEventListener("resize", fit);
+  });
+
   applyLang();
+  lookupCountry();
   loadRelease().then((data) => {
     release = data === "unknown" ? null : data;
     releaseState = data === "unknown" ? "unknown" : data ? "ok" : "none";
