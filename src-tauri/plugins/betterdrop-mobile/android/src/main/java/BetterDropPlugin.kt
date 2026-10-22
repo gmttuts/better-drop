@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.webkit.WebView
-import androidx.core.content.IntentCompat
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.net.wifi.WifiManager
@@ -63,13 +62,15 @@ class BetterDropPlugin(private val activity: Activity) : Plugin(activity) {
         if (intent == null) return
         when (intent.action) {
             Intent.ACTION_SEND -> {
-                val uri = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+                val uri = if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                          else @Suppress("DEPRECATION") intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
                 if (uri != null) sharedUris.add(uri.toString())
                 else intent.getStringExtra(Intent.EXTRA_TEXT)?.let { sharedText = it }
             }
             Intent.ACTION_SEND_MULTIPLE -> {
-                IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
-                    ?.forEach { sharedUris.add(it.toString()) }
+                val uris = if (Build.VERSION.SDK_INT >= 33) intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                           else @Suppress("DEPRECATION") intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+                uris?.forEach { u -> sharedUris.add(u.toString()) }
             }
             else -> return
         }
