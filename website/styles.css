@@ -203,9 +203,12 @@ code { font: 0.88em var(--mono); background: var(--panel); padding: 1px 5px; bor
 .btn-coffee { background: #ffdd00; color: #1a1400; }
 .btn-momo { background: #a50064; color: #fff; }
 .momo-dot { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; background: #fff; color: #a50064; font-size: 12px; font-weight: 800; }
-.support-card { display: grid; grid-template-columns: 1.4fr 1fr; gap: 32px; align-items: center; padding: clamp(28px, 5vw, 56px); border-radius: 28px; background: #fbf1e3; color: #111; }
+.support-card { display: grid; grid-template-columns: 1.4fr 1fr; gap: 32px; align-items: center; padding: clamp(28px, 5vw, 56px); border-radius: 28px; background: var(--panel); }
 .support-card h2 { font-size: clamp(28px, 3.4vw, 42px); line-height: 1.12; max-width: none; }
-.support-text > p { margin: 18px 0 0; max-width: 30em; font-size: clamp(16px, 1.5vw, 19px); line-height: 1.55; color: #9a7f5c; }
+.support-text > p { margin: 18px 0 0; max-width: 30em; font-size: clamp(16px, 1.5vw, 19px); line-height: 1.55; color: var(--muted); }
+/* The cup is drawn in dark brown; recolour its outline and shadow so it sits on the grey panel in both themes. */
+.cup > [stroke="#2b2420"], .cup-steam { stroke: var(--text); }
+.cup > ellipse:first-child { fill: var(--panel-2); }
 .support-text .cta-row { margin-top: 28px; }
 .support-text .btn { min-width: 200px; height: 50px; }
 .cup { width: 100%; max-width: 300px; justify-self: center; overflow: visible; animation: cup-bob 4s ease-in-out infinite; }
