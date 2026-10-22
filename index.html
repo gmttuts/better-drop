@@ -102,8 +102,18 @@
       <section class="card wide" aria-labelledby="activity-title">
         <div class="card-head">
           <h2 id="activity-title">Hoạt động</h2>
+          <div class="hist-tools" id="hist-tools" hidden>
+            <div class="chips" id="hist-filter">
+              <button class="chip active" data-filter="all">Tất cả</button>
+              <button class="chip" data-filter="send">Đã gửi</button>
+              <button class="chip" data-filter="receive">Đã nhận</button>
+            </div>
+            <button class="link small" id="btn-clear-history">Xoá lịch sử</button>
+          </div>
         </div>
         <ul class="transfers" id="transfers"></ul>
+        <ul class="transfers history" id="history"></ul>
+        <div class="row-center"><button class="link small" id="btn-more-history" hidden>Xem thêm</button></div>
         <p class="empty muted" id="transfers-empty">Chưa có lượt chuyển nào.</p>
       </section>
     </main>

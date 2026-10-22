@@ -171,12 +171,14 @@ fn new_tracker(st: &AppState, peer: &Peer, kind: TransferKind, file_count: usize
             dir_path: None,
         },
     );
+    tracker.record_to(st.recorder(), Some(peer.info.id.clone()));
     st.outgoing.lock().unwrap().insert(tracker.id(), tracker.clone());
     tracker
 }
 
 pub async fn send_text(st: Arc<AppState>, peer: Peer, text: String) -> Result<(), String> {
     let tracker = new_tracker(&st, &peer, TransferKind::Text, 0, text.len() as u64);
+    tracker.set_history_text(&text);
     let req = PrepareRequest {
         sender: st.device_info(),
         kind: TransferKind::Text,
@@ -206,6 +208,9 @@ pub async fn send_text(st: Arc<AppState>, peer: Peer, text: String) -> Result<()
 pub fn start_send_files(st: Arc<AppState>, peer: Peer, files: Vec<LocalFile>) -> String {
     let total: u64 = files.iter().map(|f| f.meta.size).sum();
     let tracker = new_tracker(&st, &peer, TransferKind::Files, files.len(), total);
+    for f in &files {
+        tracker.add_history_file(f.meta.rel_path.clone(), Some(f.source.clone()));
+    }
     let id = tracker.id();
     tauri::async_runtime::spawn(async move {
         if let Err(e) = send_files(&st, &peer, files, &tracker).await {

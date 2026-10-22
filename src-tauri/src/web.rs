@@ -309,6 +309,8 @@ async fn download(State(st): St, headers: HeaderMap, Path(id): Path<String>) -> 
             dir_path: None,
         },
     );
+    tracker.record_to(st.recorder(), None);
+    tracker.add_history_file(meta.rel_path.clone(), Some(source.clone()));
     tracker.set_status(TransferStatus::Transferring, None);
     if meta.size == 0 {
         tracker.set_status(TransferStatus::Done, None);
@@ -398,6 +400,10 @@ async fn download_all(State(st): St, headers: HeaderMap) -> Result<Response, Sta
             dir_path: None,
         },
     );
+    tracker.record_to(st.recorder(), None);
+    for (m, src) in &files {
+        tracker.add_history_file(m.rel_path.clone(), Some(src.clone()));
+    }
     tracker.set_status(TransferStatus::Transferring, None);
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<std::io::Result<axum::body::Bytes>>(8);
@@ -482,7 +488,7 @@ async fn send_text(State(st): St, headers: HeaderMap, Json(req): Json<TextReq>) 
     if req.text.trim().is_empty() || req.text.len() > 1_000_000 {
         return StatusCode::BAD_REQUEST;
     }
-    receive_text(&st, &browser_name(&req.name), req.text);
+    receive_text(&st, &browser_name(&req.name), None, req.text);
     StatusCode::OK
 }
 
@@ -500,7 +506,7 @@ async fn prepare(State(st): St, headers: HeaderMap, Json(req): Json<PrepareReq>)
     if !st.settings.read().unwrap().receive_enabled {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     }
-    match accept_files(&st, &browser_name(&req.name), "web", &req.files).await {
+    match accept_files(&st, &browser_name(&req.name), None, "web", &req.files).await {
         Ok(resp) => Json(resp).into_response(),
         Err(code) => code.into_response(),
     }

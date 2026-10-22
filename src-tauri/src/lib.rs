@@ -1,5 +1,6 @@
 mod client;
 mod devices;
+mod history;
 mod discovery;
 mod identity;
 mod models;
@@ -327,6 +328,65 @@ fn cancel_transfer(st: AppStateRef, id: String) {
     transfer::cancel(&st, &id);
 }
 
+// ---- Lịch sử ----
+
+#[tauri::command]
+fn get_history(st: AppStateRef, limit: Option<usize>) -> Vec<history::HistoryEntry> {
+    st.history.lock().unwrap().list(limit.unwrap_or(500))
+}
+
+#[tauri::command]
+fn delete_history_item(st: AppStateRef, id: String) -> Result<(), String> {
+    st.history.lock().unwrap().delete(&id).map_err(|e| e.to_string())
+}
+
+/// Chỉ xoá bản ghi lịch sử, không xoá file đã gửi/nhận.
+#[tauri::command]
+fn clear_history(st: AppStateRef) -> Result<(), String> {
+    st.history.lock().unwrap().clear().map_err(|e| e.to_string())
+}
+
+/// Hiện file trong Finder/Explorer (chọn sẵn file đó).
+#[tauri::command]
+fn reveal_path(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    if !std::path::Path::new(&path).exists() {
+        return Err("File không còn ở vị trí cũ (đã bị xoá hoặc di chuyển)".into());
+    }
+    app.opener().reveal_item_in_dir(path).map_err(|e| e.to_string())
+}
+
+/// Gửi lại một lượt trong lịch sử (file gốc hoặc văn bản) tới một máy.
+#[tauri::command]
+async fn resend_history(st: AppStateRef<'_>, id: String, peer_id: String) -> Result<(), String> {
+    let entry = st
+        .history
+        .lock()
+        .unwrap()
+        .get(&id)
+        .cloned()
+        .ok_or("Không tìm thấy mục này trong lịch sử")?;
+    let peer = st.find_peer(&peer_id).ok_or("Không tìm thấy máy nhận")?;
+    if let Some(text) = entry.text {
+        return transfer::send_text(st.inner().clone(), peer, text).await;
+    }
+    let paths: Vec<String> = entry
+        .files
+        .iter()
+        .filter_map(|f| f.path.clone())
+        .filter(|p| p.starts_with("content://") || p.starts_with("file://") || std::path::Path::new(p).exists())
+        .collect();
+    if paths.is_empty() {
+        return Err("Các file gốc không còn ở vị trí cũ".into());
+    }
+    let state = st.inner().clone();
+    let files = tauri::async_runtime::spawn_blocking(move || transfer::collect_files(&state, &paths))
+        .await
+        .map_err(|e| e.to_string())??;
+    transfer::start_send_files(st.inner().clone(), peer, files);
+    Ok(())
+}
+
 #[tauri::command]
 fn open_folder(app: tauri::AppHandle, path: String) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
@@ -412,6 +472,11 @@ pub fn run() {
             respond_request,
             cancel_transfer,
             open_folder,
+            get_history,
+            delete_history_item,
+            clear_history,
+            reveal_path,
+            resend_history,
         ])
         .build(tauri::generate_context!())
         .expect("không khởi động được BetterDrop")

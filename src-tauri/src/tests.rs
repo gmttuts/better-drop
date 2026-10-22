@@ -3,7 +3,7 @@
 use crate::models::*;
 use crate::state::{AppState, EmitFn, Tracker};
 use crate::{identity, server, transfer};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -634,4 +634,48 @@ fn old_saved_files_still_load() {
     let book = crate::devices::DeviceBook::load(dir.path());
     assert_eq!(book.known.len(), 1);
     assert!(book.groups.is_empty());
+}
+
+/// Mỗi lượt chuyển kết thúc được ghi vào lịch sử ở cả hai đầu, kèm đường dẫn thật.
+#[tokio::test(flavor = "multi_thread")]
+async fn transfers_are_recorded_in_history() {
+    let a = node("Mac").await;
+    let b = node("Windows").await;
+    let peer_b = as_peer(&b);
+    let b_dir = PathBuf::from(b.st.settings.read().unwrap().download_dir.clone());
+    write(&b_dir.join("x.txt"), b"old");
+    let watcher = auto_respond(b, true);
+
+    let src = tempfile::tempdir().unwrap();
+    write(&src.path().join("x.txt"), b"new");
+    let files = transfer::collect_files(&a.st, &[src.path().join("x.txt").to_string_lossy().into_owned()]).unwrap();
+    // start_send_files gắn lịch sử như trong app thật.
+    transfer::start_send_files(a.st.clone(), peer_b.clone(), files);
+    let (_, b) = watcher.await.unwrap();
+    for _ in 0..100 {
+        if !a.st.history.lock().unwrap().list(10).is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    let sent = a.st.history.lock().unwrap().list(10);
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].direction, Direction::Send);
+    assert_eq!(sent[0].status, TransferStatus::Done);
+    assert_eq!(sent[0].peer_id.as_deref(), Some(peer_b.info.id.as_str()));
+    assert_eq!(sent[0].files[0].path.as_deref(), Some(src.path().join("x.txt").to_str().unwrap()));
+
+    let got = b.st.history.lock().unwrap().list(10);
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].direction, Direction::Receive);
+    assert_eq!(got[0].peer_id.as_deref(), Some(a.st.device_info().id.as_str()));
+    // Đường dẫn là nơi file thật sự được lưu (đã đổi tên vì trùng).
+    assert_eq!(got[0].files[0].path.as_deref(), Some(b_dir.join("x (1).txt").to_str().unwrap()));
+
+    // Văn bản cũng được lưu, và vẫn còn sau khi "khởi động lại".
+    transfer::send_text(a.st.clone(), peer_b, "ghi chú".into()).await.unwrap();
+    let reloaded = crate::history::History::load(&a.st.data_dir).list(10);
+    assert_eq!(reloaded.len(), 2);
+    assert_eq!(reloaded[0].text.as_deref(), Some("ghi chú"));
 }

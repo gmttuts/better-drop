@@ -1,6 +1,7 @@
 //! Trạng thái dùng chung của app và bộ theo dõi tiến trình chuyển file.
 
 use crate::devices::DeviceBook;
+use crate::history::{History, HistoryEntry, HistoryFile, Recorder};
 use crate::identity::{self, Identity};
 use crate::models::*;
 use std::collections::{HashMap, HashSet};
@@ -59,11 +60,14 @@ pub struct AppState {
     pub rediscover: AtomicBool,
     /// Chia sẻ qua trình duyệt (None = đang tắt).
     pub web: Mutex<Option<crate::web::WebShare>>,
+    /// Lịch sử chuyển file (history.jsonl).
+    pub history: Arc<Mutex<History>>,
 }
 
 impl AppState {
     pub fn new(emit: EmitFn, data_dir: PathBuf, identity: Identity, port: u16, settings: Settings) -> Self {
         let devices = DeviceBook::load(&data_dir);
+        let data_dir_for_history = data_dir.clone();
         // Máy đã lưu được nạp lại, coi là đang tắt cho tới khi kiểm tra kết nối được.
         let peers = devices
             .known
@@ -86,6 +90,7 @@ impl AppState {
             devices: Mutex::new(devices),
             rediscover: AtomicBool::new(false),
             web: Mutex::new(None),
+            history: Arc::new(Mutex::new(History::load(&data_dir_for_history))),
         }
     }
 
@@ -99,6 +104,11 @@ impl AppState {
             port: self.port,
             version: APP_VERSION.to_string(),
         }
+    }
+
+    /// Hàm ghi lịch sử, gắn vào Tracker của mỗi lượt chuyển.
+    pub fn recorder(&self) -> Recorder {
+        crate::history::recorder(self.history.clone(), self.emit.clone())
     }
 
     pub fn emit<T: serde::Serialize>(&self, event: &'static str, payload: T) {
@@ -194,6 +204,17 @@ pub struct Tracker {
     started: Mutex<Option<Instant>>,
     last_emit: Mutex<Instant>,
     cancelled: AtomicBool,
+    /// Ghi vào lịch sử khi lượt chuyển kết thúc (None = không ghi, vd trong test).
+    recorder: Mutex<Option<Recorder>>,
+    history: Mutex<HistoryExtras>,
+}
+
+/// Thông tin thêm chỉ dùng cho lịch sử.
+#[derive(Default)]
+struct HistoryExtras {
+    peer_id: Option<String>,
+    files: Vec<HistoryFile>,
+    text: Option<String>,
 }
 
 const EMIT_INTERVAL: Duration = Duration::from_millis(150);
@@ -207,9 +228,50 @@ impl Tracker {
             started: Mutex::new(None),
             last_emit: Mutex::new(Instant::now()),
             cancelled: AtomicBool::new(false),
+            recorder: Mutex::new(None),
+            history: Mutex::new(HistoryExtras::default()),
         });
         t.emit_now();
         t
+    }
+
+    /// Bật ghi lịch sử cho lượt này.
+    pub fn record_to(&self, recorder: Recorder, peer_id: Option<String>) {
+        *self.recorder.lock().unwrap() = Some(recorder);
+        self.history.lock().unwrap().peer_id = peer_id;
+    }
+
+    pub fn add_history_file(&self, name: String, path: Option<String>) {
+        let mut h = self.history.lock().unwrap();
+        if h.files.len() < crate::history::MAX_FILES {
+            h.files.push(HistoryFile { name, path });
+        }
+    }
+
+    pub fn set_history_text(&self, text: &str) {
+        self.history.lock().unwrap().text = Some(crate::history::clip_text(text));
+    }
+
+    /// Ghi lượt chuyển (đã kết thúc) vào lịch sử, đúng một lần.
+    fn record(&self) {
+        let Some(recorder) = self.recorder.lock().unwrap().take() else { return };
+        let u = self.snapshot();
+        let extras = std::mem::take(&mut *self.history.lock().unwrap());
+        recorder(HistoryEntry {
+            id: u.id,
+            finished_at: crate::history::now_secs(),
+            direction: u.direction,
+            peer_name: u.peer_name,
+            peer_id: extras.peer_id,
+            kind: u.kind,
+            file_count: u.file_count,
+            total_bytes: u.total_bytes,
+            status: u.status,
+            error: u.error,
+            dir_path: u.dir_path,
+            files: extras.files,
+            text: extras.text,
+        });
     }
 
     pub fn id(&self) -> String {
@@ -265,6 +327,9 @@ impl Tracker {
             self.cancelled.store(true, Ordering::SeqCst);
         }
         self.emit_now();
+        if status.is_final() {
+            self.record();
+        }
         true
     }
 

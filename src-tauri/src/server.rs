@@ -110,16 +110,16 @@ async fn prepare(
     }
     if req.kind == TransferKind::Text {
         remember_sender(&st, &req.sender, remote);
-        receive_text(&st, &req.sender.name, req.text.unwrap_or_default());
+        receive_text(&st, &req.sender.name, Some(&req.sender.id), req.text.unwrap_or_default());
         return Ok(Json(PrepareResponse::default()));
     }
-    let resp = accept_files(&st, &req.sender.name, &req.sender.os, &req.files).await?;
+    let resp = accept_files(&st, &req.sender.name, Some(&req.sender.id), &req.sender.os, &req.files).await?;
     remember_sender(&st, &req.sender, remote);
     Ok(Json(resp))
 }
 
 /// Nhận một đoạn văn bản: hiện cho người dùng và ghi vào mục Hoạt động.
-pub fn receive_text(st: &AppState, sender_name: &str, text: String) {
+pub fn receive_text(st: &AppState, sender_name: &str, sender_id: Option<&str>, text: String) {
     st.emit(
         "incoming-text",
         IncomingText {
@@ -127,7 +127,7 @@ pub fn receive_text(st: &AppState, sender_name: &str, text: String) {
             text: text.clone(),
         },
     );
-    Tracker::new(
+    let tracker = Tracker::new(
         st.emit.clone(),
         TransferUpdate {
             id: uuid::Uuid::new_v4().to_string(),
@@ -138,11 +138,14 @@ pub fn receive_text(st: &AppState, sender_name: &str, text: String) {
             total_bytes: text.len() as u64,
             transferred: 0,
             speed_bps: 0.0,
-            status: TransferStatus::Done,
+            status: TransferStatus::Waiting,
             error: None,
             dir_path: None,
         },
     );
+    tracker.record_to(st.recorder(), sender_id.map(str::to_string));
+    tracker.set_history_text(&text);
+    tracker.set_status(TransferStatus::Done, None);
 }
 
 /// Hỏi người dùng có nhận các file này không (chờ tối đa ACCEPT_TIMEOUT). Nếu đồng ý,
@@ -150,6 +153,7 @@ pub fn receive_text(st: &AppState, sender_name: &str, text: String) {
 pub async fn accept_files(
     st: &Arc<AppState>,
     sender_name: &str,
+    sender_id: Option<&str>,
     sender_os: &str,
     req_files: &[FileMeta],
 ) -> Result<PrepareResponse, StatusCode> {
@@ -216,6 +220,7 @@ pub async fn accept_files(
             dir_path: Some(base_dir.to_string_lossy().into_owned()),
         },
     );
+    tracker.record_to(st.recorder(), sender_id.map(str::to_string));
     tracker.set_status(TransferStatus::Transferring, None);
     st.incoming.lock().unwrap().insert(
         session_id.clone(),
@@ -310,6 +315,7 @@ pub async fn receive_upload(
         if let Some(saved) = &st.hooks.file_saved {
             saved(&final_path);
         }
+        tracker.add_history_file(file.rel.join("/"), Some(final_path.to_string_lossy().into_owned()));
     }
 
     let done = session.done.fetch_add(1, Ordering::SeqCst) + 1;

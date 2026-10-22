@@ -622,7 +622,7 @@ function upsertTransfer(t: TransferUpdate, prev: TransferUpdate | undefined) {
   if (existing) existing.replaceWith(node);
   else $("transfers").prepend(node);
   transferNodes.set(t.id, node);
-  $("transfers-empty").hidden = true;
+  updateActivityEmpty();
 }
 
 function renderTransfer(t: TransferUpdate): HTMLLIElement {
@@ -657,6 +657,145 @@ function renderTransfer(t: TransferUpdate): HTMLLIElement {
     ),
     actions,
   );
+}
+
+// ---- Lịch sử ----
+
+interface HistoryFile {
+  name: string;
+  path: string | null;
+}
+interface HistoryEntry {
+  id: string;
+  finished_at: number;
+  direction: "send" | "receive";
+  peer_name: string;
+  peer_id: string | null;
+  kind: "files" | "text";
+  file_count: number;
+  total_bytes: number;
+  status: Status;
+  error: string | null;
+  dir_path: string | null;
+  files: HistoryFile[];
+  text: string | null;
+}
+
+let history: HistoryEntry[] = [];
+let historyFilter: "all" | "send" | "receive" = "all";
+let historyShown = 30;
+const expanded = new Set<string>();
+
+function whenText(secs: number): string {
+  const d = new Date(secs * 1000);
+  const now = new Date();
+  const hm = d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((day(now) - day(d)) / 86400000);
+  if (diff === 0) return `${hm} hôm nay`;
+  if (diff === 1) return `${hm} hôm qua`;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const date = `${pad(d.getDate())}/${pad(d.getMonth() + 1)}${d.getFullYear() === now.getFullYear() ? "" : `/${d.getFullYear()}`}`;
+  return `${hm} ${date}`;
+}
+
+function updateActivityEmpty() {
+  const live = $("transfers").children.length;
+  $("transfers-empty").hidden = live > 0 || history.length > 0;
+  $("hist-tools").hidden = history.length === 0;
+}
+
+function renderHistory() {
+  const list = history.filter((h) => historyFilter === "all" || h.direction === historyFilter);
+  $("history").replaceChildren(...list.slice(0, historyShown).map(renderHistoryEntry));
+  $("btn-more-history").hidden = list.length <= historyShown;
+  updateActivityEmpty();
+}
+
+function renderHistoryEntry(h: HistoryEntry): HTMLLIElement {
+  const arrow = h.direction === "send" ? "↑" : "↓";
+  const who = h.direction === "send" ? `Tới ${h.peer_name}` : `Từ ${h.peer_name}`;
+  const what = h.kind === "text" ? "Văn bản" : `${h.file_count} file · ${formatBytes(h.total_bytes)}`;
+  const status = h.status === "done" ? STATUS_TEXT.done : h.error || STATUS_TEXT[h.status];
+  const actions = el("div", { className: "t-actions" });
+  const stop = (b: HTMLElement) => b.addEventListener("click", (e) => e.stopPropagation());
+
+  if (h.kind === "text" && h.text) {
+    const b = el("button", { className: "btn small", textContent: "Sao chép" });
+    b.addEventListener("click", async () => {
+      await writeText(h.text ?? "");
+      toast("Đã sao chép");
+    });
+    stop(b);
+    actions.append(b);
+  }
+  if (h.direction === "receive" && h.kind === "files" && h.status === "done" && h.dir_path && !me?.mobile) {
+    const b = el("button", { className: "btn small", textContent: "Mở thư mục" });
+    b.addEventListener("click", () => invoke("open_folder", { path: h.dir_path }).catch((e) => toast(errorText(e), "error")));
+    stop(b);
+    actions.append(b);
+  }
+  if (h.direction === "send" && h.peer_id) {
+    const target = peers.find((p) => p.id === h.peer_id && p.online);
+    const b = el("button", {
+      className: "btn small",
+      textContent: "Gửi lại",
+      disabled: !target,
+      title: target ? `Gửi lại tới ${target.name}` : "Máy nhận hiện không kết nối được",
+    });
+    b.addEventListener("click", async () => {
+      try {
+        await invoke("resend_history", { id: h.id, peerId: h.peer_id });
+        if (h.kind === "text") toast(`Đã gửi lại văn bản tới ${target?.name}`);
+      } catch (e) {
+        toast(errorText(e), "error");
+      }
+    });
+    stop(b);
+    actions.append(b);
+  }
+  const del = el("button", { className: "icon-btn small", title: "Xoá khỏi lịch sử (không xoá file)", textContent: "×" });
+  del.addEventListener("click", async () => {
+    await invoke("delete_history_item", { id: h.id });
+    history = history.filter((x) => x.id !== h.id);
+    renderHistory();
+  });
+  stop(del);
+  actions.append(del);
+
+  const body = el(
+    "div",
+    { className: "t-body" },
+    el("div", { className: "t-title" }, el("strong", { textContent: who }), ` · ${what}`),
+    el("div", { className: "muted small t-detail", textContent: `${status} · ${whenText(h.finished_at)}` }),
+  );
+  if (expanded.has(h.id)) body.append(renderHistoryDetails(h));
+
+  const li = el("li", { className: `transfer ${h.status}`, title: "Bấm để xem chi tiết" },
+    el("span", { className: `t-dir ${h.direction}`, textContent: arrow }), body, actions);
+  li.addEventListener("click", () => {
+    if (expanded.has(h.id)) expanded.delete(h.id);
+    else expanded.add(h.id);
+    renderHistory();
+  });
+  return li;
+}
+
+function renderHistoryDetails(h: HistoryEntry): HTMLElement {
+  const box = el("div", { className: "t-more" });
+  box.addEventListener("click", (e) => e.stopPropagation());
+  if (h.text) box.append(el("pre", { textContent: h.text }));
+  for (const f of h.files) {
+    const row = el("div", { className: "file-row" }, el("span", { className: "name", textContent: f.name, title: f.path ?? f.name }));
+    if (f.path && !me?.mobile && !f.path.startsWith("content://")) {
+      const b = el("button", { className: "link small", textContent: me?.info.os === "windows" ? "Hiện trong Explorer" : "Hiện trong Finder" });
+      b.addEventListener("click", () => invoke("reveal_path", { path: f.path }).catch((e) => toast(errorText(e), "error")));
+      row.append(b);
+    }
+    box.append(row);
+  }
+  if (h.file_count > h.files.length) box.append(el("div", { className: "muted small", textContent: `… và ${h.file_count - h.files.length} file khác` }));
+  return box;
 }
 
 function progressBar(pct: number): HTMLElement {
@@ -1046,6 +1185,7 @@ async function init() {
   await listen<Peer[]>("peers-changed", (e) => {
     peers = e.payload;
     renderPeers();
+    renderHistory();
   });
   await listen<TransferUpdate>("transfer-update", (e) => {
     const prev = transfers.get(e.payload.id);
@@ -1058,6 +1198,13 @@ async function init() {
       if (t.status === "rejected") toast(`${t.peer_name} đã từ chối`, "error");
       if (t.status === "error") toast(t.error ?? "Lỗi khi chuyển", "error");
     }
+  });
+  await listen<HistoryEntry>("history-added", (e) => {
+    // Lượt chuyển đã kết thúc: chuyển từ danh sách "đang chạy" sang lịch sử.
+    transferNodes.get(e.payload.id)?.remove();
+    transferNodes.delete(e.payload.id);
+    history = [e.payload, ...history.filter((h) => h.id !== e.payload.id)];
+    renderHistory();
   });
   await listen<IncomingRequest>("incoming-request", (e) => {
     requestQueue.push(e.payload);
@@ -1093,6 +1240,26 @@ async function init() {
   }
   peers = await invoke<Peer[]>("get_peers");
   applyDevices(await invoke("get_devices"));
+  history = await invoke<HistoryEntry[]>("get_history", { limit: 500 }).catch(() => []);
+  renderHistory();
+  document.querySelectorAll<HTMLButtonElement>("#hist-filter .chip").forEach((b) =>
+    b.addEventListener("click", () => {
+      historyFilter = b.dataset.filter as typeof historyFilter;
+      document.querySelectorAll("#hist-filter .chip").forEach((x) => x.classList.toggle("active", x === b));
+      historyShown = 30;
+      renderHistory();
+    }),
+  );
+  $("btn-more-history").addEventListener("click", () => {
+    historyShown += 30;
+    renderHistory();
+  });
+  $("btn-clear-history").addEventListener("click", async () => {
+    if (!(await confirmDialog("Xoá toàn bộ lịch sử?", "Chỉ xoá danh sách trong mục Hoạt động. File đã gửi/nhận vẫn còn nguyên.", "Xoá lịch sử"))) return;
+    await invoke("clear_history");
+    history = [];
+    renderHistory();
+  });
   renderPeers();
   renderStaged();
 }
