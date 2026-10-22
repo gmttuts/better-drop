@@ -174,6 +174,11 @@
     renderFeatures();
     renderFaq();
     renderDownloads();
+    // The demo follows the page language (it restarts, which is fine for a demo).
+    each("[data-demo]", (f) => {
+      const src = `demo/index.html?lang=${lang}`;
+      if (f.getAttribute("src") !== src) f.setAttribute("src", src);
+    });
   }
   each("[data-lang]", (b) => b.addEventListener("click", () => {
     lang = b.dataset.lang;

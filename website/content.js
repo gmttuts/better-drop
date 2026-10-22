@@ -36,7 +36,7 @@ window.SITE = {
     "demo.badge": { vi: "Bản dùng thử · bấm thử được", en: "Live demo · try it" },
     "demo.hint": {
       vi: "Đây là giao diện thật của BetterDrop chạy ngay trên trang. Thử chọn file, tick vài máy rồi bấm Gửi. Các máy và file chỉ là giả lập.",
-      en: "This is the real BetterDrop interface running right in the page (the app itself is in Vietnamese for now). Pick files, tick a few devices and hit Gửi (Send). Devices and files are simulated.",
+      en: "This is the real BetterDrop interface running right in the page. Pick files, tick a few devices and hit Send. Devices and files are simulated.",
     },
 
     "dl.for": { vi: "Tải cho {os}", en: "Download for {os}" },
