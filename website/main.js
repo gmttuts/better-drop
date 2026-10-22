@@ -117,7 +117,7 @@
         return `<article class="platform${p.os === os ? " mine" : ""}" id="dl-${p.os}">
           <header><span class="picon">${ICONS[p.os]}</span><div><h3>${p.name}${p.os === os ? ` <span class="badge">${t("dl.yours")}</span>` : ""}</h3><p class="fine">${tv(p.req)}</p></div></header>
           <div class="cta-row">${buttons}</div>
-          <details${p.os === os ? " open" : ""}><summary>${t("dl.how")}</summary><ol>${steps}</ol>${code}</details>
+          <details><summary>${t("dl.how")}</summary><ol>${steps}</ol>${code}</details>
         </article>`;
       }).join("");
     });
