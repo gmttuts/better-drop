@@ -142,6 +142,7 @@ async fn add_manual_peer(st: AppStateRef<'_>, addr: String) -> Result<Peer, Stri
 struct DevicesInfo {
     groups: Vec<devices::Group>,
     hidden: Vec<devices::DeviceRef>,
+    trusted: Vec<devices::TrustedDevice>,
 }
 
 fn devices_info(st: &AppState) -> DevicesInfo {
@@ -149,6 +150,7 @@ fn devices_info(st: &AppState) -> DevicesInfo {
     DevicesInfo {
         groups: book.groups.clone(),
         hidden: book.hidden.clone(),
+        trusted: book.trusted.clone(),
     }
 }
 
@@ -316,11 +318,22 @@ async fn send_text(st: AppStateRef<'_>, peer_id: String, text: String) -> Result
     transfer::send_text(st.inner().clone(), peer, text).await
 }
 
+/// Trả lời yêu cầu nhận. `trust`: đồng thời đánh dấu "Luôn chấp nhận từ máy này"
+/// (chỉ có tác dụng khi máy gửi đã chứng minh danh tính).
 #[tauri::command]
-fn respond_request(st: AppStateRef, request_id: String, accept: bool) {
-    if let Some(tx) = st.pending.lock().unwrap().remove(&request_id) {
-        let _ = tx.send(accept);
+fn respond_request(st: AppStateRef, request_id: String, accept: bool, trust: Option<bool>) {
+    let Some(p) = st.pending.lock().unwrap().remove(&request_id) else { return };
+    if accept && trust == Some(true) {
+        if let Some(dev) = p.trust_candidate {
+            let _ = change_devices(&st, |b| b.trust(dev));
+        }
     }
+    let _ = p.tx.send(accept);
+}
+
+#[tauri::command]
+fn untrust_device(st: AppStateRef, id: String) -> Result<DevicesInfo, String> {
+    change_devices(&st, |b| b.untrust(&id))
 }
 
 #[tauri::command]
@@ -470,6 +483,7 @@ pub fn run() {
             send_files,
             send_text,
             respond_request,
+            untrust_device,
             cancel_transfer,
             open_folder,
             get_history,

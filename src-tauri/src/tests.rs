@@ -54,8 +54,8 @@ fn auto_respond(mut rx: Node, accept: bool) -> tokio::task::JoinHandle<(Vec<Tran
             match ev {
                 "incoming-request" => {
                     let id = v["request_id"].as_str().unwrap().to_string();
-                    if let Some(tx) = rx.st.pending.lock().unwrap().remove(&id) {
-                        tx.send(accept).unwrap();
+                    if let Some(p) = rx.st.pending.lock().unwrap().remove(&id) {
+                        p.tx.send(accept).unwrap();
                     }
                     if !accept {
                         break;
@@ -451,7 +451,7 @@ async fn browser_share_end_to_end() {
             }
             if ev == "incoming-request" {
                 let id = v["request_id"].as_str().unwrap().to_string();
-                st.pending.lock().unwrap().remove(&id).unwrap().send(true).unwrap();
+                st.pending.lock().unwrap().remove(&id).unwrap().tx.send(true).unwrap();
                 return desk;
             }
         }
@@ -561,7 +561,7 @@ fn old_version_can_read_new_wire_format() {
 async fn old_client_can_send_to_new_version() {
     let mut new = node("Bản mới").await;
     let base = format!("127.0.0.1:{}", new.st.port);
-    let http = crate::client::build_client(crate::client::Pin::Fingerprint(new.st.identity.fingerprint.clone())).unwrap();
+    let http = crate::client::build_client(crate::client::Pin::Fingerprint(new.st.identity.fingerprint.clone()), None).unwrap(); // bản cũ: không trình chứng chỉ
     let url = |p: &str| crate::client::api_url(&base, p);
 
     // Bản cũ đọc /info của bản mới (có thêm `version`, bản cũ bỏ qua).
@@ -577,7 +577,7 @@ async fn old_client_can_send_to_new_version() {
         while let Some((ev, v)) = new.events.recv().await {
             if ev == "incoming-request" {
                 let id = v["request_id"].as_str().unwrap().to_string();
-                st.pending.lock().unwrap().remove(&id).unwrap().send(true).unwrap();
+                st.pending.lock().unwrap().remove(&id).unwrap().tx.send(true).unwrap();
                 return new;
             }
         }
@@ -678,4 +678,105 @@ async fn transfers_are_recorded_in_history() {
     let reloaded = crate::history::History::load(&a.st.data_dir).list(10);
     assert_eq!(reloaded.len(), 2);
     assert_eq!(reloaded[0].text.as_deref(), Some("ghi chú"));
+}
+
+// ---- Máy tin cậy ----
+
+fn trusted_entry(st: &AppState) -> crate::devices::TrustedDevice {
+    let me = st.device_info();
+    crate::devices::TrustedDevice { id: me.id, name: me.name, os: me.os, fp: me.fp, added_at: 0 }
+}
+
+/// Máy đã được tin cậy gửi tới: nhận luôn, không hiện hộp thoại Chấp nhận.
+#[tokio::test(flavor = "multi_thread")]
+async fn trusted_device_is_auto_accepted() {
+    let a = node("Mac").await;
+    let mut b = node("Windows").await;
+    b.st.devices.lock().unwrap().trust(trusted_entry(&a.st));
+
+    let src = tempfile::tempdir().unwrap();
+    write(&src.path().join("tin cậy.txt"), b"ok");
+    let files = transfer::collect_files(&a.st, &[src.path().join("tin cậy.txt").to_string_lossy().into_owned()]).unwrap();
+    let tracker = sender_tracker(&a.st);
+    transfer::send_files(&a.st, &as_peer(&b), files, &tracker).await.unwrap();
+    assert_eq!(tracker.status(), TransferStatus::Done);
+
+    let mut saw_auto = false;
+    while let Ok((ev, _)) = b.events.try_recv() {
+        assert_ne!(ev, "incoming-request", "máy tin cậy không được bị hỏi");
+        saw_auto |= ev == "auto-accepted";
+    }
+    assert!(saw_auto);
+    let dir = b.st.settings.read().unwrap().download_dir.clone();
+    assert_eq!(std::fs::read(Path::new(&dir).join("tin cậy.txt")).unwrap(), b"ok");
+}
+
+/// Máy lạ khai đúng id + dấu vân tay của máy tin cậy nhưng không có khoá bí mật của
+/// nó (trình chứng chỉ khác): vẫn phải hỏi, và không được đề nghị "Luôn chấp nhận".
+#[tokio::test(flavor = "multi_thread")]
+async fn impostor_claiming_trusted_identity_is_still_asked() {
+    let trusted = node("Mac thật").await;
+    let impostor = node("Kẻ giả mạo").await;
+    let mut b = node("Windows").await;
+    b.st.devices.lock().unwrap().trust(trusted_entry(&trusted.st));
+
+    let client = crate::client::build_client(
+        crate::client::Pin::Fingerprint(b.st.identity.fingerprint.clone()),
+        Some(&impostor.st.identity),
+    )
+    .unwrap();
+    let body = serde_json::json!({
+        "sender": trusted.st.device_info(),      // khai là máy tin cậy
+        "kind": "files",
+        "files": [{ "id": "f1", "rel_path": "x.txt", "size": 1 }],
+    });
+    let url = crate::client::api_url(&format!("127.0.0.1:{}", b.st.port), "prepare");
+    let req = tokio::spawn(async move { client.post(url).json(&body).send().await.unwrap().status() });
+
+    let request = loop {
+        let (ev, v) = b.events.recv().await.unwrap();
+        assert_ne!(ev, "auto-accepted", "kẻ giả mạo không được tự chấp nhận");
+        if ev == "incoming-request" {
+            break v;
+        }
+    };
+    assert_eq!(request["can_trust"], false, "danh tính chưa được chứng minh");
+    let id = request["request_id"].as_str().unwrap().to_string();
+    let p = b.st.pending.lock().unwrap().remove(&id).unwrap();
+    assert!(p.trust_candidate.is_none());
+    p.tx.send(false).unwrap();
+    assert_eq!(req.await.unwrap(), 403);
+}
+
+/// Máy chạy bản mới (có chứng chỉ) gửi lần đầu: được hỏi, kèm lựa chọn "Luôn chấp nhận".
+#[tokio::test(flavor = "multi_thread")]
+async fn proven_sender_can_be_trusted() {
+    let a = node("Mac").await;
+    let mut b = node("Windows").await;
+    let src = tempfile::tempdir().unwrap();
+    write(&src.path().join("x.txt"), b"x");
+    let files = transfer::collect_files(&a.st, &[src.path().join("x.txt").to_string_lossy().into_owned()]).unwrap();
+    let st_a = a.st.clone();
+    let peer_b = as_peer(&b);
+    let send = tokio::spawn(async move {
+        let t = sender_tracker(&st_a);
+        transfer::send_files(&st_a, &peer_b, files, &t).await.unwrap();
+        t.status()
+    });
+    let request = loop {
+        let (ev, v) = b.events.recv().await.unwrap();
+        if ev == "incoming-request" {
+            break v;
+        }
+    };
+    assert_eq!(request["can_trust"], true);
+    let id = request["request_id"].as_str().unwrap().to_string();
+    let p = b.st.pending.lock().unwrap().remove(&id).unwrap();
+    let candidate = p.trust_candidate.expect("có thể tin cậy");
+    assert_eq!(candidate.id, a.st.device_info().id);
+    assert_eq!(candidate.fp, a.st.identity.fingerprint);
+    b.st.devices.lock().unwrap().trust(candidate);
+    p.tx.send(true).unwrap();
+    assert_eq!(send.await.unwrap(), TransferStatus::Done);
+    assert!(b.st.devices.lock().unwrap().is_trusted(&a.st.device_info().id, &a.st.identity.fingerprint));
 }

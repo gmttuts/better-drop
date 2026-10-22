@@ -394,6 +394,11 @@ html.scanning body > :not(.scan-overlay):not(.toasts) { visibility: hidden; }
 .scan-frame { width: min(70vw, 280px); aspect-ratio: 1; border: 3px solid #fff; border-radius: 20px; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.35); }
 .scan-cancel { min-width: 160px; padding: 12px 24px; font-size: 16px; background: #fff; color: #111; border: none; }
 
+/* ---- Máy tin cậy ---- */
+.trust-check { display: flex; align-items: center; gap: 8px; margin-top: 12px; cursor: pointer; }
+.trust-check input { width: auto; margin: 0; accent-color: var(--accent); }
+.trust-tag { color: var(--ok); white-space: nowrap; }
+
 /* ---- Lịch sử ---- */
 .hist-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-left: auto; }
 .hist-tools .chips { padding-bottom: 0; margin-bottom: 0; }

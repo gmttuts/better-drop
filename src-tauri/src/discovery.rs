@@ -256,7 +256,7 @@ pub async fn health_check_loop(st: Arc<AppState>) {
 }
 
 async fn ping(peer: &Peer) -> bool {
-    let Ok(client) = build_client(Pin::Fingerprint(peer.info.fp.clone())) else {
+    let Ok(client) = build_client(Pin::Fingerprint(peer.info.fp.clone()), None) else {
         return false;
     };
     for addr in &peer.addrs {
@@ -282,7 +282,7 @@ pub async fn add_manual(st: &AppState, addr: &str) -> Result<Peer, String> {
         format!("{addr}:{}", crate::server::DEFAULT_PORT)
     };
     let slot = Arc::new(Mutex::new(None));
-    let client = build_client(Pin::Capture(slot.clone()))?;
+    let client = build_client(Pin::Capture(slot.clone()), None)?;
     let info: DeviceInfo = client
         .get(api_url(&addr, "info"))
         .timeout(Duration::from_secs(6))
@@ -366,7 +366,7 @@ pub async fn add_from_link(st: &AppState, link: &str) -> Result<Peer, String> {
     }
 
     // Thử từng địa chỉ, chỉ chấp nhận đúng chứng chỉ ghi trong QR.
-    let client = build_client(Pin::Fingerprint(fp.clone()))?;
+    let client = build_client(Pin::Fingerprint(fp.clone()), None)?;
     let mut reachable = Vec::new();
     let mut info: Option<DeviceInfo> = None;
     let mut last_err = String::new();

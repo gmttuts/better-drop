@@ -82,14 +82,25 @@ impl ServerCertVerifier for PinVerifier {
     }
 }
 
-pub fn build_client(pin: Pin) -> Result<reqwest::Client, String> {
+/// Tạo HTTP client tới một máy khác.
+///
+/// `me`: chứng chỉ của chính máy này. Có thì client trình nó khi kết nối (TLS hai
+/// chiều) để máy nhận biết chắc đây là máy nào — cần cho "máy tin cậy". Máy chạy bản
+/// cũ không yêu cầu chứng chỉ client nên vẫn kết nối bình thường.
+pub fn build_client(pin: Pin, me: Option<&crate::identity::Identity>) -> Result<reqwest::Client, String> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let tls = rustls::ClientConfig::builder_with_provider(provider.clone())
+    let builder = rustls::ClientConfig::builder_with_provider(provider.clone())
         .with_safe_default_protocol_versions()
         .map_err(|e| e.to_string())?
         .dangerous()
-        .with_custom_certificate_verifier(Arc::new(PinVerifier { pin, provider }))
-        .with_no_client_auth();
+        .with_custom_certificate_verifier(Arc::new(PinVerifier { pin, provider }));
+    let tls = match me {
+        Some(id) => {
+            let (certs, key) = id.der()?;
+            builder.with_client_auth_cert(certs, key).map_err(|e| e.to_string())?
+        }
+        None => builder.with_no_client_auth(),
+    };
     reqwest::Client::builder()
         .use_preconfigured_tls(tls)
         .connect_timeout(Duration::from_secs(4))
@@ -161,15 +172,15 @@ mod tests {
         let id = identity();
         let addr = serve(&id).await;
 
-        let good = build_client(Pin::Fingerprint(id.fingerprint.clone())).unwrap();
+        let good = build_client(Pin::Fingerprint(id.fingerprint.clone()), None).unwrap();
         let body = good.get(api_url(&addr, "info")).send().await.unwrap().text().await.unwrap();
         assert_eq!(body, "ok");
 
-        let bad = build_client(Pin::Fingerprint("00".repeat(32))).unwrap();
+        let bad = build_client(Pin::Fingerprint("00".repeat(32)), None).unwrap();
         assert!(bad.get(api_url(&addr, "info")).send().await.is_err());
 
         let slot = Arc::new(Mutex::new(None));
-        let tofu = build_client(Pin::Capture(slot.clone())).unwrap();
+        let tofu = build_client(Pin::Capture(slot.clone()), None).unwrap();
         tofu.get(api_url(&addr, "info")).send().await.unwrap();
         assert_eq!(slot.lock().unwrap().as_deref(), Some(id.fingerprint.as_str()));
     }

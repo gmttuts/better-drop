@@ -11,6 +11,24 @@ pub struct Identity {
     pub fingerprint: String,
 }
 
+type CertAndKey = (
+    Vec<rustls::pki_types::CertificateDer<'static>>,
+    rustls::pki_types::PrivateKeyDer<'static>,
+);
+
+impl Identity {
+    /// Chứng chỉ và khoá dạng DER cho rustls.
+    pub fn der(&self) -> Result<CertAndKey, String> {
+        use rustls::pki_types::pem::PemObject;
+        use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+        let certs = CertificateDer::pem_slice_iter(self.cert_pem.as_bytes())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Chứng chỉ hỏng: {e:?}"))?;
+        let key = PrivateKeyDer::from_pem_slice(self.key_pem.as_bytes()).map_err(|e| format!("Khoá hỏng: {e:?}"))?;
+        Ok((certs, key))
+    }
+}
+
 /// Cho phép chạy nhiều bản trên một máy (để thử nghiệm) bằng `BETTERDROP_PROFILE=b`.
 pub fn profile() -> Option<String> {
     std::env::var("BETTERDROP_PROFILE")

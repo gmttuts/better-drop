@@ -166,6 +166,17 @@ pub fn on_event(app: &AppHandle, event: &str, payload: &serde_json::Value) {
             }
             show_main(app);
         }
+        "auto-accepted" => {
+            if !window_active(app) {
+                let count = payload["file_count"].as_u64().unwrap_or(0);
+                let size = fmt_bytes(payload["total_bytes"].as_u64().unwrap_or(0));
+                notify(
+                    app,
+                    &format!("Đang nhận từ {} (máy tin cậy)", s("sender_name")),
+                    &format!("{count} file · {size}"),
+                );
+            }
+        }
         "incoming-text" => {
             if !window_active(app) {
                 notify(app, &format!("{} đã gửi văn bản", s("sender_name")), &s("text"));

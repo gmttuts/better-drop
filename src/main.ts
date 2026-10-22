@@ -64,6 +64,8 @@ interface IncomingRequest {
   total_bytes: number;
   preview: string[];
   timeout_secs: number;
+  /** Máy gửi đã chứng minh danh tính: có thể "Luôn chấp nhận". */
+  can_trust?: boolean;
 }
 interface IncomingText {
   sender_name: string;
@@ -251,7 +253,15 @@ interface Group {
   members: DeviceRef[];
 }
 
+interface TrustedDevice {
+  id: string;
+  name: string;
+  os: string;
+  fp: string;
+}
+
 let groups: Group[] = [];
+let trusted: TrustedDevice[] = [];
 let hiddenDevices: DeviceRef[] = [];
 /** Nhóm đang lọc; null = tất cả máy. */
 let activeGroup: string | null = null;
@@ -434,6 +444,8 @@ function renderPeers() {
             : "Phiên bản BetterDrop của máy này",
         });
         meta.append(" · ", tag);
+        if (trusted.some((t) => t.id === p.id && t.fp === p.fp))
+          meta.append(" · ", el("span", { className: "trust-tag", textContent: "✓ tin cậy", title: "File từ máy này được nhận luôn, không hỏi" }));
       }
 
       return el(
@@ -470,9 +482,11 @@ async function forgetDevice(d: DeviceRef) {
   }
 }
 
-function applyDevices(info: { groups: Group[]; hidden: DeviceRef[] }) {
+function applyDevices(info: { groups: Group[]; hidden: DeviceRef[]; trusted?: TrustedDevice[] }) {
   groups = info.groups;
   hiddenDevices = info.hidden;
+  trusted = info.trusted ?? [];
+  renderTrusted();
   if (activeGroup && !groups.some((g) => g.id === activeGroup)) activeGroup = null;
   renderPeers();
   renderHidden();
@@ -560,6 +574,29 @@ async function saveGroupFromDialog(ev: Event) {
   } catch (e) {
     toast(errorText(e), "error");
   }
+}
+
+function renderTrusted() {
+  $("trusted-block").hidden = trusted.length === 0;
+  $("trusted-list").replaceChildren(
+    ...trusted.map((d) => {
+      const b = el("button", { className: "btn small", textContent: "Bỏ tin cậy", type: "button" });
+      b.addEventListener("click", async () => {
+        try {
+          applyDevices(await invoke("untrust_device", { id: d.id }));
+          toast(`${d.name}: lần sau sẽ hỏi lại trước khi nhận`);
+        } catch (e) {
+          toast(errorText(e), "error");
+        }
+      });
+      return el(
+        "li",
+        {},
+        el("span", {}, `${d.name} `, el("span", { className: "muted small code", textContent: shortCode(d.fp) })),
+        b,
+      );
+    }),
+  );
 }
 
 function renderHidden() {
@@ -820,6 +857,8 @@ function showNextRequest() {
   }
   const r = currentRequest;
   $("req-sender").textContent = r.sender_name;
+  $("req-trust-row").hidden = !r.can_trust;
+  $<HTMLInputElement>("req-trust").checked = false;
   $("req-summary").textContent = `${r.file_count} file · ${formatBytes(r.total_bytes)} · ${r.sender_os === "web" ? "gửi qua trình duyệt" : `từ máy ${osLabel(r.sender_os)}`}`;
   const more = r.file_count - r.preview.length;
   $("req-preview").replaceChildren(
@@ -841,7 +880,9 @@ async function answerRequest(accept: boolean) {
   if (!currentRequest) return;
   const id = currentRequest.request_id;
   currentRequest = null;
-  await invoke("respond_request", { requestId: id, accept });
+  const trust = accept && $<HTMLInputElement>("req-trust").checked;
+  await invoke("respond_request", { requestId: id, accept, trust });
+  if (trust) toast("Đã thêm vào máy tin cậy: lần sau nhận luôn, không hỏi");
   showNextRequest();
 }
 
@@ -1206,6 +1247,9 @@ async function init() {
     history = [e.payload, ...history.filter((h) => h.id !== e.payload.id)];
     renderHistory();
   });
+  await listen<{ sender_name: string; file_count: number; total_bytes: number }>("auto-accepted", (e) =>
+    toast(`Đang nhận ${e.payload.file_count} file từ ${e.payload.sender_name} (máy tin cậy)`),
+  );
   await listen<IncomingRequest>("incoming-request", (e) => {
     requestQueue.push(e.payload);
     if (!currentRequest) showNextRequest();

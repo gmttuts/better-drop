@@ -124,6 +124,10 @@
       <p class="req-summary" id="req-summary"></p>
       <ul class="req-preview" id="req-preview"></ul>
       <div class="countdown"><i id="req-bar"></i></div>
+      <label class="check trust-check" id="req-trust-row" hidden>
+        <input type="checkbox" id="req-trust" />
+        <span>Luôn chấp nhận từ máy này <span class="muted small">(lần sau nhận luôn, không hỏi)</span></span>
+      </label>
       <div class="dialog-actions">
         <button class="btn" id="btn-reject">Từ chối</button>
         <button class="btn primary" id="btn-accept">Chấp nhận</button>
@@ -267,6 +271,10 @@
           <label class="check" id="row-dock" hidden><input type="checkbox" id="set-dock" /> Ẩn biểu tượng trên Dock</label>
           <p class="muted small" id="bg-hint"></p>
         </fieldset>
+        <div class="hidden-block" id="trusted-block" hidden>
+          <div class="legend">Máy tin cậy <span class="muted small">(file được nhận luôn, không hỏi)</span></div>
+          <ul class="hidden-list" id="trusted-list"></ul>
+        </div>
         <div class="hidden-block" id="hidden-block" hidden>
           <div class="legend">Máy đã quên</div>
           <ul class="hidden-list" id="hidden-list"></ul>

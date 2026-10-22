@@ -127,8 +127,9 @@ pub fn collect_files(st: &AppState, paths: &[String]) -> Result<Vec<LocalFile>, 
     Ok(out)
 }
 
-fn peer_client(peer: &Peer) -> Result<reqwest::Client, String> {
-    build_client(Pin::Fingerprint(peer.info.fp.clone()))
+/// Client gửi tới `peer`, có trình chứng chỉ của máy này để máy nhận nhận ra mình.
+fn peer_client(st: &AppState, peer: &Peer) -> Result<reqwest::Client, String> {
+    build_client(Pin::Fingerprint(peer.info.fp.clone()), Some(&st.identity))
 }
 
 /// Gửi yêu cầu `prepare`, thử lần lượt các địa chỉ của máy nhận.
@@ -186,7 +187,7 @@ pub async fn send_text(st: Arc<AppState>, peer: Peer, text: String) -> Result<()
         text: Some(text),
     };
     let result = async {
-        let client = peer_client(&peer)?;
+        let client = peer_client(&st, &peer)?;
         let (_, resp) = send_prepare(&client, &peer, &req).await?;
         if resp.status() == StatusCode::SERVICE_UNAVAILABLE {
             return Err(RECEIVE_OFF.into());
@@ -228,7 +229,7 @@ pub async fn send_files(
     files: Vec<LocalFile>,
     tracker: &Arc<Tracker>,
 ) -> Result<(), String> {
-    let client = peer_client(peer)?;
+    let client = peer_client(st, peer)?;
     let req = PrepareRequest {
         sender: st.device_info(),
         kind: TransferKind::Files,

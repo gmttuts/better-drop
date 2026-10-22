@@ -11,6 +11,13 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use tokio::sync::oneshot;
 
+/// Yêu cầu nhận đang chờ người dùng bấm Chấp nhận / Từ chối.
+pub struct PendingRequest {
+    pub tx: oneshot::Sender<bool>,
+    /// Máy gửi đã chứng minh danh tính (TLS hai chiều): có thể "Luôn chấp nhận".
+    pub trust_candidate: Option<crate::devices::TrustedDevice>,
+}
+
 /// Hàm gửi event lên giao diện. Trong app là `AppHandle::emit`, trong test là một closure.
 pub type EmitFn = Arc<dyn Fn(&'static str, serde_json::Value) + Send + Sync>;
 
@@ -45,7 +52,7 @@ pub struct AppState {
     pub port: u16,
     pub settings: RwLock<Settings>,
     /// Yêu cầu nhận đang chờ người dùng trả lời.
-    pub pending: Mutex<HashMap<String, oneshot::Sender<bool>>>,
+    pub pending: Mutex<HashMap<String, PendingRequest>>,
     pub incoming: Mutex<HashMap<String, Arc<InSession>>>,
     pub outgoing: Mutex<HashMap<String, Arc<Tracker>>>,
     /// Khoá: tên đầy đủ mDNS, hoặc "manual:<id>".
@@ -188,7 +195,10 @@ impl AppState {
 
     pub fn emit_devices(&self) {
         let book = self.devices.lock().unwrap().clone();
-        self.emit("devices-changed", serde_json::json!({ "groups": book.groups, "hidden": book.hidden }));
+        self.emit(
+            "devices-changed",
+            serde_json::json!({ "groups": book.groups, "hidden": book.hidden, "trusted": book.trusted }),
+        );
     }
 
     pub fn emit_peers(&self) {

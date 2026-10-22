@@ -26,7 +26,25 @@
   ];
   let groups = [{ id: "g1", name: "Phòng kế toán", members: [{ id: "p1", name: "Laptop Phạm Bá Cháy", os: "windows" }, { id: "p5", name: "PC Thiết kế chờ nâng cấp", os: "windows" }] }];
   let hidden = [];
-  const devices = () => ({ groups, hidden });
+  let trusted = [{ id: "p2", name: "Pixel 9 của Tuyến", os: "android", fp: "c41e02b7" }];
+  const devices = () => ({ groups, hidden, trusted });
+
+  // ---- History (finished transfers), newest first ----
+  const now = () => Math.floor(Date.now() / 1000);
+  let history = [
+    { id: "h1", finished_at: now() - 1500, direction: "receive", peer_name: "Pixel 9 của Tuyến", peer_id: "p2", kind: "files", file_count: 2, total_bytes: 6291456, status: "done", error: null,
+      dir_path: "~/Downloads/BetterDrop", files: [{ name: "Ảnh chứng từ.jpg", path: "~/Downloads/BetterDrop/Ảnh chứng từ.jpg" }, { name: "Hoá đơn VAT.pdf", path: "~/Downloads/BetterDrop/Hoá đơn VAT.pdf" }], text: null },
+    { id: "h2", finished_at: now() - 3 * 3600, direction: "send", peer_name: "Laptop Phạm Bá Cháy", peer_id: "p1", kind: "text", file_count: 0, total_bytes: 40, status: "done", error: null,
+      dir_path: null, files: [], text: "https://gmttuts.github.io/better-drop/" },
+    { id: "h3", finished_at: now() - 26 * 3600, direction: "send", peer_name: "iPad của Dương Vũ", peer_id: "p3", kind: "files", file_count: 1, total_bytes: 482133, status: "rejected", error: "Máy nhận đã từ chối",
+      dir_path: null, files: [{ name: "Báo cáo quý 3.xlsx", path: "/Users/ban/Documents/Báo cáo quý 3.xlsx" }], text: null },
+  ];
+  function finishToHistory(t, files) {
+    const entry = { id: t.id, finished_at: now(), direction: t.direction, peer_name: t.peer_name, peer_id: t.peer_id || null, kind: t.kind, file_count: t.file_count,
+      total_bytes: t.total_bytes, status: t.status, error: t.error, dir_path: t.dir_path, files: files || [], text: t.text || null };
+    history = [entry, ...history];
+    emit("history-added", entry);
+  }
 
   const SIZES = { "Báo cáo quý 3.xlsx": 482133, "Ảnh sự kiện.zip": 73400320, "Hợp đồng 2026.pdf": 1843200, "Ghi chú họp.txt": 3120 };
   const sampleFiles = ["/Users/ban/Documents/Báo cáo quý 3.xlsx", "/Users/ban/Documents/Ảnh sự kiện.zip"];
@@ -75,6 +93,7 @@
     t.speed_bps = 0;
     emit("transfer-update", { ...t });
     live.delete(t.id);
+    finishToHistory(t, t.files);
   }
 
   // After the visitor's first send finishes, someone sends something back so they can try "Accept".
@@ -85,7 +104,7 @@
     setTimeout(() => {
       emit("incoming-request", {
         request_id: "r1", sender_name: "Laptop Phạm Bá Cháy", sender_os: "windows", file_count: 3, total_bytes: 5300000,
-        preview: ["Bảng lương tháng 10.xlsx", "Hoá đơn VAT.pdf", "Ảnh chứng từ.jpg"], timeout_secs: 60,
+        preview: ["Bảng lương tháng 10.xlsx", "Hoá đơn VAT.pdf", "Ảnh chứng từ.jpg"], timeout_secs: 60, can_trust: true,
       });
     }, 2500);
   }
@@ -99,20 +118,46 @@
     describe_paths: ({ paths }) => paths.map((p) => ({ path: p, name: baseName(p), is_dir: !baseName(p).includes("."), size: baseName(p).includes(".") ? sizeOf(p) : null })),
     async send_files({ peerId, paths }) {
       const p = peers.find((x) => x.id === peerId);
-      const t = { id: "t" + ++tid, direction: "send", peer_name: p.name, kind: "files", file_count: paths.length + (paths.some((x) => !baseName(x).includes(".")) ? 11 : 0),
-        total_bytes: paths.reduce((s, x) => s + sizeOf(x), 0), transferred: 0, speed_bps: 0, status: "waiting", error: null, dir_path: null };
-      runTransfer(t, 1200 + Math.random() * 900).then(() => { if (t.status === "done") scheduleIncoming(); });
+      const t = { id: "t" + ++tid, direction: "send", peer_name: p.name, peer_id: p.id, kind: "files", file_count: paths.length + (paths.some((x) => !baseName(x).includes(".")) ? 11 : 0),
+        total_bytes: paths.reduce((s, x) => s + sizeOf(x), 0), transferred: 0, speed_bps: 0, status: "waiting", error: null, dir_path: null,
+        files: paths.map((x) => ({ name: baseName(x), path: x })) };
+      // Máy tin cậy nhận luôn, không cần chờ bấm Chấp nhận.
+      const isTrusted = trusted.some((d) => d.id === p.id);
+      runTransfer(t, isTrusted ? 200 : 1200 + Math.random() * 900).then(() => { if (t.status === "done") scheduleIncoming(); });
       return t.id;
     },
-    async send_text() { await wait(350); setTimeout(scheduleIncoming, 1500); return null; },
+    async send_text({ peerId, text }) {
+      await wait(350);
+      const p = peers.find((x) => x.id === peerId);
+      finishToHistory({ id: "t" + ++tid, direction: "send", peer_name: p.name, peer_id: p.id, kind: "text", file_count: 0, total_bytes: text.length, status: "done", error: null, dir_path: null, text });
+      setTimeout(scheduleIncoming, 1500);
+      return null;
+    },
     cancel_transfer({ id }) {
       const t = live.get(id);
       if (t) { t.status = "cancelled"; emit("transfer-update", { ...t }); live.delete(id); }
     },
-    respond_request({ requestId, accept }) {
+    respond_request({ requestId, accept, trust }) {
       emit("request-closed", { request_id: requestId });
-      if (accept) runTransfer({ id: "t" + ++tid, direction: "receive", peer_name: "Laptop Phạm Bá Cháy", kind: "files", file_count: 3, total_bytes: 5300000,
-        transferred: 0, speed_bps: 0, status: "waiting", error: null, dir_path: "~/Downloads/BetterDrop" }, 300);
+      if (accept && trust && !trusted.some((d) => d.id === "p1")) {
+        trusted = [...trusted, { id: "p1", name: "Laptop Phạm Bá Cháy", os: "windows", fp: "7f3ca1e0" }];
+        setTimeout(() => emit("devices-changed", devices()), 0);
+      }
+      const names = ["Bảng lương tháng 10.xlsx", "Hoá đơn VAT.pdf", "Ảnh chứng từ.jpg"];
+      if (accept) runTransfer({ id: "t" + ++tid, direction: "receive", peer_name: "Laptop Phạm Bá Cháy", peer_id: "p1", kind: "files", file_count: 3, total_bytes: 5300000,
+        transferred: 0, speed_bps: 0, status: "waiting", error: null, dir_path: "~/Downloads/BetterDrop",
+        files: names.map((n) => ({ name: n, path: "~/Downloads/BetterDrop/" + n })) }, 300);
+    },
+    untrust_device({ id }) { trusted = trusted.filter((d) => d.id !== id); return devices(); },
+    get_history: () => history,
+    delete_history_item({ id }) { history = history.filter((h) => h.id !== id); return null; },
+    clear_history() { history = []; return null; },
+    reveal_path: () => { throw "Đây là bản dùng thử trên web, không có file thật để mở."; },
+    async resend_history({ id, peerId }) {
+      const h = history.find((x) => x.id === id);
+      if (!h) return null;
+      if (h.kind === "text") return commands.send_text({ peerId, text: h.text });
+      return commands.send_files({ peerId, paths: h.files.map((f) => f.path) });
     },
     open_folder: () => { throw "Đây là bản dùng thử trên web, không có thư mục thật để mở."; },
     pair_info: () => ({ link: "betterdrop://pair?h=192.168.1.12&p=53318&fp=520d9a1b", svg: QR }),

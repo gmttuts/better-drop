@@ -90,6 +90,8 @@ pub struct IncomingRequest {
     /// Vài tên file đầu để hiển thị.
     pub preview: Vec<String>,
     pub timeout_secs: u64,
+    /// Máy gửi đã chứng minh danh tính nên có thể đánh dấu "Luôn chấp nhận".
+    pub can_trust: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

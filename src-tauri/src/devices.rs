@@ -21,6 +21,19 @@ pub struct Group {
     pub members: Vec<DeviceRef>,
 }
 
+/// Máy được "Luôn chấp nhận": file từ máy này được nhận ngay, không hỏi.
+/// Gắn với dấu vân tay chứng chỉ, nên máy khác khai cùng id cũng không lọt qua.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TrustedDevice {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub os: String,
+    pub fp: String,
+    #[serde(default)]
+    pub added_at: u64,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DeviceBook {
     /// Máy thêm bằng IP/QR hoặc tự nhớ khi nhận file (mDNS không tự tìm lại được).
@@ -31,6 +44,8 @@ pub struct DeviceBook {
     pub hidden: Vec<DeviceRef>,
     #[serde(default)]
     pub groups: Vec<Group>,
+    #[serde(default)]
+    pub trusted: Vec<TrustedDevice>,
 }
 
 const FILE: &str = "devices.json";
@@ -69,9 +84,24 @@ impl DeviceBook {
     /// Quên một máy: xoá khỏi danh sách đã lưu và ẩn đi (nếu nó tự hiện lại qua mDNS).
     pub fn forget(&mut self, dev: DeviceRef) {
         self.known.retain(|k| k.info.id != dev.id);
+        self.trusted.retain(|t| t.id != dev.id);
         if !self.is_hidden(&dev.id) {
             self.hidden.push(dev);
         }
+    }
+
+    /// Máy `id` với chứng chỉ `fp` có được tin cậy không (phải khớp cả hai).
+    pub fn is_trusted(&self, id: &str, fp: &str) -> bool {
+        self.trusted.iter().any(|t| t.id == id && t.fp.eq_ignore_ascii_case(fp))
+    }
+
+    pub fn trust(&mut self, dev: TrustedDevice) {
+        self.trusted.retain(|t| t.id != dev.id);
+        self.trusted.push(dev);
+    }
+
+    pub fn untrust(&mut self, id: &str) {
+        self.trusted.retain(|t| t.id != id);
     }
 
     pub fn unhide(&mut self, id: &str) {

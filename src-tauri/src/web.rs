@@ -506,7 +506,8 @@ async fn prepare(State(st): St, headers: HeaderMap, Json(req): Json<PrepareReq>)
     if !st.settings.read().unwrap().receive_enabled {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     }
-    match accept_files(&st, &browser_name(&req.name), None, "web", &req.files).await {
+    // Trình duyệt không có chứng chỉ: luôn phải hỏi Chấp nhận.
+    match accept_files(&st, &browser_name(&req.name), None, "web", &req.files, Default::default()).await {
         Ok(resp) => Json(resp).into_response(),
         Err(code) => code.into_response(),
     }

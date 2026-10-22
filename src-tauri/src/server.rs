@@ -5,6 +5,7 @@ use crate::paths::{sanitize_rel_path, unique_path};
 use crate::state::{AppState, InFile, InSession, Tracker};
 use axum::body::Body;
 use axum::extract::{ConnectInfo, DefaultBodyLimit, Query, State};
+use axum::Extension;
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -46,16 +47,108 @@ pub fn bind() -> std::io::Result<std::net::TcpListener> {
 }
 
 pub async fn serve(state: Arc<AppState>, listener: std::net::TcpListener) -> Result<(), String> {
-    let cfg = axum_server::tls_rustls::RustlsConfig::from_pem(
-        state.identity.cert_pem.clone().into_bytes(),
-        state.identity.key_pem.clone().into_bytes(),
-    )
-    .await
-    .map_err(|e| e.to_string())?;
-    axum_server::from_tcp_rustls(listener, cfg)
+    let cfg = axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(tls_config(&state.identity)?));
+    let acceptor = PeerCertAcceptor(axum_server::tls_rustls::RustlsAcceptor::new(cfg));
+    axum_server::from_tcp(listener)
+        .acceptor(acceptor)
         .serve(router(state).into_make_service_with_connect_info::<SocketAddr>())
         .await
         .map_err(|e| e.to_string())
+}
+
+// ---- TLS hai chiều: biết chắc máy gửi là máy nào ----
+
+/// Dấu vân tay chứng chỉ mà máy gửi đã trình khi kết nối (None: bản cũ, trình duyệt).
+/// Có được nghĩa là máy gửi nắm khoá bí mật của chứng chỉ đó (chữ ký TLS đã được kiểm),
+/// nên không thể giả mạo bằng cách chỉ khai id/tên của máy khác.
+#[derive(Debug, Clone, Default)]
+pub struct ClientFp(pub Option<String>);
+
+/// Nhận mọi chứng chỉ client (tự ký) nhưng vẫn kiểm chữ ký bắt tay, và không bắt buộc
+/// phải có: bản cũ không trình chứng chỉ vẫn kết nối được.
+#[derive(Debug)]
+struct AnyClientCert(Arc<rustls::crypto::CryptoProvider>);
+
+impl rustls::server::danger::ClientCertVerifier for AnyClientCert {
+    fn offer_client_auth(&self) -> bool {
+        true
+    }
+    fn client_auth_mandatory(&self) -> bool {
+        false
+    }
+    fn root_hint_subjects(&self) -> &[rustls::DistinguishedName] {
+        &[]
+    }
+    fn verify_client_cert(
+        &self,
+        _end_entity: &rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::server::danger::ClientCertVerified, rustls::Error> {
+        Ok(rustls::server::danger::ClientCertVerified::assertion())
+    }
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls12_signature(message, cert, dss, &self.0.signature_verification_algorithms)
+    }
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls13_signature(message, cert, dss, &self.0.signature_verification_algorithms)
+    }
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        self.0.signature_verification_algorithms.supported_schemes()
+    }
+}
+
+fn tls_config(id: &crate::identity::Identity) -> Result<rustls::ServerConfig, String> {
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let (certs, key) = id.der()?;
+    let mut cfg = rustls::ServerConfig::builder_with_provider(provider.clone())
+        .with_safe_default_protocol_versions()
+        .map_err(|e| e.to_string())?
+        .with_client_cert_verifier(Arc::new(AnyClientCert(provider)))
+        .with_single_cert(certs, key)
+        .map_err(|e| e.to_string())?;
+    cfg.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    Ok(cfg)
+}
+
+/// Sau bắt tay TLS, gắn dấu vân tay chứng chỉ của máy gửi vào mọi request.
+#[derive(Clone)]
+struct PeerCertAcceptor(axum_server::tls_rustls::RustlsAcceptor);
+
+impl<I, S> axum_server::accept::Accept<I, S> for PeerCertAcceptor
+where
+    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    S: Send + 'static,
+{
+    type Stream = tokio_rustls::server::TlsStream<I>;
+    type Service = <axum::Extension<ClientFp> as tower::Layer<S>>::Service;
+    type Future = std::pin::Pin<
+        Box<dyn std::future::Future<Output = std::io::Result<(Self::Stream, Self::Service)>> + Send>,
+    >;
+
+    fn accept(&self, stream: I, service: S) -> Self::Future {
+        let inner = self.0.accept(stream, service);
+        Box::pin(async move {
+            let (stream, service) = inner.await?;
+            let fp = stream
+                .get_ref()
+                .1
+                .peer_certificates()
+                .and_then(|c| c.first())
+                .map(|c| crate::identity::fingerprint(c.as_ref()));
+            Ok((stream, tower::Layer::layer(&axum::Extension(ClientFp(fp)), service)))
+        })
+    }
 }
 
 async fn info(State(st): St) -> Json<DeviceInfo> {
@@ -103,6 +196,7 @@ fn remember_sender(st: &AppState, sender: &DeviceInfo, remote: SocketAddr) {
 async fn prepare(
     State(st): St,
     ConnectInfo(remote): ConnectInfo<SocketAddr>,
+    Extension(ClientFp(client_fp)): Extension<ClientFp>,
     Json(req): Json<PrepareRequest>,
 ) -> Result<Json<PrepareResponse>, StatusCode> {
     if !st.settings.read().unwrap().receive_enabled {
@@ -113,9 +207,39 @@ async fn prepare(
         receive_text(&st, &req.sender.name, Some(&req.sender.id), req.text.unwrap_or_default());
         return Ok(Json(PrepareResponse::default()));
     }
-    let resp = accept_files(&st, &req.sender.name, Some(&req.sender.id), &req.sender.os, &req.files).await?;
+    let trust = trust_of(&st, &req.sender, client_fp.as_deref());
+    let resp = accept_files(&st, &req.sender.name, Some(&req.sender.id), &req.sender.os, &req.files, trust).await?;
     remember_sender(&st, &req.sender, remote);
     Ok(Json(resp))
+}
+
+/// Máy gửi có được tự chấp nhận không, và có thể được đánh dấu tin cậy không.
+#[derive(Default)]
+pub struct Trust {
+    /// Nhận luôn, không hỏi (máy đã được tin cậy và chứng minh đúng danh tính).
+    pub auto: bool,
+    /// Có thể hiện ô "Luôn chấp nhận từ máy này".
+    pub candidate: Option<crate::devices::TrustedDevice>,
+}
+
+/// Danh tính chỉ được coi là thật khi chứng chỉ máy gửi trình trong TLS (đã kiểm chữ
+/// ký) có đúng dấu vân tay mà máy đó khai báo/quảng bá. Bản cũ không trình chứng chỉ
+/// nên không bao giờ được tự chấp nhận, vẫn phải hỏi như trước.
+pub fn trust_of(st: &AppState, sender: &DeviceInfo, client_fp: Option<&str>) -> Trust {
+    let proven = client_fp.is_some_and(|fp| fp.eq_ignore_ascii_case(&sender.fp));
+    if !proven {
+        return Trust::default();
+    }
+    Trust {
+        auto: st.devices.lock().unwrap().is_trusted(&sender.id, &sender.fp),
+        candidate: Some(crate::devices::TrustedDevice {
+            id: sender.id.clone(),
+            name: sender.name.clone(),
+            os: sender.os.clone(),
+            fp: sender.fp.clone(),
+            added_at: crate::history::now_secs(),
+        }),
+    }
 }
 
 /// Nhận một đoạn văn bản: hiện cho người dùng và ghi vào mục Hoạt động.
@@ -156,36 +280,50 @@ pub async fn accept_files(
     sender_id: Option<&str>,
     sender_os: &str,
     req_files: &[FileMeta],
+    trust: Trust,
 ) -> Result<PrepareResponse, StatusCode> {
     if req_files.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
     let total_bytes: u64 = req_files.iter().map(|f| f.size).sum();
 
-    let request_id = uuid::Uuid::new_v4().to_string();
-    let (tx, rx) = oneshot::channel();
-    st.pending.lock().unwrap().insert(request_id.clone(), tx);
-    let guard = PendingGuard {
-        st: st.clone(),
-        id: request_id.clone(),
-    };
-    st.emit(
-        "incoming-request",
-        IncomingRequest {
-            request_id: request_id.clone(),
-            sender_name: sender_name.to_string(),
-            sender_os: sender_os.to_string(),
-            file_count: req_files.len(),
-            total_bytes,
-            preview: req_files.iter().take(5).map(|f| f.rel_path.clone()).collect(),
-            timeout_secs: ACCEPT_TIMEOUT.as_secs(),
-        },
-    );
+    if trust.auto {
+        // Máy tin cậy: nhận luôn, chỉ báo cho người dùng biết.
+        st.emit(
+            "auto-accepted",
+            serde_json::json!({ "sender_name": sender_name, "file_count": req_files.len(), "total_bytes": total_bytes }),
+        );
+    } else {
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel();
+        let can_trust = trust.candidate.is_some();
+        st.pending.lock().unwrap().insert(
+            request_id.clone(),
+            crate::state::PendingRequest { tx, trust_candidate: trust.candidate },
+        );
+        let guard = PendingGuard {
+            st: st.clone(),
+            id: request_id.clone(),
+        };
+        st.emit(
+            "incoming-request",
+            IncomingRequest {
+                request_id: request_id.clone(),
+                sender_name: sender_name.to_string(),
+                sender_os: sender_os.to_string(),
+                file_count: req_files.len(),
+                total_bytes,
+                preview: req_files.iter().take(5).map(|f| f.rel_path.clone()).collect(),
+                timeout_secs: ACCEPT_TIMEOUT.as_secs(),
+                can_trust,
+            },
+        );
 
-    let accepted = matches!(tokio::time::timeout(ACCEPT_TIMEOUT, rx).await, Ok(Ok(true)));
-    drop(guard);
-    if !accepted {
-        return Err(StatusCode::FORBIDDEN);
+        let accepted = matches!(tokio::time::timeout(ACCEPT_TIMEOUT, rx).await, Ok(Ok(true)));
+        drop(guard);
+        if !accepted {
+            return Err(StatusCode::FORBIDDEN);
+        }
     }
 
     let session_id = uuid::Uuid::new_v4().to_string();

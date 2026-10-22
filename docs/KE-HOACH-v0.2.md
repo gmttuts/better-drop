@@ -1,5 +1,7 @@
 # Kế hoạch BetterDrop v0.2
 
+> **Trạng thái (v0.3.4):** cả 3 tính năng đã xong. 1. Chạy nền: v0.2.0. 2. Máy tin cậy (TLS hai chiều, gắn với dấu vân tay chứng chỉ): v0.3.4. 3. Lịch sử: v0.3.4.
+
 Ba tính năng: **chạy nền trên thanh menu/khay hệ thống**, **tự chấp nhận từ máy tin cậy** và **lịch sử chuyển file**.
 
 Thứ tự làm: 1 → 2 → 3. Chạy nền đi trước vì "tự chấp nhận" chỉ thật sự có ích khi app chạy nền. Lịch sử độc lập nên làm lúc nào cũng được.

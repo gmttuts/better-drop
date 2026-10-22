@@ -30,7 +30,25 @@
   ];
   let groups = [{ id: "g1", name: "Phòng kế toán", members: [{ id: "p1", name: "Laptop Phạm Bá Cháy", os: "windows" }, { id: "p5", name: "PC Thiết kế chờ nâng cấp", os: "windows" }] }];
   let hidden = [];
-  const devices = () => ({ groups, hidden });
+  let trusted = [{ id: "p2", name: "Pixel 9 của Tuyến", os: "android", fp: "c41e02b7" }];
+  const devices = () => ({ groups, hidden, trusted });
+
+  // ---- History (finished transfers), newest first ----
+  const now = () => Math.floor(Date.now() / 1000);
+  let history = [
+    { id: "h1", finished_at: now() - 1500, direction: "receive", peer_name: "Pixel 9 của Tuyến", peer_id: "p2", kind: "files", file_count: 2, total_bytes: 6291456, status: "done", error: null,
+      dir_path: "~/Downloads/BetterDrop", files: [{ name: "Ảnh chứng từ.jpg", path: "~/Downloads/BetterDrop/Ảnh chứng từ.jpg" }, { name: "Hoá đơn VAT.pdf", path: "~/Downloads/BetterDrop/Hoá đơn VAT.pdf" }], text: null },
+    { id: "h2", finished_at: now() - 3 * 3600, direction: "send", peer_name: "Laptop Phạm Bá Cháy", peer_id: "p1", kind: "text", file_count: 0, total_bytes: 40, status: "done", error: null,
+      dir_path: null, files: [], text: "https://gmttuts.github.io/better-drop/" },
+    { id: "h3", finished_at: now() - 26 * 3600, direction: "send", peer_name: "iPad của Dương Vũ", peer_id: "p3", kind: "files", file_count: 1, total_bytes: 482133, status: "rejected", error: "Máy nhận đã từ chối",
+      dir_path: null, files: [{ name: "Báo cáo quý 3.xlsx", path: "/Users/ban/Documents/Báo cáo quý 3.xlsx" }], text: null },
+  ];
+  function finishToHistory(t, files) {
+    const entry = { id: t.id, finished_at: now(), direction: t.direction, peer_name: t.peer_name, peer_id: t.peer_id || null, kind: t.kind, file_count: t.file_count,
+      total_bytes: t.total_bytes, status: t.status, error: t.error, dir_path: t.dir_path, files: files || [], text: t.text || null };
+    history = [entry, ...history];
+    emit("history-added", entry);
+  }
 
   const SIZES = { "Báo cáo quý 3.xlsx": 482133, "Ảnh sự kiện.zip": 73400320, "Hợp đồng 2026.pdf": 1843200, "Ghi chú họp.txt": 3120 };
   const sampleFiles = ["/Users/ban/Documents/Báo cáo quý 3.xlsx", "/Users/ban/Documents/Ảnh sự kiện.zip"];
@@ -79,6 +97,7 @@
     t.speed_bps = 0;
     emit("transfer-update", { ...t });
     live.delete(t.id);
+    finishToHistory(t, t.files);
   }
 
   // After the visitor's first send finishes, someone sends something back so they can try "Accept".
@@ -89,7 +108,7 @@
     setTimeout(() => {
       emit("incoming-request", {
         request_id: "r1", sender_name: "Laptop Phạm Bá Cháy", sender_os: "windows", file_count: 3, total_bytes: 5300000,
-        preview: ["Bảng lương tháng 10.xlsx", "Hoá đơn VAT.pdf", "Ảnh chứng từ.jpg"], timeout_secs: 60,
+        preview: ["Bảng lương tháng 10.xlsx", "Hoá đơn VAT.pdf", "Ảnh chứng từ.jpg"], timeout_secs: 60, can_trust: true,
       });
     }, 2500);
   }
@@ -103,20 +122,46 @@
     describe_paths: ({ paths }) => paths.map((p) => ({ path: p, name: baseName(p), is_dir: !baseName(p).includes("."), size: baseName(p).includes(".") ? sizeOf(p) : null })),
     async send_files({ peerId, paths }) {
       const p = peers.find((x) => x.id === peerId);
-      const t = { id: "t" + ++tid, direction: "send", peer_name: p.name, kind: "files", file_count: paths.length + (paths.some((x) => !baseName(x).includes(".")) ? 11 : 0),
-        total_bytes: paths.reduce((s, x) => s + sizeOf(x), 0), transferred: 0, speed_bps: 0, status: "waiting", error: null, dir_path: null };
-      runTransfer(t, 1200 + Math.random() * 900).then(() => { if (t.status === "done") scheduleIncoming(); });
+      const t = { id: "t" + ++tid, direction: "send", peer_name: p.name, peer_id: p.id, kind: "files", file_count: paths.length + (paths.some((x) => !baseName(x).includes(".")) ? 11 : 0),
+        total_bytes: paths.reduce((s, x) => s + sizeOf(x), 0), transferred: 0, speed_bps: 0, status: "waiting", error: null, dir_path: null,
+        files: paths.map((x) => ({ name: baseName(x), path: x })) };
+      // Máy tin cậy nhận luôn, không cần chờ bấm Chấp nhận.
+      const isTrusted = trusted.some((d) => d.id === p.id);
+      runTransfer(t, isTrusted ? 200 : 1200 + Math.random() * 900).then(() => { if (t.status === "done") scheduleIncoming(); });
       return t.id;
     },
-    async send_text() { await wait(350); setTimeout(scheduleIncoming, 1500); return null; },
+    async send_text({ peerId, text }) {
+      await wait(350);
+      const p = peers.find((x) => x.id === peerId);
+      finishToHistory({ id: "t" + ++tid, direction: "send", peer_name: p.name, peer_id: p.id, kind: "text", file_count: 0, total_bytes: text.length, status: "done", error: null, dir_path: null, text });
+      setTimeout(scheduleIncoming, 1500);
+      return null;
+    },
     cancel_transfer({ id }) {
       const t = live.get(id);
       if (t) { t.status = "cancelled"; emit("transfer-update", { ...t }); live.delete(id); }
     },
-    respond_request({ requestId, accept }) {
+    respond_request({ requestId, accept, trust }) {
       emit("request-closed", { request_id: requestId });
-      if (accept) runTransfer({ id: "t" + ++tid, direction: "receive", peer_name: "Laptop Phạm Bá Cháy", kind: "files", file_count: 3, total_bytes: 5300000,
-        transferred: 0, speed_bps: 0, status: "waiting", error: null, dir_path: "~/Downloads/BetterDrop" }, 300);
+      if (accept && trust && !trusted.some((d) => d.id === "p1")) {
+        trusted = [...trusted, { id: "p1", name: "Laptop Phạm Bá Cháy", os: "windows", fp: "7f3ca1e0" }];
+        setTimeout(() => emit("devices-changed", devices()), 0);
+      }
+      const names = ["Bảng lương tháng 10.xlsx", "Hoá đơn VAT.pdf", "Ảnh chứng từ.jpg"];
+      if (accept) runTransfer({ id: "t" + ++tid, direction: "receive", peer_name: "Laptop Phạm Bá Cháy", peer_id: "p1", kind: "files", file_count: 3, total_bytes: 5300000,
+        transferred: 0, speed_bps: 0, status: "waiting", error: null, dir_path: "~/Downloads/BetterDrop",
+        files: names.map((n) => ({ name: n, path: "~/Downloads/BetterDrop/" + n })) }, 300);
+    },
+    untrust_device({ id }) { trusted = trusted.filter((d) => d.id !== id); return devices(); },
+    get_history: () => history,
+    delete_history_item({ id }) { history = history.filter((h) => h.id !== id); return null; },
+    clear_history() { history = []; return null; },
+    reveal_path: () => { throw "Đây là bản dùng thử trên web, không có file thật để mở."; },
+    async resend_history({ id, peerId }) {
+      const h = history.find((x) => x.id === id);
+      if (!h) return null;
+      if (h.kind === "text") return commands.send_text({ peerId, text: h.text });
+      return commands.send_files({ peerId, paths: h.files.map((f) => f.path) });
     },
     open_folder: () => { throw "Đây là bản dùng thử trên web, không có thư mục thật để mở."; },
     pair_info: () => ({ link: "betterdrop://pair?h=192.168.1.12&p=53318&fp=520d9a1b", svg: QR }),
@@ -226,6 +271,7 @@
     "trong BetterDrop trên máy đó.": "in BetterDrop on that device.",
     "Quét mã QR của máy tính": "Scan the computer's QR code",
     "Đưa mã QR trên máy tính vào khung": "Point the camera at the QR code on the computer",
+    "· Văn bản": "· Text",
     "Tất cả": "All",
     "+ Nhóm mới": "+ New group",
     "Nhóm mới": "New group",
@@ -336,6 +382,36 @@
     "Không rõ": "Unknown",
     "Không kết nối được": "Couldn't connect",
     "Thiết bị lân cận": "Nearby devices",
+    // Lịch sử & máy tin cậy (v0.3.4)
+    "Tất cả": "All",
+    "Đã gửi": "Sent",
+    "Đã nhận": "Received",
+    "Xoá lịch sử": "Clear history",
+    "Xem thêm": "Show more",
+    "Sao chép": "Copy",
+    "Gửi lại": "Send again",
+    "Mở thư mục": "Open folder",
+    "Hiện trong Finder": "Show in Finder",
+    "Hiện trong Explorer": "Show in Explorer",
+    "Bấm để xem chi tiết": "Click for details",
+    "Xoá khỏi lịch sử (không xoá file)": "Remove from history (files are kept)",
+    "Máy nhận hiện không kết nối được": "That device isn't reachable right now",
+    "Xoá toàn bộ lịch sử?": "Clear all history?",
+    "Chỉ xoá danh sách trong mục Hoạt động. File đã gửi/nhận vẫn còn nguyên.": "Only the Activity list is cleared. Sent and received files stay where they are.",
+    "Đã sao chép": "Copied",
+    "Hoàn tất": "Done",
+    "Bị từ chối": "Declined",
+    "Đã huỷ": "Cancelled",
+    "Máy nhận đã từ chối": "The receiver declined",
+    "Luôn chấp nhận từ máy này": "Always accept from this device",
+    "(lần sau nhận luôn, không hỏi)": "(next time, receive without asking)",
+    "✓ tin cậy": "✓ trusted",
+    "File từ máy này được nhận luôn, không hỏi": "Files from this device are received without asking",
+    "Máy tin cậy": "Trusted devices",
+    "(file được nhận luôn, không hỏi)": "(files are received without asking)",
+    "Bỏ tin cậy": "Stop trusting",
+    "Đã thêm vào máy tin cậy: lần sau nhận luôn, không hỏi": "Added to trusted devices: next time it's received without asking",
+    "Đây là bản dùng thử trên web, không có file thật để mở.": "This is a web demo; there's no real file to show.",
     // Demo data and messages from mock.js
     "Phòng kế toán": "Accounting",
     "PC Thiết kế chờ nâng cấp": "Design PC (awaiting upgrade)",
@@ -399,6 +475,15 @@
     [/^Đã lưu vào (.+)$/, (_, d) => `Saved to ${d}`],
     [/^và (\d+) file khác…$/, (_, n) => `and ${n} more file${n === "1" ? "" : "s"}…`],
     [/^● Đang chia sẻ · (\d+) trình duyệt đã vào$/, (_, n) => `● Sharing · ${n} browser${n === "1" ? "" : "s"} connected`],
+    [/^(Hoàn tất|Bị từ chối|Đã huỷ|Máy nhận đã từ chối|Lỗi) · (\d\d:\d\d) hôm nay$/, (_, s, t) => `${name(s)} · today ${t}`],
+    [/^(Hoàn tất|Bị từ chối|Đã huỷ|Máy nhận đã từ chối|Lỗi) · (\d\d:\d\d) hôm qua$/, (_, s, t) => `${name(s)} · yesterday ${t}`],
+    [/^(Hoàn tất|Bị từ chối|Đã huỷ|Máy nhận đã từ chối|Lỗi) · (\d\d:\d\d) (\d\d\/\d\d(?:\/\d{4})?)$/, (_, s, t, d) => `${name(s)} · ${d} ${t}`],
+    [/^Đang nhận (\d+) file từ (.+) \(máy tin cậy\)$/, (_, n, p) => `Receiving ${files(n)} from ${name(p)} (trusted device)`],
+    [/^(.+): lần sau sẽ hỏi lại trước khi nhận$/, (_, p) => `${name(p)}: you'll be asked again next time`],
+    [/^… và (\d+) file khác$/, (_, n) => `… and ${n} more file${n === "1" ? "" : "s"}`],
+    [/^Gửi lại tới (.+)$/, (_, p) => `Send again to ${name(p)}`],
+    [/^Đã gửi lại văn bản tới (.+)$/, (_, p) => `Sent the text again to ${name(p)}`],
+    // Chung chung nhất: để cuối cùng.
     [/^Máy (.+)$/, (_, ip) => `Device ${ip}`],
   ];
   function where(w) {
@@ -440,8 +525,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>BetterDrop (bản dùng thử)</title>
     <link rel="icon" type="image/png" href="./logo.png" />
-    <script type="module" crossorigin src="./assets/index-CvcsrTB4.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-DzpzBGZV.css">
+    <script type="module" crossorigin src="./assets/index-BFnHpgKM.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-BLokliQB.css">
   </head>
   <body>
     <header class="topbar">
@@ -537,8 +622,18 @@
       <section class="card wide" aria-labelledby="activity-title">
         <div class="card-head">
           <h2 id="activity-title">Hoạt động</h2>
+          <div class="hist-tools" id="hist-tools" hidden>
+            <div class="chips" id="hist-filter">
+              <button class="chip active" data-filter="all">Tất cả</button>
+              <button class="chip" data-filter="send">Đã gửi</button>
+              <button class="chip" data-filter="receive">Đã nhận</button>
+            </div>
+            <button class="link small" id="btn-clear-history">Xoá lịch sử</button>
+          </div>
         </div>
         <ul class="transfers" id="transfers"></ul>
+        <ul class="transfers history" id="history"></ul>
+        <div class="row-center"><button class="link small" id="btn-more-history" hidden>Xem thêm</button></div>
         <p class="empty muted" id="transfers-empty">Chưa có lượt chuyển nào.</p>
       </section>
     </main>
@@ -549,6 +644,10 @@
       <p class="req-summary" id="req-summary"></p>
       <ul class="req-preview" id="req-preview"></ul>
       <div class="countdown"><i id="req-bar"></i></div>
+      <label class="check trust-check" id="req-trust-row" hidden>
+        <input type="checkbox" id="req-trust" />
+        <span>Luôn chấp nhận từ máy này <span class="muted small">(lần sau nhận luôn, không hỏi)</span></span>
+      </label>
       <div class="dialog-actions">
         <button class="btn" id="btn-reject">Từ chối</button>
         <button class="btn primary" id="btn-accept">Chấp nhận</button>
@@ -692,6 +791,10 @@
           <label class="check" id="row-dock" hidden><input type="checkbox" id="set-dock" /> Ẩn biểu tượng trên Dock</label>
           <p class="muted small" id="bg-hint"></p>
         </fieldset>
+        <div class="hidden-block" id="trusted-block" hidden>
+          <div class="legend">Máy tin cậy <span class="muted small">(file được nhận luôn, không hỏi)</span></div>
+          <ul class="hidden-list" id="trusted-list"></ul>
+        </div>
         <div class="hidden-block" id="hidden-block" hidden>
           <div class="legend">Máy đã quên</div>
           <ul class="hidden-list" id="hidden-list"></ul>
