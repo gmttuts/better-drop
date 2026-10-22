@@ -24,6 +24,7 @@
       <a href="#features" data-i18n="nav.features"></a>
       <a href="#browser" data-i18n="nav.browser"></a>
       <a href="#faq" data-i18n="nav.faq"></a>
+      <a href="#support" data-i18n="nav.support"></a>
     </nav>
     <div class="lang" role="group" aria-label="Ngôn ngữ / Language"><button data-lang="vi">VI</button><button data-lang="en">EN</button></div>
     <a class="btn btn-small" href="#download" data-i18n="nav.download"></a>
@@ -38,6 +39,7 @@
         <div class="cta-row">
           <a class="btn" data-primary-download href="https://github.com/gmttuts/better-drop/releases/latest"><span data-os-icon></span><span data-primary-label></span></a>
           <a class="btn btn-soft" href="#download" data-i18n="hero.other"></a>
+          <button type="button" class="btn btn-soft" data-support="both">☕ <span data-i18n="nav.support"></span></button>
         </div>
         <p class="fine"><span data-version-label></span> · <span data-i18n="hero.fine"></span></p>
         <div class="os-row" aria-hidden="true" data-os-row></div>
@@ -144,6 +146,39 @@
       </div>
     </section>
 
+    <section id="support" class="block wrap">
+      <div class="support-card">
+        <div class="support-text">
+          <h2 data-i18n="support.title"></h2>
+          <p data-i18n="support.sub"></p>
+          <div class="cta-row">
+            <button type="button" class="btn btn-coffee" data-support="bmc">☕ <span data-i18n="support.bmc"></span></button>
+            <button type="button" class="btn btn-momo" data-support="momo"><span class="momo-dot">M</span><span data-i18n="support.momo"></span></button>
+          </div>
+        </div>
+        <!-- a friendly coffee cup, drawn in SVG (same as the Better Finder site) -->
+        <svg class="cup" viewBox="0 0 320 280" aria-hidden="true">
+          <ellipse cx="150" cy="248" rx="112" ry="16" fill="#f1dcc0"/>
+          <g class="cup-spark" stroke="#ffcc00" stroke-width="7" stroke-linecap="round">
+            <line x1="30" y1="62" x2="44" y2="84"/><line x1="16" y1="112" x2="40" y2="118"/>
+            <line x1="292" y1="58" x2="276" y2="82"/><line x1="306" y1="108" x2="282" y2="116"/>
+          </g>
+          <g class="cup-steam" fill="none" stroke="#2b2420" stroke-width="5" stroke-linecap="round">
+            <path d="M120 82c-10-12 10-22 0-36"/><path d="M152 70c-12-14 12-26 0-44"/><path d="M184 82c-10-12 10-22 0-36"/>
+          </g>
+          <path d="M248 138c34-6 46 34 14 54-10 6-24 8-36 6" fill="none" stroke="#2b2420" stroke-width="8" stroke-linecap="round"/>
+          <path d="M54 118h196c0 70-26 120-98 120S54 188 54 118z" fill="#fffaf2" stroke="#2b2420" stroke-width="8" stroke-linejoin="round"/>
+          <ellipse cx="152" cy="118" rx="98" ry="20" fill="#5a3a24" stroke="#2b2420" stroke-width="8"/>
+          <ellipse cx="128" cy="113" rx="34" ry="6" fill="#7b5235"/>
+          <g class="cup-face">
+            <circle cx="122" cy="172" r="7" fill="#2b2420"/><circle cx="182" cy="172" r="7" fill="#2b2420"/>
+            <path d="M136 192q16 14 32 0" fill="none" stroke="#2b2420" stroke-width="6" stroke-linecap="round"/>
+            <circle cx="104" cy="190" r="9" fill="#ffb4a2" opacity=".7"/><circle cx="200" cy="190" r="9" fill="#ffb4a2" opacity=".7"/>
+          </g>
+        </svg>
+      </div>
+    </section>
+
     <section id="faq" class="block wrap narrow">
       <h2 data-i18n="faq.title"></h2>
       <div class="faq" data-faq></div>
@@ -168,9 +203,18 @@
       <a href="https://github.com/gmttuts/better-drop"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
       <a href="https://github.com/gmttuts/better-drop/releases" data-i18n="footer.releases"></a>
       <a href="https://github.com/gmttuts/better-drop/issues" data-i18n="footer.issues"></a>
+      <a href="#support" data-i18n="nav.support"></a>
     </nav>
     <span class="fine">© <span data-year></span> BetterDrop</span>
   </footer>
+
+  <dialog class="support-modal" data-support-modal>
+    <button type="button" class="x" data-close data-i18n-label="support.close">×</button>
+    <h3 data-support-title></h3>
+    <p class="fine" data-i18n="support.scan"></p>
+    <div class="qr-row" data-support-qr></div>
+    <p class="fine" data-i18n="support.thanks"></p>
+  </dialog>
 
   <script src="content.js"></script>
   <script src="main.js"></script>

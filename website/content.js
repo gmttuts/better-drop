@@ -5,12 +5,19 @@ window.SITE = {
   // Shown until the GitHub API answers (or when there is no public release yet).
   fallbackVersion: "0.3.3",
 
+  // Support the author (the app is free). Same accounts as the Better Finder site.
+  support: {
+    bmc: { qr: "assets/support/bmc-qr.png", url: "https://buymeacoffee.com/gmttuts" },
+    momo: { qr: "assets/support/momo-qr.png", url: "https://me.momo.vn/3GIVuoIWseu3uEudf7F7" },
+  },
+
   text: {
     "nav.how": { vi: "Cách dùng", en: "How it works" },
     "nav.features": { vi: "Tính năng", en: "Features" },
     "nav.browser": { vi: "Qua trình duyệt", en: "Browser sharing" },
     "nav.faq": { vi: "Hỏi đáp", en: "FAQ" },
     "nav.download": { vi: "Tải về", en: "Download" },
+    "nav.support": { vi: "Ủng hộ", en: "Support" },
 
     "hero.new": { vi: "Mới", en: "New" },
     "hero.pill": { vi: "Chia sẻ qua trình duyệt", en: "Browser sharing" },
@@ -104,6 +111,20 @@ window.SITE = {
     },
 
     "faq.title": { vi: "Câu hỏi thường gặp", en: "Questions" },
+
+    "support.title": { vi: "Một người làm.<br>Miễn phí cho mọi người.", en: "Made by one person.<br>Free for everyone." },
+    "support.sub": {
+      vi: "BetterDrop không thu phí, không quảng cáo, không cần tài khoản. Nếu app giúp bạn đỡ phải gửi file vòng vèo, mời tác giả một ly cà phê để các bản cập nhật tiếp tục ra đều.",
+      en: "BetterDrop has no price tag, ads or account. If it saves you from emailing files to yourself, you can buy the author a coffee. It keeps the updates coming.",
+    },
+    "support.bmc": { vi: "Buy Me a Coffee", en: "Buy Me a Coffee" },
+    "support.momo": { vi: "MoMo", en: "MoMo" },
+    "support.title.both": { vi: "Mời tác giả ly cà phê", en: "Buy the author a coffee" },
+    "support.scan": { vi: "Quét bằng điện thoại", en: "Scan with your phone" },
+    "support.open": { vi: "Mở trang", en: "Open page" },
+    "support.noqr": { vi: "Mã QR sắp có", en: "QR code coming soon" },
+    "support.thanks": { vi: "Cảm ơn bạn rất nhiều.", en: "Thank you, it means a lot." },
+    "support.close": { vi: "Đóng", en: "Close" },
 
     "cta.title": { vi: "Thử BetterDrop trên hai máy của bạn.", en: "Try BetterDrop on two of your devices." },
     "cta.sub": { vi: "Một phút để cài, và bạn sẽ không phải gửi file qua Zalo hay email cho chính mình nữa.", en: "A minute to install, and you'll stop emailing files to yourself." },

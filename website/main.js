@@ -146,6 +146,7 @@
     document.title = lang === "vi" ? "BetterDrop — gửi file giữa mọi thiết bị, như AirDrop" : "BetterDrop — send files between any devices, like AirDrop";
     each("[data-i18n]", (el) => { el.innerHTML = t(el.dataset.i18n); });
     each("[data-lang]", (b) => b.setAttribute("aria-pressed", String(b.dataset.lang === lang)));
+    each("[data-i18n-label]", (el) => { el.setAttribute("aria-label", t(el.dataset.i18nLabel)); });
     each("[data-i18n-alt]", (img) => {
       img.alt = lang === "vi"
         ? "Cửa sổ BetterDrop: chọn file bên trái, danh sách máy nhận bên phải, tiến trình gửi bên dưới"
@@ -160,6 +161,25 @@
     store.set("bd.lang", lang);
     applyLang();
   }));
+
+  // ---------- Support the author (QR modal) ----------
+  const modal = document.querySelector("[data-support-modal]");
+  // which = "bmc", "momo" or "both" (both QR codes side by side).
+  function openSupport(which) {
+    if (!modal) return;
+    const keys = which === "both" ? Object.keys(S.support) : [which];
+    modal.querySelector("[data-support-title]").textContent = which === "both" ? t("support.title.both") : t("support." + which);
+    modal.classList.toggle("both", keys.length > 1);
+    modal.querySelector("[data-support-qr]").innerHTML = keys.map((k) => {
+      const cfg = S.support[k];
+      return `<div class="qr-card">${keys.length > 1 ? `<b>${t("support." + k)}</b>` : ""}
+        <div class="qr"><img src="${cfg.qr}" alt="${t("support." + k)} QR" onerror="this.outerHTML='<div class=qr-missing>${t("support.noqr")}</div>'"></div>
+        <a class="btn btn-small" href="${cfg.url}" target="_blank" rel="noopener">${t("support.open")}</a></div>`;
+    }).join("");
+    modal.showModal ? modal.showModal() : modal.setAttribute("open", "");
+  }
+  each("[data-support]", (b) => b.addEventListener("click", () => openSupport(b.dataset.support)));
+  modal?.addEventListener("click", (e) => { if (e.target === modal || e.target.closest("[data-close]")) modal.close(); });
 
   // Copy buttons inside code boxes (rendered later, so delegate).
   document.addEventListener("click", async (e) => {
