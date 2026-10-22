@@ -10,7 +10,7 @@ mod imp {
     use crate::state::Hooks;
     use crate::tray;
     use std::path::PathBuf;
-    use tauri::{AppHandle, Builder, Wry};
+    use tauri::{AppHandle, Builder, Manager, Wry};
     use tauri_plugin_autostart::ManagerExt as _;
 
     const HIDDEN_ARG: &str = "--hidden";
@@ -18,7 +18,11 @@ mod imp {
     pub fn plugins(mut builder: Builder<Wry>) -> Builder<Wry> {
         // Mở app lần nữa thì chỉ hiện lại cửa sổ cũ. Bỏ qua khi chạy thử nhiều bản bằng profile.
         if identity::profile().is_none() {
-            builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+                // Mở lại app (vd "Send to" khi app đang chạy): lấy file trong tham số.
+                if let Some(st) = app.try_state::<std::sync::Arc<crate::state::AppState>>() {
+                    st.add_shared(crate::paths_from_args(args), None);
+                }
                 tray::show_main(app);
             }));
         }
@@ -43,6 +47,10 @@ mod imp {
     pub fn before_discovery(_app: &AppHandle) {}
 
     pub fn after_setup(app: &AppHandle, settings: &Settings) -> tauri::Result<()> {
+        // Mở app kèm file (Windows "Send to", Linux "Mở bằng"): đưa vào danh sách chờ gửi.
+        if let Some(st) = app.try_state::<std::sync::Arc<crate::state::AppState>>() {
+            st.add_shared(crate::paths_from_args(std::env::args()), None);
+        }
         tray::setup(app, settings.receive_enabled)?;
         apply_dock(app, settings.hide_dock);
         // Khi tự mở cùng máy tính thì chạy nền luôn, không hiện cửa sổ.
@@ -55,6 +63,8 @@ mod imp {
     pub fn autostart_enabled(app: &AppHandle) -> bool {
         app.autolaunch().is_enabled().unwrap_or(false)
     }
+
+    pub fn pull_shared(_app: &AppHandle) {}
 
     pub fn request_local_network(_app: &AppHandle) -> bool {
         true
@@ -202,6 +212,15 @@ mod imp {
 
     pub fn autostart_enabled(_app: &AppHandle) -> bool {
         false
+    }
+
+    /// Android: lấy file/văn bản từ menu Chia sẻ (plugin giữ lại intent).
+    pub fn pull_shared(app: &AppHandle) {
+        if let Ok((paths, text)) = app.betterdrop_mobile().take_shared() {
+            if let Some(st) = app.try_state::<Arc<crate::state::AppState>>() {
+                st.add_shared(paths, text);
+            }
+        }
     }
 
     /// Android 17+: xin quyền mạng cục bộ (chặn tới khi người dùng trả lời).

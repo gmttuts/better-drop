@@ -2,6 +2,9 @@ package com.plugin.betterdrop_mobile
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
+import android.webkit.WebView
+import androidx.core.content.IntentCompat
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.net.wifi.WifiManager
@@ -16,6 +19,7 @@ import app.tauri.annotation.Permission
 import app.tauri.annotation.PermissionCallback
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
+import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 
@@ -41,6 +45,48 @@ private const val LOCAL_NETWORK = "localNetwork"
 )
 class BetterDropPlugin(private val activity: Activity) : Plugin(activity) {
     private var multicastLock: WifiManager.MulticastLock? = null
+
+    // ---- Nhận file/văn bản từ menu "Chia sẻ" của app khác ----
+    private val sharedUris = mutableListOf<String>()
+    private var sharedText: String? = null
+
+    override fun load(webView: WebView) {
+        super.load(webView)
+        handleShare(activity.intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        handleShare(intent)
+    }
+
+    private fun handleShare(intent: Intent?) {
+        if (intent == null) return
+        when (intent.action) {
+            Intent.ACTION_SEND -> {
+                val uri = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+                if (uri != null) sharedUris.add(uri.toString())
+                else intent.getStringExtra(Intent.EXTRA_TEXT)?.let { sharedText = it }
+            }
+            Intent.ACTION_SEND_MULTIPLE -> {
+                IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+                    ?.forEach { sharedUris.add(it.toString()) }
+            }
+            else -> return
+        }
+        // Không xử lý lại cùng intent khi activity được tạo lại (xoay màn hình…).
+        intent.action = null
+    }
+
+    /** Lấy (và xoá) các mục được chia sẻ vào. */
+    @Command
+    fun takeShared(invoke: Invoke) {
+        val ret = JSObject()
+        ret.put("uris", JSArray.from(sharedUris.toTypedArray()))
+        sharedText?.let { ret.put("text", it) }
+        sharedUris.clear()
+        sharedText = null
+        invoke.resolve(ret)
+    }
 
     /** Xin quyền truy cập mạng cục bộ (chỉ cần từ Android 17). Trả về {granted}. */
     @Command

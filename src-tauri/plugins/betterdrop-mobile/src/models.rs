@@ -7,6 +7,14 @@ pub struct FileInfo {
   pub size: i64,
 }
 
+#[derive(Debug, Clone, Deserialize, Default)]
+pub(crate) struct SharedResponse {
+  #[serde(default)]
+  pub uris: Vec<String>,
+  #[serde(default)]
+  pub text: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct GrantedResponse {
   pub granted: bool,

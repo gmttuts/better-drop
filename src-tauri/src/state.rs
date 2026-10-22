@@ -69,6 +69,16 @@ pub struct AppState {
     pub web: Mutex<Option<crate::web::WebShare>>,
     /// Lịch sử chuyển file (history.jsonl).
     pub history: Arc<Mutex<History>>,
+    /// File/văn bản được chia sẻ vào từ app khác, chờ giao diện lấy ra.
+    pub shared: Mutex<SharedItems>,
+}
+
+/// Mục được chia sẻ vào BetterDrop từ app khác (Mở bằng, Send to, menu Chia sẻ…).
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct SharedItems {
+    /// Đường dẫn file/thư mục, hoặc URI (content://, file://) trên điện thoại.
+    pub paths: Vec<String>,
+    pub text: Option<String>,
 }
 
 impl AppState {
@@ -98,6 +108,7 @@ impl AppState {
             rediscover: AtomicBool::new(false),
             web: Mutex::new(None),
             history: Arc::new(Mutex::new(History::load(&data_dir_for_history))),
+            shared: Mutex::default(),
         }
     }
 
@@ -199,6 +210,25 @@ impl AppState {
             "devices-changed",
             serde_json::json!({ "groups": book.groups, "hidden": book.hidden, "trusted": book.trusted }),
         );
+    }
+
+    /// Nhận thêm mục được chia sẻ vào và báo giao diện lấy ra.
+    pub fn add_shared(&self, paths: Vec<String>, text: Option<String>) {
+        if paths.is_empty() && text.is_none() {
+            return;
+        }
+        {
+            let mut s = self.shared.lock().unwrap();
+            for p in paths {
+                if !s.paths.contains(&p) {
+                    s.paths.push(p);
+                }
+            }
+            if text.is_some() {
+                s.text = text;
+            }
+        }
+        self.emit("shared-items", serde_json::json!({}));
     }
 
     pub fn emit_peers(&self) {

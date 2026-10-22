@@ -191,13 +191,14 @@ pub struct Settings {
     /// Chỉ trên macOS: ẩn biểu tượng trên Dock, chỉ còn biểu tượng trên thanh menu.
     #[serde(default)]
     pub hide_dock: bool,
-    /// "auto" (theo ngôn ngữ của máy) | "vi" | "en".
+    /// "auto" (theo ngôn ngữ của máy) | "vi" | "en". Cài mới dùng "auto"; máy đã cài
+    /// từ trước (file cài đặt chưa có trường này) giữ tiếng Việt như trước khi có tiếng Anh.
     #[serde(default = "default_language")]
     pub language: String,
 }
 
 fn default_language() -> String {
-    "auto".into()
+    "vi".into()
 }
 
 impl Settings {

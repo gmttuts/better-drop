@@ -154,6 +154,7 @@
         files: names.map((n) => ({ name: n, path: "~/Downloads/BetterDrop/" + n })) }, 300);
     },
     async share_group() { await wait(900); return []; },
+    take_shared_items: () => ({ paths: [], text: null }),
     untrust_device({ id }) { trusted = trusted.filter((d) => d.id !== id); return devices(); },
     get_history: () => history,
     delete_history_item({ id }) { history = history.filter((h) => h.id !== id); return null; },
@@ -245,7 +246,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>BetterDrop (bản dùng thử)</title>
     <link rel="icon" type="image/png" href="./logo.png" />
-    <script type="module" crossorigin src="./assets/index-DFnneNEC.js"></script>
+    <script type="module" crossorigin src="./assets/index-LOaagHTj.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-Bri20pwr.css">
   </head>
   <body>

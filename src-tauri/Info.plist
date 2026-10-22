@@ -8,5 +8,22 @@
   <array>
     <string>_betterdrop._tcp</string>
   </array>
+  <!-- "Mở bằng BetterDrop": mọi loại file và thư mục, ưu tiên thấp (không giành app mặc định). -->
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>File để gửi bằng BetterDrop</string>
+      <key>CFBundleTypeRole</key>
+      <string>Viewer</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>public.item</string>
+        <string>public.folder</string>
+      </array>
+    </dict>
+  </array>
 </dict>
 </plist>

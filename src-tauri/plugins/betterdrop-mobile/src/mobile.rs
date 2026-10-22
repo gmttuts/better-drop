@@ -33,6 +33,15 @@ impl<R: Runtime> BetterdropMobile<R> {
       .map_err(Into::into)
   }
 
+  /// Android: file/văn bản người dùng chia sẻ vào BetterDrop (rồi xoá khỏi hàng đợi).
+  pub fn take_shared(&self) -> crate::Result<(Vec<String>, Option<String>)> {
+    self
+      .0
+      .run_mobile_plugin::<SharedResponse>("takeShared", ())
+      .map(|r| (r.uris, r.text))
+      .map_err(Into::into)
+  }
+
   /// Android 17+: xin quyền truy cập mạng cục bộ. Chờ người dùng trả lời.
   pub fn request_local_network(&self) -> crate::Result<bool> {
     self

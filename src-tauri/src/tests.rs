@@ -627,6 +627,7 @@ fn old_saved_files_still_load() {
     let s = identity::load_settings(dir.path(), identity::Defaults::default());
     assert_eq!(s.device_id, "d");
     assert!(s.receive_enabled, "mặc định bật nhận file");
+    assert_eq!(s.language, "vi", "máy đã cài từ trước giữ tiếng Việt");
 
     std::fs::write(
         dir.path().join("devices.json"),
@@ -928,4 +929,22 @@ fn group_request_is_rejected_by_old_format_parsers() {
     #[allow(dead_code)]
     enum OldKind { Files, Text }
     assert!(serde_json::from_str::<OldKind>("\"group\"").is_err());
+}
+
+#[test]
+fn shared_paths_come_from_command_line_args() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = dir.path().join("Báo cáo.pdf");
+    std::fs::write(&f, b"x").unwrap();
+    let args = vec![
+        "BetterDrop.exe".to_string(),
+        "--hidden".to_string(),
+        f.to_string_lossy().into_owned(),
+        dir.path().to_string_lossy().into_owned(),
+        "/không/tồn/tại".to_string(),
+    ];
+    assert_eq!(
+        crate::paths_from_args(args),
+        vec![f.to_string_lossy().into_owned(), dir.path().to_string_lossy().into_owned()]
+    );
 }

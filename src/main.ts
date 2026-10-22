@@ -1094,6 +1094,24 @@ async function openWebDialog() {
   $<HTMLDialogElement>("dlg-web").showModal();
 }
 
+// ---- File/văn bản chia sẻ vào từ app khác ----
+
+/** Lấy các mục được chia sẻ vào (Mở bằng, Send to, menu Chia sẻ) và đưa vào danh sách chờ gửi. */
+async function pullShared() {
+  const s = await invoke<{ paths: string[]; text: string | null }>("take_shared_items").catch(() => null);
+  if (!s) return;
+  if (s.paths.length) {
+    await addStaged(s.paths);
+    toast(`Đã thêm ${s.paths.length} mục từ app khác — chọn máy nhận để gửi`);
+  }
+  if (s.text) {
+    setTab("text");
+    $<HTMLTextAreaElement>("text-input").value = s.text;
+    renderPeers();
+    toast("Đã nhận văn bản từ app khác — chọn máy nhận để gửi");
+  }
+}
+
 // ---- Khởi động ----
 
 async function init() {
@@ -1349,6 +1367,12 @@ async function init() {
   }
   peers = await invoke<Peer[]>("get_peers");
   applyDevices(await invoke("get_devices"));
+  await pullShared();
+  await listen("shared-items", pullShared);
+  // Android: quay lại app sau khi chọn "Chia sẻ → BetterDrop" từ app khác.
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) pullShared();
+  });
   history = await invoke<HistoryEntry[]>("get_history", { limit: 500 }).catch(() => []);
   renderHistory();
   document.querySelectorAll<HTMLButtonElement>("#hist-filter .chip").forEach((b) =>

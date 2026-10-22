@@ -117,6 +117,26 @@ async fn ensure_local_network(app: tauri::AppHandle) -> bool {
     granted
 }
 
+/// Lấy (và xoá) các mục được chia sẻ vào từ app khác.
+#[tauri::command]
+async fn take_shared_items(app: tauri::AppHandle) -> state::SharedItems {
+    let a = app.clone();
+    // Android: lấy thêm từ menu Chia sẻ (plugin giữ lại intent).
+    let _ = tauri::async_runtime::spawn_blocking(move || platform::pull_shared(&a)).await;
+    let st = app.state::<Arc<AppState>>();
+    let items = std::mem::take(&mut *st.shared.lock().unwrap());
+    items
+}
+
+/// Đường dẫn file/thư mục trong tham số dòng lệnh (Windows "Send to", mở bằng app…).
+pub(crate) fn paths_from_args<I: IntoIterator<Item = String>>(args: I) -> Vec<String> {
+    args.into_iter()
+        .skip(1)
+        .filter(|a| !a.starts_with('-'))
+        .filter(|a| std::path::Path::new(a).exists())
+        .collect()
+}
+
 #[tauri::command]
 fn get_peers(st: AppStateRef) -> Vec<Peer> {
     st.peer_list()
@@ -514,6 +534,7 @@ pub fn run() {
             set_autostart,
             set_hide_dock,
             set_language,
+            take_shared_items,
             ensure_local_network,
             get_peers,
             update_settings,
@@ -557,6 +578,27 @@ pub fn run() {
             // macOS: bấm vào biểu tượng trên Dock khi cửa sổ đang ẩn.
             #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen { .. } => tray::show_main(app),
+            // macOS: "Mở bằng BetterDrop" / thả file vào biểu tượng Dock.
+            // iOS: "Mở bằng BetterDrop" trong menu Chia sẻ (giữ dạng file:// để iOS cho đọc).
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            tauri::RunEvent::Opened { urls } => {
+                let items: Vec<String> = urls
+                    .iter()
+                    .filter(|u| u.scheme() == "file")
+                    .filter_map(|u| {
+                        if cfg!(target_os = "ios") {
+                            Some(u.to_string())
+                        } else {
+                            u.to_file_path().ok().map(|p| p.to_string_lossy().into_owned())
+                        }
+                    })
+                    .collect();
+                if let Some(st) = app.try_state::<Arc<AppState>>() {
+                    st.add_shared(items, None);
+                }
+                #[cfg(desktop)]
+                tray::show_main(app);
+            }
             _ => {}
         });
 }
