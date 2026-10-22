@@ -4,7 +4,13 @@ Trang giới thiệu và tải về, HTML/CSS/JS thuần, không cần build. Đ
 
 - `index.html`: khung trang. Chữ trên trang nằm trong `content.js` (tiếng Việt và tiếng Anh).
 - `main.js`: đổi ngôn ngữ, nhận biết hệ điều hành, lấy file cài từ bản phát hành mới nhất trên GitHub (`/releases/latest`). Bản nháp (draft) không hiện ra, nên khi chưa có bản công khai các nút trỏ tới trang Releases.
-- `assets/`: icon, ảnh chụp app (`app.jpg`), ảnh chia sẻ (`og.png`).
+- `main.js` chọn ngôn ngữ theo vị trí: hỏi quốc gia của người xem qua `get.geojs.io` (VN → tiếng Việt, nơi khác → tiếng Anh). Người xem tự bấm EN/VI thì lựa chọn đó được nhớ.
+- `demo/`: giao diện thật của app (build từ `index.html` + `src/` ở gốc repo) chạy với dữ liệu giả lập trong `scripts/website-demo/mock.js`. **Đừng sửa tay**; sau khi đổi giao diện app, chạy lại:
+
+  ```bash
+  node scripts/build-website-demo.mjs
+  ```
+- `assets/`: icon, ảnh chia sẻ (`og.png`), mã QR ủng hộ.
 
 Xem thử trên máy:
 
