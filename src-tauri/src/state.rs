@@ -217,6 +217,8 @@ pub struct Tracker {
     /// Ghi vào lịch sử khi lượt chuyển kết thúc (None = không ghi, vd trong test).
     recorder: Mutex<Option<Recorder>>,
     history: Mutex<HistoryExtras>,
+    /// Ghi chú tạm thời khi đang chuyển (vd "Mất kết nối, đang thử lại…").
+    note: Mutex<Option<String>>,
 }
 
 /// Thông tin thêm chỉ dùng cho lịch sử.
@@ -240,6 +242,7 @@ impl Tracker {
             cancelled: AtomicBool::new(false),
             recorder: Mutex::new(None),
             history: Mutex::new(HistoryExtras::default()),
+            note: Mutex::new(None),
         });
         t.emit_now();
         t
@@ -302,8 +305,30 @@ impl Tracker {
 
     pub fn emit_now(&self) {
         *self.last_emit.lock().unwrap() = Instant::now();
-        if let Ok(v) = serde_json::to_value(self.snapshot()) {
+        if let Ok(mut v) = serde_json::to_value(self.snapshot()) {
+            if let Some(note) = self.note.lock().unwrap().clone() {
+                v["note"] = serde_json::Value::String(note);
+            }
             (self.emit)("transfer-update", v);
+        }
+    }
+
+    /// Ghi chú hiện dưới thanh tiến trình (None để xoá).
+    pub fn set_note(&self, note: Option<String>) {
+        *self.note.lock().unwrap() = note;
+        self.emit_now();
+    }
+
+    /// Trừ bớt tiến trình (khi gửi tiếp từ điểm máy nhận thực sự đã có).
+    pub fn sub(&self, n: u64) {
+        let mut cur = self.transferred.load(Ordering::Relaxed);
+        while let Err(actual) = self.transferred.compare_exchange_weak(
+            cur,
+            cur.saturating_sub(n),
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            cur = actual;
         }
     }
 
@@ -361,7 +386,14 @@ pub struct InSession {
     pub base_dir: PathBuf,
     /// Thư mục gốc gửi tới -> tên thực tế trên đĩa (vd "Photos" -> "Photos (1)").
     pub root_map: Mutex<HashMap<String, String>>,
-    pub started_files: Mutex<HashSet<String>>,
+    /// File đang được gửi tới (chặn hai luồng ghi cùng một file).
+    pub active: Mutex<HashSet<String>>,
+    /// File đã nhận xong.
+    pub done_files: Mutex<HashSet<String>>,
+    /// Số byte của từng file đã tính vào tiến trình (để gửi tiếp không bị cộng hai lần).
+    pub counted: Mutex<HashMap<String, u64>>,
+    /// File bị ngắt giữa chừng, đang chờ máy gửi nối lại (thời điểm ngắt).
+    pub interrupted: Mutex<HashMap<String, Instant>>,
     pub done: AtomicUsize,
 }
 

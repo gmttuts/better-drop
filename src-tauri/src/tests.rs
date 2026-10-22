@@ -791,3 +791,71 @@ async fn unreachable_iphone_gets_open_the_app_hint() {
     let err = transfer::send_text(a.st.clone(), iphone, "x".into()).await.unwrap_err();
     assert!(err.starts_with(transfer::IOS_HINT), "{err}");
 }
+
+// ---- Gửi tiếp khi bị ngắt ----
+
+/// Proxy TCP giả lập Wi‑Fi rớt: kết nối đầu tiên bị cắt sau `cut_after` byte gửi đi;
+/// các kết nối sau đi qua bình thường.
+async fn flaky_proxy(target: u16, cut_after: usize) -> u16 {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let cut_done = Arc::new(AtomicBool::new(false));
+    tokio::spawn(async move {
+        loop {
+            let Ok((client, _)) = listener.accept().await else { return };
+            let cut_done = cut_done.clone();
+            tokio::spawn(async move {
+                let server = tokio::net::TcpStream::connect(("127.0.0.1", target)).await.unwrap();
+                let (mut cr, mut cw) = client.into_split();
+                let (mut sr, mut sw) = server.into_split();
+                let down = tokio::spawn(async move { let _ = tokio::io::copy(&mut sr, &mut cw).await; });
+                let mut sent = 0usize;
+                let mut buf = vec![0u8; 16 * 1024];
+                loop {
+                    let n = match cr.read(&mut buf).await { Ok(0) | Err(_) => break, Ok(n) => n };
+                    sent += n;
+                    if sent > cut_after && !cut_done.swap(true, Ordering::SeqCst) {
+                        break; // rớt mạng: đóng cả hai chiều
+                    }
+                    if sw.write_all(&buf[..n]).await.is_err() {
+                        break;
+                    }
+                }
+                down.abort();
+            });
+        }
+    });
+    port
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resumes_after_connection_drop() {
+    let a = node("Mac").await;
+    let b = node("Windows").await;
+    let mut peer_b = as_peer(&b);
+    let proxy = flaky_proxy(b.st.port, 1_000_000).await;
+    peer_b.addrs = vec![format!("127.0.0.1:{proxy}")];
+    let b_dir = PathBuf::from(b.st.settings.read().unwrap().download_dir.clone());
+    let watcher = auto_respond(b, true);
+
+    let src = tempfile::tempdir().unwrap();
+    let data: Vec<u8> = (0..3_000_000u32).map(|i| (i % 253) as u8).collect();
+    write(&src.path().join("lớn.bin"), &data);
+    let files = transfer::collect_files(&a.st, &[src.path().join("lớn.bin").to_string_lossy().into_owned()]).unwrap();
+    let tracker = sender_tracker(&a.st);
+    let started = std::time::Instant::now();
+    transfer::send_files(&a.st, &peer_b, files, &tracker).await.unwrap();
+    assert_eq!(tracker.status(), TransferStatus::Done);
+    assert_eq!(tracker.snapshot().transferred, data.len() as u64, "tiến trình không bị cộng hai lần");
+    // Đã thật sự bị cắt và thử lại (lần thử lại đầu chờ 2 giây), nhưng không phải gửi lại từ đầu.
+    assert!(started.elapsed() >= std::time::Duration::from_secs(2), "proxy phải cắt kết nối");
+    assert!(started.elapsed() < std::time::Duration::from_secs(30));
+
+    let (finals, b) = watcher.await.unwrap();
+    assert_eq!(finals, vec![TransferStatus::Done]);
+    assert_eq!(std::fs::read(b_dir.join("lớn.bin")).unwrap(), data, "nội dung đúng từng byte sau khi gửi tiếp");
+    let session = b.st.incoming.lock().unwrap().values().next().cloned().unwrap();
+    assert_eq!(session.tracker.snapshot().transferred, data.len() as u64);
+}

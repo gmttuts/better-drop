@@ -15,7 +15,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::oneshot;
 
@@ -33,6 +33,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route("/api/v1/upload", post(upload).layer(DefaultBodyLimit::disable()))
         .route("/api/v1/cancel", post(cancel))
+        .route("/api/v1/upload-status", get(upload_status))
         .with_state(state)
 }
 
@@ -367,7 +368,10 @@ pub async fn accept_files(
             files,
             base_dir,
             root_map: Default::default(),
-            started_files: Default::default(),
+            active: Default::default(),
+            done_files: Default::default(),
+            counted: Default::default(),
+            interrupted: Default::default(),
             done: Default::default(),
         }),
     );
@@ -383,11 +387,19 @@ async fn upload(
 }
 
 /// Nhận dữ liệu một file của phiên đã được chấp nhận (dùng chung cho app và trang web).
-pub async fn receive_upload(
-    st: &Arc<AppState>,
-    q: UploadQuery,
-    body: Body,
-) -> Result<StatusCode, (StatusCode, String)> {
+/// Máy nhận giữ phần đã nhận bao lâu để chờ máy gửi nối lại sau khi mất kết nối.
+pub const RESUME_GRACE: Duration = Duration::from_secs(120);
+
+fn part_path(session: &InSession, file: &InFile, token: &str) -> std::io::Result<PathBuf> {
+    let dest = session.dest_path(&file.rel)?;
+    Ok(dest.with_file_name(format!(
+        "{}.{}.part",
+        dest.file_name().unwrap_or_default().to_string_lossy(),
+        &token[..8]
+    )))
+}
+
+fn find_upload(st: &AppState, q: &UploadQuery) -> Result<(Arc<InSession>, String), (StatusCode, String)> {
     let session = st
         .incoming
         .lock()
@@ -395,53 +407,111 @@ pub async fn receive_upload(
         .get(&q.session)
         .cloned()
         .ok_or((StatusCode::NOT_FOUND, "Không tìm thấy phiên".into()))?;
-    let file = session
-        .files
-        .get(&q.file)
-        .ok_or((StatusCode::NOT_FOUND, "Không tìm thấy file".into()))?;
-    if file.token != q.token {
-        return Err((StatusCode::FORBIDDEN, "Sai token".into()));
+    match session.files.get(&q.file) {
+        None => Err((StatusCode::NOT_FOUND, "Không tìm thấy file".into())),
+        Some(f) if f.token != q.token => Err((StatusCode::FORBIDDEN, "Sai token".into())),
+        Some(_) => Ok((session, q.file.clone())),
     }
+}
+
+/// Máy gửi hỏi đã nhận được bao nhiêu byte, để gửi tiếp sau khi mất kết nối.
+async fn upload_status(State(st): St, Query(q): Query<UploadQuery>) -> Result<Json<UploadStatus>, (StatusCode, String)> {
+    let (session, id) = find_upload(&st, &q)?;
+    if session.tracker.status().is_final() && !session.done_files.lock().unwrap().contains(&id) {
+        return Err((StatusCode::GONE, "Phiên nhận đã kết thúc".into()));
+    }
+    let done = session.done_files.lock().unwrap().contains(&id);
+    let file = &session.files[&id];
+    let received = if done {
+        file.size
+    } else {
+        let part = part_path(&session, file, &q.token).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        tokio::fs::metadata(&part).await.map(|m| m.len()).unwrap_or(0)
+    };
+    Ok(Json(UploadStatus { received, done }))
+}
+
+/// Nhận dữ liệu một file của phiên đã được chấp nhận (dùng chung cho app và trang web).
+/// Có `offset`: ghi tiếp vào phần đã nhận (gửi tiếp sau khi mất kết nối).
+pub async fn receive_upload(
+    st: &Arc<AppState>,
+    q: UploadQuery,
+    body: Body,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let (session, id) = find_upload(st, &q)?;
+    let file = &session.files[&id];
     let tracker = &session.tracker;
     if tracker.is_cancelled() {
         return Err((StatusCode::GONE, "Máy nhận đã huỷ".into()));
     }
-    if !session.started_files.lock().unwrap().insert(q.file.clone()) {
+    if tracker.status().is_final() {
+        return Err((StatusCode::GONE, "Phiên nhận đã kết thúc".into()));
+    }
+    if session.done_files.lock().unwrap().contains(&id) {
         return Err((StatusCode::CONFLICT, "File đã được gửi".into()));
     }
+    if !session.active.lock().unwrap().insert(id.clone()) {
+        return Err((StatusCode::CONFLICT, "File đang được gửi".into()));
+    }
+    session.interrupted.lock().unwrap().remove(&id);
+    // Bỏ khỏi `active` khi kết thúc, dù thành công hay lỗi.
+    struct ActiveGuard<'a>(&'a InSession, String);
+    impl Drop for ActiveGuard<'_> {
+        fn drop(&mut self) {
+            self.0.active.lock().unwrap().remove(&self.1);
+        }
+    }
+    let _active = ActiveGuard(&session, id.clone());
 
     let fail = |msg: String| {
         tracker.set_status(TransferStatus::Error, Some(msg.clone()));
         (StatusCode::INTERNAL_SERVER_ERROR, msg)
     };
-
     let dest = session
         .dest_path(&file.rel)
         .map_err(|e| fail(format!("Không tạo được thư mục: {e}")))?;
-    let part = dest.with_file_name(format!(
-        "{}.{}.part",
-        dest.file_name().unwrap_or_default().to_string_lossy(),
-        &q.token[..8]
-    ));
+    let part = part_path(&session, file, &q.token).map_err(|e| fail(format!("Không tạo được thư mục: {e}")))?;
 
-    let result = write_body(&part, body, file.size, tracker).await;
+    // Gửi tiếp: phần đã có phải đủ dài; cắt bỏ phần thừa (nếu có) rồi ghi nối.
+    let offset = q.offset.unwrap_or(0);
+    let have = tokio::fs::metadata(&part).await.map(|m| m.len()).unwrap_or(0);
+    if offset > have || offset > file.size {
+        return Err((StatusCode::CONFLICT, format!("Máy nhận mới có {have} byte")));
+    }
+    {
+        // Tiến trình: chỉ tính phần thực sự có trên đĩa.
+        let mut counted = session.counted.lock().unwrap();
+        let c = counted.entry(id.clone()).or_insert(0);
+        if *c > offset {
+            tracker.sub(*c - offset);
+        } else if offset > *c {
+            tracker.add(offset - *c);
+        }
+        *c = offset;
+    }
+    tracker.set_note(None);
+
+    let result = write_body(&part, offset, body, file.size, tracker, &session, &id).await;
     if let Err(e) = result {
-        let _ = tokio::fs::remove_file(&part).await;
         return Err(match e {
-            WriteError::Cancelled => (StatusCode::GONE, "Máy nhận đã huỷ".into()),
+            WriteError::Cancelled => {
+                let _ = tokio::fs::remove_file(&part).await;
+                (StatusCode::GONE, "Máy nhận đã huỷ".into())
+            }
             WriteError::Disconnected => {
-                // Khi bên gửi bấm Huỷ, kết nối đứt trước rồi lệnh /cancel mới tới:
-                // chờ một chút để hiện đúng "Máy gửi đã huỷ" thay vì báo lỗi.
+                // Khi bên gửi bấm Huỷ, kết nối đứt trước rồi lệnh /cancel mới tới.
                 tokio::time::sleep(Duration::from_millis(1500)).await;
-                if !tracker.is_cancelled() {
-                    tracker.set_status(
-                        TransferStatus::Error,
-                        Some("Mất kết nối với máy gửi".into()),
-                    );
+                if tracker.is_cancelled() {
+                    let _ = tokio::fs::remove_file(&part).await;
+                } else {
+                    wait_for_resume(st.clone(), session.clone(), id.clone(), part.clone());
                 }
                 (StatusCode::BAD_REQUEST, "Mất kết nối".into())
             }
-            WriteError::Io(msg) => fail(msg),
+            WriteError::Io(msg) => {
+                let _ = tokio::fs::remove_file(&part).await;
+                fail(msg)
+            }
         });
     }
 
@@ -455,12 +525,35 @@ pub async fn receive_upload(
         }
         tracker.add_history_file(file.rel.join("/"), Some(final_path.to_string_lossy().into_owned()));
     }
+    session.done_files.lock().unwrap().insert(id.clone());
 
     let done = session.done.fetch_add(1, Ordering::SeqCst) + 1;
     if done == session.files.len() {
         tracker.set_status(TransferStatus::Done, None);
     }
     Ok(StatusCode::OK)
+}
+
+/// Giữ phần đã nhận và chờ máy gửi nối lại; quá RESUME_GRACE thì báo lỗi và xoá.
+fn wait_for_resume(st: Arc<AppState>, session: Arc<InSession>, id: String, part: PathBuf) {
+    let at = Instant::now();
+    session.interrupted.lock().unwrap().insert(id.clone(), at);
+    session
+        .tracker
+        .set_note(Some("Mất kết nối, đang chờ máy gửi nối lại…".into()));
+    let _ = st;
+    tokio::spawn(async move {
+        tokio::time::sleep(RESUME_GRACE).await;
+        let still_waiting = session.interrupted.lock().unwrap().get(&id) == Some(&at);
+        if still_waiting && !session.active.lock().unwrap().contains(&id) {
+            session.interrupted.lock().unwrap().remove(&id);
+            let _ = tokio::fs::remove_file(&part).await;
+            session.tracker.set_note(None);
+            session
+                .tracker
+                .set_status(TransferStatus::Error, Some("Mất kết nối với máy gửi".into()));
+        }
+    });
 }
 
 enum WriteError {
@@ -471,33 +564,48 @@ enum WriteError {
 
 async fn write_body(
     part: &std::path::Path,
+    offset: u64,
     body: Body,
     expected: u64,
     tracker: &Tracker,
+    session: &InSession,
+    id: &str,
 ) -> Result<(), WriteError> {
-    let f = tokio::fs::File::create(part)
-        .await
-        .map_err(|e| WriteError::Io(format!("Không ghi được file: {e}")))?;
+    let io = |e: std::io::Error| WriteError::Io(format!("Không ghi được file: {e}"));
+    let f = if offset == 0 {
+        tokio::fs::File::create(part).await.map_err(io)?
+    } else {
+        let f = tokio::fs::OpenOptions::new().write(true).open(part).await.map_err(io)?;
+        f.set_len(offset).await.map_err(io)?;
+        let mut f = f;
+        tokio::io::AsyncSeekExt::seek(&mut f, std::io::SeekFrom::Start(offset)).await.map_err(io)?;
+        f
+    };
     let mut w = tokio::io::BufWriter::with_capacity(1 << 20, f);
     let mut stream = body.into_data_stream();
-    let mut written: u64 = 0;
-    while let Some(chunk) = stream.next().await {
+    let mut written: u64 = offset;
+    let result = loop {
+        // Máy gửi im lặng quá lâu (mất Wi‑Fi không báo lỗi): coi như ngắt kết nối.
+        let next = tokio::time::timeout(Duration::from_secs(45), stream.next()).await;
+        let Ok(next) = next else { break Err(WriteError::Disconnected) };
+        let Some(chunk) = next else { break Ok(()) };
         if tracker.is_cancelled() {
-            return Err(WriteError::Cancelled);
+            break Err(WriteError::Cancelled);
         }
-        let chunk = chunk.map_err(|_| WriteError::Disconnected)?;
+        let Ok(chunk) = chunk else { break Err(WriteError::Disconnected) };
         written += chunk.len() as u64;
         if written > expected {
-            return Err(WriteError::Io("Dữ liệu nhận được lớn hơn kích thước khai báo".into()));
+            break Err(WriteError::Io("Dữ liệu nhận được lớn hơn kích thước khai báo".into()));
         }
-        w.write_all(&chunk)
-            .await
-            .map_err(|e| WriteError::Io(format!("Không ghi được file: {e}")))?;
+        if let Err(e) = w.write_all(&chunk).await {
+            break Err(io(e));
+        }
         tracker.add(chunk.len() as u64);
-    }
-    w.flush()
-        .await
-        .map_err(|e| WriteError::Io(format!("Không ghi được file: {e}")))?;
+        *session.counted.lock().unwrap().entry(id.to_string()).or_insert(0) += chunk.len() as u64;
+    };
+    // Luôn ghi phần đệm xuống đĩa, kể cả khi mất kết nối: để gửi tiếp được từ đúng chỗ.
+    w.flush().await.map_err(io)?;
+    result?;
     if written != expected {
         return Err(if tracker.is_cancelled() {
             WriteError::Cancelled

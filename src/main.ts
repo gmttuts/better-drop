@@ -57,6 +57,8 @@ interface TransferUpdate {
   status: Status;
   error: string | null;
   dir_path: string | null;
+  /** Ghi chú tạm thời, vd "Mất kết nối, đang thử lại (lần 1)…". */
+  note?: string;
 }
 interface IncomingRequest {
   request_id: string;
@@ -637,6 +639,7 @@ function progressOf(t: TransferUpdate): number {
 }
 
 function detailOf(t: TransferUpdate): string {
+  if (t.status === "transferring" && t.note) return t.note;
   if (t.status === "transferring") {
     const pct = progressOf(t);
     let d = `${pct.toFixed(0)}% · ${formatBytes(t.transferred)} / ${formatBytes(t.total_bytes)}`;

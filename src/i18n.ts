@@ -61,6 +61,9 @@ const EXACT: Record<string, string> = {
   "File không còn ở vị trí cũ (đã bị xoá hoặc di chuyển)": "The file is no longer there (deleted or moved)",
   "Ngôn ngữ / Language": "Language",
   "Tự động (theo máy) / Automatic": "Automatic",
+  "Mất kết nối, đang chờ máy gửi nối lại…": "Connection lost, waiting for the sender to reconnect…",
+  "Không gửi được dữ liệu trong 30 giây": "No data could be sent for 30 seconds",
+  "Phiên nhận đã kết thúc": "The receiving session has ended",
   "Tất cả": "All",
   "+ Nhóm mới": "+ New group",
   "Nhóm mới": "New group",
@@ -270,6 +273,7 @@ const RULES: [RegExp, (...m: string[]) => string][] = [
   [/^Không kết nối được tới máy trong mã QR\. Hai máy có cùng mạng Wi‑Fi không\? \((.+)\)$/, (_, d) => `Couldn't reach the device in the QR code. Are both on the same Wi‑Fi? (${d})`],
   [/^iPhone\/iPad chỉ nhận được khi BetterDrop đang mở trên màn hình\. Hãy mở app trên máy đó rồi gửi lại\. \((.+)\)$/, (_, d) =>
     `An iPhone/iPad can only receive while BetterDrop is open on screen. Open the app on that device and send again. (${inner(d)})`],
+  [/^Mất kết nối, đang thử lại \(lần (\d+)\)…$/, (_, n) => `Connection lost, retrying (attempt ${n})…`],
   [/^Máy nhận trả lỗi (.+)$/, (_, c) => `The other device returned an error (${c})`],
   [/^Không đọc được (.+): (.+)$/, (_, f, e) => `Couldn't read ${f}: ${e}`],
   [/^Không mở được (.+): (.+)$/, (_, f, e) => `Couldn't open ${f}: ${e}`],

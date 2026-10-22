@@ -104,6 +104,7 @@ pub fn build_client(pin: Pin, me: Option<&crate::identity::Identity>) -> Result<
     reqwest::Client::builder()
         .use_preconfigured_tls(tls)
         .connect_timeout(Duration::from_secs(4))
+        .tcp_keepalive(Duration::from_secs(15))
         .tcp_nodelay(true)
         .build()
         .map_err(|e| e.to_string())

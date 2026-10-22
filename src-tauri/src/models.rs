@@ -72,6 +72,17 @@ pub struct UploadQuery {
     pub session: String,
     pub file: String,
     pub token: String,
+    /// Gửi tiếp từ byte này (từ 0.3.5). Bản cũ không gửi trường này (gửi từ đầu)
+    /// và cũng bỏ qua nó khi nhận.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offset: Option<u64>,
+}
+
+/// Trả lời `/api/v1/upload-status` (từ 0.3.5): máy nhận đã có bao nhiêu byte của file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UploadStatus {
+    pub received: u64,
+    pub done: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

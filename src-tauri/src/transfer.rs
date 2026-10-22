@@ -7,7 +7,7 @@ use crate::state::{AppState, Tracker};
 use futures_util::{StreamExt, TryStreamExt};
 use reqwest::StatusCode;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio_util::io::ReaderStream;
 
@@ -294,6 +294,19 @@ pub async fn send_files(
     Ok(())
 }
 
+/// Thời gian chờ giữa các lần thử lại sau khi mất kết nối (tổng ~1,5 phút, ngắn hơn
+/// thời gian máy nhận giữ phần đã nhận: `server::RESUME_GRACE`).
+const RETRY_DELAYS: [u64; 7] = [2, 3, 5, 8, 13, 20, 30];
+/// Không gửi được byte nào trong chừng này thì coi như mất kết nối.
+const STALL: Duration = Duration::from_secs(30);
+
+enum UploadError {
+    /// Lỗi mạng: thử lại được.
+    Network(String),
+    /// Lỗi khác (máy nhận từ chối, huỷ, lỗi đĩa…): dừng.
+    Fatal(String),
+}
+
 async fn upload_one(
     st: &AppState,
     client: &reqwest::Client,
@@ -305,40 +318,157 @@ async fn upload_one(
     let token = prep
         .tokens
         .get(&f.meta.id)
-        .ok_or("Máy nhận không cấp token cho file")?;
+        .ok_or("Máy nhận không cấp token cho file")?
+        .clone();
+    // Số byte của file này đã tính vào tiến trình.
+    let counted = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let mut offset = 0u64;
+    let mut attempt = 0usize;
+    loop {
+        match upload_from(st, client, addr, prep, &f, &token, offset, tracker, &counted).await {
+            Ok(()) => {
+                tracker.set_note(None);
+                return Ok(());
+            }
+            Err(UploadError::Fatal(e)) => return Err(e),
+            Err(UploadError::Network(e)) => {
+                if tracker.is_cancelled() {
+                    return Err(e);
+                }
+                let Some(delay) = RETRY_DELAYS.get(attempt) else {
+                    return Err(e);
+                };
+                attempt += 1;
+                tracker.set_note(Some(format!("Mất kết nối, đang thử lại (lần {attempt})…")));
+                tokio::time::sleep(Duration::from_secs(*delay)).await;
+                if tracker.is_cancelled() {
+                    return Err(e);
+                }
+                // Hỏi máy nhận đã có bao nhiêu byte để gửi tiếp từ đó.
+                match upload_status(client, addr, prep, &f, &token).await {
+                    Ok(Some(status)) => {
+                        if status.done {
+                            tracker.set_note(None);
+                            let c = counted.swap(f.meta.size, std::sync::atomic::Ordering::SeqCst);
+                            tracker.add(f.meta.size.saturating_sub(c));
+                            return Ok(());
+                        }
+                        offset = status.received.min(f.meta.size);
+                        let c = counted.swap(offset, std::sync::atomic::Ordering::SeqCst);
+                        if c > offset {
+                            tracker.sub(c - offset);
+                        } else {
+                            tracker.add(offset - c);
+                        }
+                    }
+                    // Máy nhận bản cũ (chưa hỗ trợ gửi tiếp) hoặc phiên đã hết hạn.
+                    Ok(None) => return Err(e),
+                    // Vẫn chưa kết nối lại được: thử lần sau.
+                    Err(_) => continue,
+                }
+            }
+        }
+    }
+}
+
+/// Hỏi máy nhận tiến độ của một file. Ok(None): máy nhận không hỗ trợ gửi tiếp
+/// (bản cũ) hoặc phiên đã kết thúc. Err: chưa kết nối được.
+async fn upload_status(
+    client: &reqwest::Client,
+    addr: &str,
+    prep: &PrepareResponse,
+    f: &LocalFile,
+    token: &str,
+) -> Result<Option<crate::models::UploadStatus>, ()> {
+    let resp = client
+        .get(api_url(addr, "upload-status"))
+        .query(&[("session", prep.session_id.as_str()), ("file", f.meta.id.as_str()), ("token", token)])
+        .timeout(Duration::from_secs(8))
+        .send()
+        .await
+        .map_err(|_| ())?;
+    if !resp.status().is_success() {
+        return Ok(None);
+    }
+    resp.json().await.map(Some).map_err(|_| ())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn upload_from(
+    st: &AppState,
+    client: &reqwest::Client,
+    addr: &str,
+    prep: &PrepareResponse,
+    f: &LocalFile,
+    token: &str,
+    offset: u64,
+    tracker: &Arc<Tracker>,
+    counted: &Arc<std::sync::atomic::AtomicU64>,
+) -> Result<(), UploadError> {
+    use std::sync::atomic::Ordering::SeqCst;
     let file = tokio::task::block_in_place(|| st.open_source(&f.source))
         .map(tokio::fs::File::from_std)
-        .map_err(|e| format!("Không mở được {}: {e}", f.meta.rel_path))?;
+        .map_err(|e| UploadError::Fatal(format!("Không mở được {}: {e}", f.meta.rel_path)))?;
+    let mut file = file;
+    if offset > 0 {
+        tokio::io::AsyncSeekExt::seek(&mut file, std::io::SeekFrom::Start(offset))
+            .await
+            .map_err(|e| UploadError::Fatal(format!("Không đọc được {}: {e}", f.meta.rel_path)))?;
+    }
     let t = tracker.clone();
+    let c = counted.clone();
+    let last_progress = Arc::new(Mutex::new(std::time::Instant::now()));
+    let lp = last_progress.clone();
     let stream = ReaderStream::with_capacity(file, 256 * 1024).map(move |chunk| {
         if t.is_cancelled() {
             return Err(std::io::Error::other("cancelled"));
         }
         if let Ok(b) = &chunk {
             t.add(b.len() as u64);
+            c.fetch_add(b.len() as u64, SeqCst);
+            *lp.lock().unwrap() = std::time::Instant::now();
         }
         chunk
     });
-    let resp = client
+    let mut query = vec![
+        ("session", prep.session_id.clone()),
+        ("file", f.meta.id.clone()),
+        ("token", token.to_string()),
+    ];
+    if offset > 0 {
+        query.push(("offset", offset.to_string()));
+    }
+    let send = client
         .post(api_url(addr, "upload"))
-        .query(&[
-            ("session", prep.session_id.as_str()),
-            ("file", f.meta.id.as_str()),
-            ("token", token.as_str()),
-        ])
+        .query(&query)
         .body(reqwest::Body::wrap_stream(stream))
-        .send()
-        .await
-        .map_err(|e| describe_error(&e))?;
+        .send();
+    // Kết nối "chết lặng" (mất Wi‑Fi không báo lỗi): không có byte nào đi trong STALL.
+    let size = f.meta.size;
+    let watchdog = async {
+        loop {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let idle = last_progress.lock().unwrap().elapsed();
+            if counted.load(SeqCst) < size && idle > STALL {
+                return;
+            }
+        }
+    };
+    let resp = tokio::select! {
+        r = send => r.map_err(|e| UploadError::Network(describe_error(&e)))?,
+        _ = watchdog => return Err(UploadError::Network("Không gửi được dữ liệu trong 30 giây".into())),
+    };
     match resp.status() {
         s if s.is_success() => Ok(()),
         StatusCode::GONE => {
             tracker.set_status(TransferStatus::Cancelled, Some("Máy nhận đã huỷ".into()));
-            Err("Máy nhận đã huỷ".into())
+            Err(UploadError::Fatal("Máy nhận đã huỷ".into()))
         }
+        // Máy nhận chưa thấy kết nối cũ bị đứt: thử lại sau.
+        StatusCode::CONFLICT => Err(UploadError::Network("Máy nhận đang chờ kết nối cũ".into())),
         s => {
             let msg = resp.text().await.unwrap_or_default();
-            Err(if msg.is_empty() { format!("Máy nhận trả lỗi {s}") } else { msg })
+            Err(UploadError::Fatal(if msg.is_empty() { format!("Máy nhận trả lỗi {s}") } else { msg }))
         }
     }
 }
