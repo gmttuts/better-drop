@@ -268,6 +268,8 @@ const RULES: [RegExp, (...m: string[]) => string][] = [
   [/^Đã gửi lại văn bản tới (.+)$/, (_, p) => `Sent the text again to ${name(p)}`],
   [/^Không kết nối được tới máy nhận \((.+)\)$/, (_, d) => `Couldn't reach the other device (${d})`],
   [/^Không kết nối được tới máy trong mã QR\. Hai máy có cùng mạng Wi‑Fi không\? \((.+)\)$/, (_, d) => `Couldn't reach the device in the QR code. Are both on the same Wi‑Fi? (${d})`],
+  [/^iPhone\/iPad chỉ nhận được khi BetterDrop đang mở trên màn hình\. Hãy mở app trên máy đó rồi gửi lại\. \((.+)\)$/, (_, d) =>
+    `An iPhone/iPad can only receive while BetterDrop is open on screen. Open the app on that device and send again. (${inner(d)})`],
   [/^Máy nhận trả lỗi (.+)$/, (_, c) => `The other device returned an error (${c})`],
   [/^Không đọc được (.+): (.+)$/, (_, f, e) => `Couldn't read ${f}: ${e}`],
   [/^Không mở được (.+): (.+)$/, (_, f, e) => `Couldn't open ${f}: ${e}`],

@@ -781,3 +781,13 @@ async fn proven_sender_can_be_trusted() {
     assert_eq!(send.await.unwrap(), TransferStatus::Done);
     assert!(b.st.devices.lock().unwrap().is_trusted(&a.st.device_info().id, &a.st.identity.fingerprint));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unreachable_iphone_gets_open_the_app_hint() {
+    let a = node("Mac").await;
+    let mut iphone = as_peer(&node("iPhone").await);
+    iphone.info.os = "ios".into();
+    iphone.addrs = vec!["127.0.0.1:1".into()]; // không ai nghe: như iPhone đã đưa app ra nền
+    let err = transfer::send_text(a.st.clone(), iphone, "x".into()).await.unwrap_err();
+    assert!(err.starts_with(transfer::IOS_HINT), "{err}");
+}

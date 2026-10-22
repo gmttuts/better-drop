@@ -152,7 +152,19 @@ async fn send_prepare(
             Err(e) => last_err = describe_error(&e),
         }
     }
-    Err(last_err)
+    Err(with_ios_hint(peer, last_err))
+}
+
+/// iOS dừng app vài giây sau khi chuyển ra màn hình khác, nên iPhone/iPad chỉ nhận
+/// được khi BetterDrop đang mở. Nói rõ điều đó thay vì chỉ báo "không kết nối được".
+pub const IOS_HINT: &str = "iPhone/iPad chỉ nhận được khi BetterDrop đang mở trên màn hình. Hãy mở app trên máy đó rồi gửi lại.";
+
+fn with_ios_hint(peer: &Peer, err: String) -> String {
+    if peer.info.os == "ios" {
+        format!("{IOS_HINT} ({err})")
+    } else {
+        err
+    }
 }
 
 fn new_tracker(st: &AppState, peer: &Peer, kind: TransferKind, file_count: usize, total: u64) -> Arc<Tracker> {
