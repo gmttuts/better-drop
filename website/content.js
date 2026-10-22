@@ -26,8 +26,8 @@ window.SITE = {
       en: 'Send files between any devices, <span class="accent">as easy as AirDrop.</span>',
     },
     "hero.sub": {
-      vi: "BetterDrop chuyển file, cả thư mục và văn bản qua Wi‑Fi giữa Mac, Windows, Linux, Android và iPhone. Không cần Internet, không cần tài khoản, miễn phí.",
-      en: "BetterDrop moves files, whole folders and text over Wi‑Fi between Mac, Windows, Linux, Android and iPhone. No Internet, no account, free.",
+      vi: "BetterDrop chuyển file, cả thư mục và văn bản giữa Mac, Windows, Linux, Android và iPhone trong cùng mạng Wi‑Fi. File đi thẳng từ máy này sang máy kia, không qua máy chủ nào. Không cần tài khoản, miễn phí.",
+      en: "BetterDrop moves files, whole folders and text between Mac, Windows, Linux, Android and iPhone on the same Wi‑Fi. Files go straight from one device to the other, through no server. No account, free.",
     },
     "hero.other": { vi: "Tải cho hệ điều hành khác →", en: "Other platforms →" },
     "hero.fine": { vi: "Miễn phí", en: "Free" },
