@@ -224,6 +224,14 @@ const EXACT: Record<string, string> = {
   "Hãy đặt tên nhóm": "Give the group a name",
   "Bản dùng thử trên web không mở được camera. Trong app thật, bạn quét mã QR trên máy tính để ghép nối.":
     "The web demo can't use the camera. In the app, you scan the QR code on the computer to pair.",
+  "Cập nhật và mở lại": "Update and restart",
+  "Để sau": "Later",
+  "Kiểm tra bản mới": "Check for updates",
+  "Đang kiểm tra…": "Checking…",
+  "Đang dùng bản mới nhất": "You're on the latest version",
+  "Đang tải bản mới…": "Downloading the update…",
+  "Không cài được bản mới": "Couldn't install the update",
+  "Không kiểm tra được bản mới": "Couldn't check for updates",
 };
 
 const files = (n: string) => `${n} file${n === "1" ? "" : "s"}`;
@@ -295,6 +303,11 @@ const RULES: [RegExp, (...m: string[]) => string][] = [
   [/^Không đọc được (.+): (.+)$/, (_, f, e) => `Couldn't read ${f}: ${e}`],
   [/^Không mở được (.+): (.+)$/, (_, f, e) => `Couldn't open ${f}: ${e}`],
   // Chung chung nhất: để cuối cùng.
+  [/^Đã có BetterDrop v(.+) \(máy này đang dùng v(.+)\)\.$/, (_, a, b) => `BetterDrop v${a} is available (this device has v${b}).`],
+  [/^Có bản mới v(.+)$/, (_, v) => `Update available: v${v}`],
+  [/^Đang tải bản mới… (\d+)%$/, (_, n) => `Downloading the update… ${n}%`],
+  [/^Không kiểm tra được bản mới: (.+)$/, (_, e) => `Couldn't check for updates: ${e}`],
+  [/^Không cài được bản mới: (.+)$/, (_, e) => `Couldn't install the update: ${e}`],
   [/^Máy (.+)$/, (_, ip) => `Device ${ip}`],
 ];
 /** Dịch phần trạng thái/lỗi đứng trước thời gian trong dòng lịch sử. */

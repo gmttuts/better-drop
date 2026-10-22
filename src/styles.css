@@ -466,3 +466,20 @@ html.scanning body > :not(.scan-overlay):not(.toasts) { visibility: hidden; }
 .toast.error { background: var(--danger); color: #fff; }
 .toast.leaving { opacity: 0; }
 @keyframes rise { from { transform: translateY(8px); opacity: 0; } }
+
+/* Thanh báo có bản mới */
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px max(20px, calc((100% - 1060px) / 2)) 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  font-size: 13px;
+}
+.update-banner[hidden] { display: none; }
+.update-banner span { flex: 1; min-width: 180px; }
+.update-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.update-row[hidden] { display: none; }

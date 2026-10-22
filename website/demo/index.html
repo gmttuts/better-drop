@@ -155,6 +155,8 @@
     },
     async share_group() { await wait(900); return []; },
     take_shared_items: () => ({ paths: [], text: null }),
+    check_update: () => null,
+    install_update: () => null,
     untrust_device({ id }) { trusted = trusted.filter((d) => d.id !== id); return devices(); },
     get_history: () => history,
     delete_history_item({ id }) { history = history.filter((h) => h.id !== id); return null; },
@@ -246,8 +248,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>BetterDrop (bản dùng thử)</title>
     <link rel="icon" type="image/png" href="./logo.png" />
-    <script type="module" crossorigin src="./assets/index-LOaagHTj.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-Bri20pwr.css">
+    <script type="module" crossorigin src="./assets/index-CHSsIHKP.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-CAMaSUCs.css">
   </head>
   <body>
     <header class="topbar">
@@ -272,6 +274,12 @@
         <svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zm7.4-2.5a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-1.7-1L15 3.5h-4l-.4 2.5a7.4 7.4 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7.6 7.6 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.4 7.4 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7.4 7.4 0 0 0 1.7-1l2.4 1 2-3.4z"/></svg>
       </button>
     </header>
+
+    <div class="update-banner" id="update-banner" hidden>
+      <span id="update-text"></span>
+      <button class="btn small primary" id="btn-update-install">Cập nhật và mở lại</button>
+      <button class="btn small" id="btn-update-later">Để sau</button>
+    </div>
 
     <main class="layout">
       <section class="card" aria-labelledby="send-title">
@@ -543,6 +551,10 @@
           <div class="muted small">Địa chỉ của máy này (để nhập ở máy kia nếu không tự thấy):</div>
           <ul id="set-addrs" class="addrs"></ul>
           <div class="muted small">Mã nhận dạng: <span class="code" id="set-code"></span></div>
+          <div class="update-row" id="row-update">
+            <button class="btn small" type="button" id="btn-check-update">Kiểm tra bản mới</button>
+            <span class="muted small" id="update-status"></span>
+          </div>
         </div>
         <div class="dialog-actions">
           <button class="btn" type="button" id="btn-settings-cancel">Huỷ</button>

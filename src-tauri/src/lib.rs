@@ -9,6 +9,7 @@ mod platform;
 mod server;
 mod state;
 mod transfer;
+mod updater;
 #[cfg(desktop)]
 mod tray;
 mod web;
@@ -94,6 +95,16 @@ fn set_language(app: tauri::AppHandle, language: String) -> Result<SelfInfo, Str
     #[cfg(desktop)]
     tray::apply_language(&app);
     Ok(info)
+}
+
+#[tauri::command]
+async fn check_update(app: tauri::AppHandle) -> Result<Option<updater::UpdateInfo>, String> {
+    updater::check(&app).await
+}
+
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    updater::install(&app).await
 }
 
 #[tauri::command]
@@ -534,6 +545,8 @@ pub fn run() {
             set_autostart,
             set_hide_dock,
             set_language,
+            check_update,
+            install_update,
             take_shared_items,
             ensure_local_network,
             get_peers,

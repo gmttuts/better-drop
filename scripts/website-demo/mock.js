@@ -151,6 +151,8 @@
     },
     async share_group() { await wait(900); return []; },
     take_shared_items: () => ({ paths: [], text: null }),
+    check_update: () => null,
+    install_update: () => null,
     untrust_device({ id }) { trusted = trusted.filter((d) => d.id !== id); return devices(); },
     get_history: () => history,
     delete_history_item({ id }) { history = history.filter((h) => h.id !== id); return null; },

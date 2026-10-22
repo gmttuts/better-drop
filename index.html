@@ -32,6 +32,12 @@
       </button>
     </header>
 
+    <div class="update-banner" id="update-banner" hidden>
+      <span id="update-text"></span>
+      <button class="btn small primary" id="btn-update-install">Cập nhật và mở lại</button>
+      <button class="btn small" id="btn-update-later">Để sau</button>
+    </div>
+
     <main class="layout">
       <section class="card" aria-labelledby="send-title">
         <div class="card-head">
@@ -302,6 +308,10 @@
           <div class="muted small">Địa chỉ của máy này (để nhập ở máy kia nếu không tự thấy):</div>
           <ul id="set-addrs" class="addrs"></ul>
           <div class="muted small">Mã nhận dạng: <span class="code" id="set-code"></span></div>
+          <div class="update-row" id="row-update">
+            <button class="btn small" type="button" id="btn-check-update">Kiểm tra bản mới</button>
+            <span class="muted small" id="update-status"></span>
+          </div>
         </div>
         <div class="dialog-actions">
           <button class="btn" type="button" id="btn-settings-cancel">Huỷ</button>

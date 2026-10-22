@@ -936,6 +936,56 @@ async function answerRequest(accept: boolean) {
   showNextRequest();
 }
 
+// ---- Tự cập nhật (chỉ máy tính) ----
+
+type UpdateInfo = { version: string; current: string; notes?: string | null };
+
+let updateDismissed = false;
+
+function showUpdate(u: UpdateInfo) {
+  $("update-text").textContent = `Đã có BetterDrop v${u.version} (máy này đang dùng v${u.current}).`;
+  $("update-banner").hidden = updateDismissed;
+  $("update-status").textContent = `Có bản mới v${u.version}`;
+}
+
+async function checkUpdate(manual: boolean) {
+  const status = $("update-status");
+  const btn = $<HTMLButtonElement>("btn-check-update");
+  if (manual) {
+    btn.disabled = true;
+    status.textContent = "Đang kiểm tra…";
+  }
+  try {
+    const u = await invoke<UpdateInfo | null>("check_update");
+    if (u) {
+      if (manual) updateDismissed = false;
+      showUpdate(u);
+    } else if (manual) {
+      status.textContent = "Đang dùng bản mới nhất";
+    }
+  } catch (e) {
+    // Tự kiểm tra lúc mở app mà lỗi (vd không có mạng Internet) thì im lặng.
+    if (manual) status.textContent = errorText(e);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function installUpdate() {
+  const btn = $<HTMLButtonElement>("btn-update-install");
+  btn.disabled = true;
+  $("btn-update-later").hidden = true;
+  $("update-text").textContent = "Đang tải bản mới…";
+  try {
+    // Cài xong app tự mở lại nên lệnh này thường không trả về.
+    await invoke("install_update");
+  } catch (e) {
+    $("update-text").textContent = errorText(e);
+    btn.disabled = false;
+    $("btn-update-later").hidden = false;
+  }
+}
+
 // ---- Cài đặt ----
 
 function openSettings() {
@@ -946,6 +996,7 @@ function openSettings() {
   const isMac = me.info.os === "mac";
   $("row-dock").hidden = !isMac;
   $("row-autostart").hidden = me.mobile;
+  $("row-update").hidden = me.mobile;
   $("btn-choose-dir").hidden = me.mobile;
   $("bg-hint").textContent = me.mobile
     ? "Trên điện thoại, hãy mở BetterDrop khi muốn nhận file."
@@ -1211,6 +1262,19 @@ async function init() {
     }
   });
 
+  $("btn-check-update").addEventListener("click", () => checkUpdate(true));
+  $("btn-update-install").addEventListener("click", installUpdate);
+  $("btn-update-later").addEventListener("click", () => {
+    updateDismissed = true;
+    $("update-banner").hidden = true;
+  });
+  await listen<{ downloaded: number; total?: number | null }>("update-progress", (e) => {
+    const { downloaded, total } = e.payload;
+    $("update-text").textContent = total
+      ? `Đang tải bản mới… ${Math.floor((downloaded / total) * 100)}%`
+      : "Đang tải bản mới…";
+  });
+
   // Kéo thả trên toàn cửa sổ (chỉ có trên máy tính)
   if (!me.mobile) {
     await getCurrentWebview().onDragDropEvent((e) => {
@@ -1369,6 +1433,11 @@ async function init() {
   applyDevices(await invoke("get_devices"));
   await pullShared();
   await listen("shared-items", pullShared);
+  // Mở app thì tự xem có bản mới không (mỗi 6 tiếng xem lại, vì app hay chạy nền lâu).
+  if (!me.mobile) {
+    setTimeout(() => checkUpdate(false), 3000);
+    setInterval(() => checkUpdate(false), 6 * 3600 * 1000);
+  }
   // Android: quay lại app sau khi chọn "Chia sẻ → BetterDrop" từ app khác.
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) pullShared();
