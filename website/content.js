@@ -29,8 +29,8 @@ window.SITE = {
       vi: "BetterDrop chuyển file, cả thư mục và văn bản qua Wi‑Fi giữa Mac, Windows, Linux, Android và iPhone. Không cần Internet, không cần tài khoản, miễn phí.",
       en: "BetterDrop moves files, whole folders and text over Wi‑Fi between Mac, Windows, Linux, Android and iPhone. No Internet, no account, free.",
     },
-    "hero.other": { vi: "Hệ điều hành khác", en: "Other platforms" },
-    "hero.fine": { vi: "Miễn phí · mã nguồn trên GitHub", en: "Free · source code on GitHub" },
+    "hero.other": { vi: "Tải cho hệ điều hành khác →", en: "Other platforms →" },
+    "hero.fine": { vi: "Miễn phí", en: "Free" },
 
     "dl.for": { vi: "Tải cho {os}", en: "Download for {os}" },
     "dl.generic": { vi: "Tải BetterDrop", en: "Download BetterDrop" },

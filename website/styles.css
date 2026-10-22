@@ -89,6 +89,8 @@ code { font: 0.88em var(--mono); background: var(--panel); padding: 1px 5px; bor
 .hero .btn { padding: 14px 24px; font-size: 16px; border-radius: 14px; }
 .hero .btn-soft { background: var(--card); box-shadow: 0 0 0 1px var(--line); }
 .hero .fine { margin-top: 14px; }
+.hero .fine a, .cta-card .fine a { color: var(--text); font-weight: 500; text-decoration: none; }
+.hero .fine a:hover, .cta-card .fine a:hover { text-decoration: underline; }
 .pill { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 5px 14px 5px 5px; border-radius: 999px; font-size: 14px; text-decoration: none;
   color: #fff; background: #151515; box-shadow: 0 6px 20px rgba(0,0,0,.15); }
 .pill-new { flex: none; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; color: #fff; background: linear-gradient(135deg, var(--sky), var(--blue)); }
@@ -245,6 +247,7 @@ code { font: 0.88em var(--mono); background: var(--panel); padding: 1px 5px; bor
 .cta-card p { margin: 14px auto 0; max-width: 30em; color: var(--muted); font-size: 18px; }
 .cta-card .cta-row { justify-content: center; margin-top: 28px; }
 .cta-card .btn-soft { background: var(--card); }
+.cta-card .fine { margin-top: 14px; font-size: 14px; }
 
 /* ---------- Footer ---------- */
 .footer { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; margin-top: clamp(70px, 10vw, 120px); padding: 32px 0 60px; border-top: 1px solid var(--line); font-size: 14px; }
@@ -276,7 +279,8 @@ code { font: 0.88em var(--mono); background: var(--panel); padding: 1px 5px; bor
   .features { grid-template-columns: 1fr; gap: 30px; }
   .platforms { grid-template-columns: 1fr; }
   .hero-sky { border-radius: 24px; }
-  .hero .cta-row .btn, .support-text .btn { width: 100%; }
+  .support-text .btn { width: 100%; }
+  .hero .btn, .cta-card .btn { padding: 13px 16px; font-size: 15px; }
   .qr { width: 180px; }
   .support-modal { padding: 28px 18px 18px; }
   .pill { font-size: 13px; }
