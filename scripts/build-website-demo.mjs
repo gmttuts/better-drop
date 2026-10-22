@@ -1,6 +1,6 @@
 // Builds the real app UI (index.html + src/) into website/demo/, with scripts/website-demo/mock.js standing in
 // for the Rust side, so visitors can click around the actual interface on the website (in English too, via
-// scripts/website-demo/i18n-en.js).
+// src/i18n.ts).
 // Run after changing the app's UI:  node scripts/build-website-demo.mjs
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -8,8 +8,9 @@ import { build } from "vite";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (f) => readFileSync(new URL(`./website-demo/${f}`, import.meta.url), "utf8");
-// mock.js stands in for Rust; i18n-en.js translates the UI when the page opens the demo with ?lang=en.
-const inject = `<script>${read("mock.js")}</script>\n<script>${read("i18n-en.js")}</script>`;
+// mock.js stands in for Rust. English: the app translates itself with src/i18n.ts when the demo is opened
+// with ?lang=en (mock.js sets the language setting from that parameter).
+const inject = `<script>${read("mock.js")}</script>`;
 
 await build({
   root,

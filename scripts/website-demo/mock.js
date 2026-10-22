@@ -9,7 +9,8 @@
   // ---- Fake state ----
   const me = {
     info: { id: "me", name: "MacBook của bạn", os: "mac", fp: "520d9a1b", port: 53318, version: "0.3.3" },
-    settings: { device_id: "me", name: "MacBook của bạn", download_dir: "~/Downloads/BetterDrop", receive_enabled: true, hide_dock: false },
+    settings: { device_id: "me", name: "MacBook của bạn", download_dir: "~/Downloads/BetterDrop", receive_enabled: true, hide_dock: false,
+      language: new URLSearchParams(location.search).get("lang") === "en" ? "en" : "vi" },
     addrs: ["192.168.1.12:53318"],
     autostart: true,
     // Narrow frame (the website on a phone): show the app's phone layout.
@@ -188,6 +189,14 @@
     set_receive_enabled({ enabled }) { me.settings.receive_enabled = enabled; return me; },
     set_autostart({ enabled }) { me.autostart = enabled; return me; },
     set_hide_dock({ hide }) { me.settings.hide_dock = hide; return me; },
+    set_language({ language }) {
+      // Bản demo đổi ngôn ngữ bằng tham số ?lang= trên URL.
+      const u = new URL(location.href);
+      u.searchParams.set("lang", language === "en" ? "en" : "vi");
+      me.settings.language = language;
+      setTimeout(() => location.replace(u), 0);
+      return me;
+    },
 
     web_share_status: () => webInfo(),
     web_share_start() { web = { pin: "4821", urls: ["http://192.168.1.12:53319"], qr_svg: QR, files: [], text: null, clients: 0 }; setTimeout(() => { if (web) { web.clients = 1; emit("web-changed", null); } }, 4000); return webInfo(); },

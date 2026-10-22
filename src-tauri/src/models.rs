@@ -152,6 +152,24 @@ pub struct Settings {
     /// Chỉ trên macOS: ẩn biểu tượng trên Dock, chỉ còn biểu tượng trên thanh menu.
     #[serde(default)]
     pub hide_dock: bool,
+    /// "auto" (theo ngôn ngữ của máy) | "vi" | "en".
+    #[serde(default = "default_language")]
+    pub language: String,
+}
+
+fn default_language() -> String {
+    "auto".into()
+}
+
+impl Settings {
+    /// Giao diện đang dùng tiếng Anh? ("auto": theo ngôn ngữ hệ điều hành.)
+    pub fn english(&self) -> bool {
+        match self.language.as_str() {
+            "en" => true,
+            "vi" => false,
+            _ => !sys_locale::get_locale().unwrap_or_default().to_lowercase().starts_with("vi"),
+        }
+    }
 }
 
 fn default_true() -> bool {

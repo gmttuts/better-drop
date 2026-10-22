@@ -18,6 +18,27 @@ static HINT_SHOWN: AtomicBool = AtomicBool::new(false);
 
 pub struct TrayState {
     pub receive: CheckMenuItem<Wry>,
+    open: MenuItem<Wry>,
+    folder: MenuItem<Wry>,
+    quit: MenuItem<Wry>,
+}
+
+/// Chọn chữ theo ngôn ngữ giao diện trong Cài đặt.
+fn t(app: &AppHandle, vi: &str, en: &str) -> String {
+    let english = app
+        .try_state::<Arc<AppState>>()
+        .is_some_and(|st| st.settings.read().unwrap().english());
+    if english { en } else { vi }.to_string()
+}
+
+/// Đổi chữ trên menu sau khi đổi ngôn ngữ.
+pub fn apply_language(app: &AppHandle) {
+    if let Some(ts) = app.try_state::<TrayState>() {
+        let _ = ts.open.set_text(t(app, "Mở BetterDrop", "Open BetterDrop"));
+        let _ = ts.folder.set_text(t(app, "Mở thư mục nhận", "Open received folder"));
+        let _ = ts.receive.set_text(t(app, "Cho phép nhận file", "Allow receiving files"));
+        let _ = ts.quit.set_text(t(app, "Thoát BetterDrop", "Quit BetterDrop"));
+    }
 }
 
 pub fn show_main(app: &AppHandle) {
@@ -39,17 +60,17 @@ pub fn notify(app: &AppHandle, title: &str, body: &str) {
 }
 
 pub fn setup(app: &AppHandle, receive_enabled: bool) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "open", "Mở BetterDrop", true, None::<&str>)?;
-    let folder = MenuItem::with_id(app, "folder", "Mở thư mục nhận", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "open", t(app, "Mở BetterDrop", "Open BetterDrop"), true, None::<&str>)?;
+    let folder = MenuItem::with_id(app, "folder", t(app, "Mở thư mục nhận", "Open received folder"), true, None::<&str>)?;
     let receive = CheckMenuItem::with_id(
         app,
         "receive",
-        "Cho phép nhận file",
+        t(app, "Cho phép nhận file", "Allow receiving files"),
         true,
         receive_enabled,
         None::<&str>,
     )?;
-    let quit = MenuItem::with_id(app, "quit", "Thoát BetterDrop", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", t(app, "Thoát BetterDrop", "Quit BetterDrop"), true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[
@@ -117,7 +138,7 @@ pub fn setup(app: &AppHandle, receive_enabled: bool) -> tauri::Result<()> {
         })
         .build(app)?;
 
-    app.manage(TrayState { receive });
+    app.manage(TrayState { receive, open, folder, quit });
     Ok(())
 }
 
@@ -129,12 +150,13 @@ pub fn on_close_requested(window: &tauri::Window, api: &tauri::CloseRequestApi) 
     api.prevent_close();
     let _ = window.hide();
     if !HINT_SHOWN.swap(true, Ordering::SeqCst) {
-        let where_ = if cfg!(target_os = "macos") { "thanh menu" } else { "khay hệ thống" };
-        notify(
-            window.app_handle(),
-            "BetterDrop vẫn đang chạy nền",
-            &format!("Bạn vẫn nhận được file. Mở lại từ biểu tượng trên {where_}."),
-        );
+        let app = window.app_handle();
+        let body = if cfg!(target_os = "macos") {
+            t(app, "Bạn vẫn nhận được file. Mở lại từ biểu tượng trên thanh menu.", "You can still receive files. Reopen it from the menu bar icon.")
+        } else {
+            t(app, "Bạn vẫn nhận được file. Mở lại từ biểu tượng trên khay hệ thống.", "You can still receive files. Reopen it from the system tray icon.")
+        };
+        notify(app, &t(app, "BetterDrop vẫn đang chạy nền", "BetterDrop is still running"), &body);
     }
 }
 
@@ -160,8 +182,8 @@ pub fn on_event(app: &AppHandle, event: &str, payload: &serde_json::Value) {
                 let size = fmt_bytes(payload["total_bytes"].as_u64().unwrap_or(0));
                 notify(
                     app,
-                    &format!("{} muốn gửi cho bạn", s("sender_name")),
-                    &format!("{count} file · {size}. Mở BetterDrop để chấp nhận."),
+                    &t(app, &format!("{} muốn gửi cho bạn", s("sender_name")), &format!("{} wants to send you files", s("sender_name"))),
+                    &t(app, &format!("{count} file · {size}. Mở BetterDrop để chấp nhận."), &format!("{count} file(s) · {size}. Open BetterDrop to accept.")),
                 );
             }
             show_main(app);
@@ -172,14 +194,14 @@ pub fn on_event(app: &AppHandle, event: &str, payload: &serde_json::Value) {
                 let size = fmt_bytes(payload["total_bytes"].as_u64().unwrap_or(0));
                 notify(
                     app,
-                    &format!("Đang nhận từ {} (máy tin cậy)", s("sender_name")),
+                    &t(app, &format!("Đang nhận từ {} (máy tin cậy)", s("sender_name")), &format!("Receiving from {} (trusted device)", s("sender_name"))),
                     &format!("{count} file · {size}"),
                 );
             }
         }
         "incoming-text" => {
             if !window_active(app) {
-                notify(app, &format!("{} đã gửi văn bản", s("sender_name")), &s("text"));
+                notify(app, &t(app, &format!("{} đã gửi văn bản", s("sender_name")), &format!("{} sent you text", s("sender_name"))), &s("text"));
             }
             show_main(app);
         }
@@ -191,8 +213,12 @@ pub fn on_event(app: &AppHandle, event: &str, payload: &serde_json::Value) {
                 let count = payload["file_count"].as_u64().unwrap_or(0);
                 notify(
                     app,
-                    "Đã nhận xong",
-                    &format!("{count} file từ {} đã lưu vào {}", s("peer_name"), s("dir_path")),
+                    &t(app, "Đã nhận xong", "Received"),
+                    &t(
+                        app,
+                        &format!("{count} file từ {} đã lưu vào {}", s("peer_name"), s("dir_path")),
+                        &format!("{count} file(s) from {} saved to {}", s("peer_name"), s("dir_path")),
+                    ),
                 );
             }
         }

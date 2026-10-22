@@ -194,6 +194,7 @@ textarea, input {
   user-select: text;
 }
 textarea { resize: vertical; min-height: 120px; }
+select { font: inherit; width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
 textarea:focus, input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
 .row-end { display: flex; justify-content: flex-end; margin-top: 8px; }
 

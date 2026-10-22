@@ -120,6 +120,7 @@ pub fn load_settings(dir: &Path, defaults: Defaults) -> Settings {
             .into_owned(),
         receive_enabled: true,
         hide_dock: false,
+        language: "auto".into(),
     };
     let _ = save_settings(dir, &s);
     s

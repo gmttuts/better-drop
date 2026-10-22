@@ -86,6 +86,17 @@ fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<SelfInfo, Strin
 }
 
 #[tauri::command]
+fn set_language(app: tauri::AppHandle, language: String) -> Result<SelfInfo, String> {
+    if !["auto", "vi", "en"].contains(&language.as_str()) {
+        return Err("Ngôn ngữ không hợp lệ".into());
+    }
+    let info = change_settings(&app, |s| s.language = language)?;
+    #[cfg(desktop)]
+    tray::apply_language(&app);
+    Ok(info)
+}
+
+#[tauri::command]
 fn set_hide_dock(app: tauri::AppHandle, hide: bool) -> Result<SelfInfo, String> {
     platform::apply_dock(&app, hide);
     change_settings(&app, |s| s.hide_dock = hide)
@@ -461,6 +472,7 @@ pub fn run() {
             set_receive_enabled,
             set_autostart,
             set_hide_dock,
+            set_language,
             ensure_local_network,
             get_peers,
             update_settings,

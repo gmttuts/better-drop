@@ -5,6 +5,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { cancel as cancelScan, checkPermissions, Format, requestPermissions, scan } from "@tauri-apps/plugin-barcode-scanner";
 import { onBackButtonPress } from "@tauri-apps/api/app";
+import { resolveLanguage, startEnglish } from "./i18n";
 
 // ---- Kiểu dữ liệu (khớp với src-tauri/src/models.rs) ----
 
@@ -28,6 +29,7 @@ interface Settings {
   download_dir: string;
   receive_enabled: boolean;
   hide_dock: boolean;
+  language?: string;
 }
 interface SelfInfo {
   info: DeviceInfo;
@@ -1048,6 +1050,16 @@ async function openWebDialog() {
 
 async function init() {
   me = await invoke<SelfInfo>("get_self_info");
+  if (resolveLanguage(me.settings.language) === "en") startEnglish();
+  $<HTMLSelectElement>("set-language").value = me.settings.language ?? "auto";
+  $("set-language").addEventListener("change", async () => {
+    try {
+      await invoke("set_language", { language: $<HTMLSelectElement>("set-language").value });
+      location.reload(); // đổi toàn bộ chữ trên giao diện
+    } catch (e) {
+      toast(errorText(e), "error");
+    }
+  });
   document.body.classList.toggle("mobile", me.mobile);
   if (me.mobile) {
     $("dz-title").textContent = "Chọn file để gửi";

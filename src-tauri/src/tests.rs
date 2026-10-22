@@ -30,6 +30,7 @@ async fn node(name: &str) -> Node {
         download_dir: dir.path().join("downloads").to_string_lossy().into_owned(),
         receive_enabled: true,
         hide_dock: false,
+        language: "vi".into(),
     };
     let st = Arc::new(AppState::new(emit, dir.path().join("data"), ident, port, settings));
     let s2 = st.clone();
