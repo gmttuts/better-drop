@@ -49,11 +49,16 @@
 
   // ---------- Latest release from GitHub (cached for an hour; release drafts are invisible to the API) ----------
   let release = null; // { version, date, url, assets: [{name, url}] } once known
-  let releaseState = "loading"; // loading | ok | none
+  let releaseState = "loading"; // loading | ok | none (no public release) | unknown (API unreachable)
 
   function assetFor(file) {
-    if (!release) return null;
-    return release.assets.find((a) => file.match.test(a.name)) || null;
+    if (release) return release.assets.find((a) => file.match.test(a.name)) || null;
+    // GitHub API unreachable or rate-limited (not "no release"): link to the known version's file directly.
+    if (releaseState === "unknown") {
+      const v = S.fallbackVersion;
+      return { url: `${RELEASES}/download/v${v}/${file.file.replace("{v}", v)}` };
+    }
+    return null;
   }
   function primaryHref() {
     const p = S.platforms.find((x) => x.os === os);
@@ -70,6 +75,7 @@
     let data = null;
     try {
       const r = await fetch(`https://api.github.com/repos/${S.repo}/releases/latest`, { headers: { Accept: "application/vnd.github+json" } });
+      if (!r.ok && r.status !== 404) return "unknown"; // rate limit etc.: don't cache, don't claim there's no release
       if (r.ok) {
         const j = await r.json();
         data = {
@@ -79,7 +85,7 @@
           assets: (j.assets || []).map((a) => ({ name: a.name, url: a.browser_download_url, size: a.size })),
         };
       }
-    } catch {}
+    } catch { return "unknown"; }
     try { sessionStorage.setItem(KEY, JSON.stringify({ at: Date.now(), data })); } catch {}
     return data;
   }
@@ -98,6 +104,7 @@
 
     each("[data-release-line]", (el) => {
       if (releaseState === "loading") el.innerHTML = t("dl.loading");
+      else if (releaseState === "unknown") el.innerHTML = `${t("dl.unknown", { v: "v" + S.fallbackVersion })} <a href="${RELEASES}">${t("dl.notes")} →</a>`;
       else if (release) el.innerHTML = `${t("dl.latest", { v: "v" + release.version, date: fmtDate(release.date) })} <a href="${release.url}">${t("dl.notes")} →</a>`;
       else el.innerHTML = `${t("dl.none")} <a href="${RELEASES}">github.com/${S.repo}/releases →</a>`;
     });
@@ -193,8 +200,8 @@
 
   applyLang();
   loadRelease().then((data) => {
-    release = data;
-    releaseState = data ? "ok" : "none";
+    release = data === "unknown" ? null : data;
+    releaseState = data === "unknown" ? "unknown" : data ? "ok" : "none";
     renderDownloads();
   });
 })();

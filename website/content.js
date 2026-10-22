@@ -2,7 +2,8 @@
 // Keep it true to what the app actually does (see README.md at the repo root).
 window.SITE = {
   repo: "gmttuts/better-drop",
-  // Shown until the GitHub API answers (or when there is no public release yet).
+  // Shown until the GitHub API answers. If the API can't be reached (e.g. its hourly limit), the buttons
+  // link straight to this version's files, named as in `file` below (the names CI gives them).
   fallbackVersion: "0.3.3",
 
   // Support the author (the app is free). Same accounts as the Better Finder site.
@@ -81,6 +82,7 @@ window.SITE = {
     "dl.title": { vi: "Chọn hệ điều hành của bạn.", en: "Pick your platform." },
     "dl.loading": { vi: "Đang lấy bản mới nhất từ GitHub…", en: "Checking GitHub for the latest version…" },
     "dl.latest": { vi: "Bản mới nhất: <b>{v}</b>, phát hành {date}.", en: "Latest version: <b>{v}</b>, released {date}." },
+    "dl.unknown": { vi: "Phiên bản: <b>{v}</b>.", en: "Version: <b>{v}</b>." },
     "dl.none": {
       vi: "Chưa có bản phát hành công khai. Các nút bên dưới mở trang GitHub Releases, nơi bản cài sẽ xuất hiện.",
       en: "There's no public release yet. The buttons below open the GitHub Releases page, where installers will appear.",
@@ -148,11 +150,12 @@ window.SITE = {
     { icon: "🔁", vi: ["Mọi phiên bản nói chuyện được", "Giao thức giữ nguyên từ v0.1.0, máy cũ máy mới vẫn gửi nhận được với nhau."], en: ["Every version works together", "The protocol hasn't changed since v0.1.0, so old and new versions still talk to each other."] },
   ],
 
-  // Download cards. `match` picks the file out of the GitHub release; `os` is what detectOS() returns.
+  // Download cards. `match` picks the file out of the GitHub release; `file` is its name for fallbackVersion;
+  // `os` is what detectOS() returns.
   platforms: [
     {
       os: "mac", name: "macOS", req: { vi: "Một bản chạy cả Apple silicon và Intel", en: "One app for Apple silicon and Intel" },
-      files: [{ label: ".dmg", match: /universal\.dmg$|\.dmg$/ }],
+      files: [{ label: ".dmg", match: /universal\.dmg$|\.dmg$/, file: "BetterDrop_{v}_universal.dmg" }],
       steps: {
         vi: ["Mở file .dmg, kéo BetterDrop vào Applications.", "Lần đầu mở: <b>chuột phải vào app › Mở</b>, rồi bấm Mở. Trên macOS 15 trở lên: mở app một lần, rồi vào Cài đặt hệ thống › Quyền riêng tư & Bảo mật › <b>Vẫn mở</b>.", "Nếu macOS báo app “bị hỏng”, chạy lệnh dưới đây trong Terminal rồi mở lại:"],
         en: ["Open the .dmg and drag BetterDrop into Applications.", "First launch: <b>Control-click the app › Open</b>, then Open. On macOS 15 or later: open the app once, then System Settings › Privacy & Security › <b>Open Anyway</b>.", "If macOS says the app “is damaged”, run this in Terminal and open it again:"],
@@ -161,7 +164,7 @@ window.SITE = {
     },
     {
       os: "windows", name: "Windows", req: { vi: "Windows 10 và 11 · 64-bit", en: "Windows 10 and 11 · 64-bit" },
-      files: [{ label: ".exe", match: /x64-setup\.exe$|\.exe$/ }, { label: ".msi", match: /\.msi$/ }],
+      files: [{ label: ".exe", match: /x64-setup\.exe$|\.exe$/, file: "BetterDrop_{v}_x64-setup.exe" }, { label: ".msi", match: /\.msi$/, file: "BetterDrop_{v}_x64_en-US.msi" }],
       steps: {
         vi: ["Tải bản <b>.exe</b> (dễ nhất) hoặc <b>.msi</b> (cho quản trị viên cài hàng loạt).", "Nếu SmartScreen hiện “Windows đã bảo vệ máy tính của bạn”: bấm <b>More info › Run anyway</b>.", "Khi Tường lửa hỏi, chọn <b>Private networks</b>."],
         en: ["Get the <b>.exe</b> (easiest) or the <b>.msi</b> (for admins deploying to many PCs).", "If SmartScreen says “Windows protected your PC”: click <b>More info › Run anyway</b>.", "When the Firewall asks, choose <b>Private networks</b>."],
@@ -169,7 +172,7 @@ window.SITE = {
     },
     {
       os: "linux", name: "Linux", req: { vi: "x86_64 · Ubuntu, Debian, Fedora…", en: "x86_64 · Ubuntu, Debian, Fedora…" },
-      files: [{ label: ".deb", match: /\.deb$/ }, { label: ".rpm", match: /\.rpm$/ }, { label: ".AppImage", match: /\.AppImage$/ }],
+      files: [{ label: ".deb", match: /\.deb$/, file: "BetterDrop_{v}_amd64.deb" }, { label: ".rpm", match: /\.rpm$/, file: "BetterDrop-{v}-1.x86_64.rpm" }, { label: ".AppImage", match: /\.AppImage$/, file: "BetterDrop_{v}_amd64.AppImage" }],
       steps: {
         vi: ["Ubuntu, Debian: cài file <b>.deb</b>. Fedora, openSUSE: cài file <b>.rpm</b>.", "Bản khác: tải <b>.AppImage</b>, cho phép chạy rồi mở:"],
         en: ["Ubuntu, Debian: install the <b>.deb</b>. Fedora, openSUSE: install the <b>.rpm</b>.", "Anything else: get the <b>.AppImage</b>, make it executable and run it:"],
@@ -178,7 +181,7 @@ window.SITE = {
     },
     {
       os: "android", name: "Android", req: { vi: "Android 7 trở lên", en: "Android 7 or later" },
-      files: [{ label: ".apk", match: /\.apk$/ }],
+      files: [{ label: ".apk", match: /\.apk$/, file: "BetterDrop-android.apk" }],
       steps: {
         vi: ["Tải file .apk ngay trên điện thoại rồi mở nó.", "Cho phép “Cài ứng dụng không rõ nguồn gốc” khi được hỏi.", "<b>Android 17:</b> cho phép quyền “Thiết bị lân cận” (Cài đặt › Ứng dụng › BetterDrop › Quyền), nếu không app không thấy máy nào.", "File nhận được nằm ở <b>Download/BetterDrop</b>."],
         en: ["Download the .apk on the phone and open it.", "Allow “Install unknown apps” when asked.", "<b>Android 17:</b> allow the “Nearby devices” permission (Settings › Apps › BetterDrop › Permissions), or the app won't see anything.", "Received files are in <b>Download/BetterDrop</b>."],
@@ -186,7 +189,7 @@ window.SITE = {
     },
     {
       os: "ios", name: "iPhone / iPad", req: { vi: "Bản .ipa chưa ký · cài bằng Sideloadly hoặc AltStore", en: "Unsigned .ipa · install with Sideloadly or AltStore" },
-      files: [{ label: ".ipa", match: /\.ipa$/ }],
+      files: [{ label: ".ipa", match: /\.ipa$/, file: "BetterDrop-ios-unsigned.ipa" }],
       steps: {
         vi: ["BetterDrop chưa có trên App Store. Tải file .ipa về máy tính.", "Cài vào iPhone bằng <b>Sideloadly</b> hoặc <b>AltStore</b>, đăng nhập bằng Apple ID của bạn.", "Apple ID miễn phí: app <b>hết hạn sau 7 ngày</b>, phải cài lại.", "iOS dừng app khi bạn chuyển sang app khác, nên <b>hãy mở BetterDrop khi muốn nhận file</b>. File nằm trong Tệp › Trên iPhone › BetterDrop."],
         en: ["BetterDrop isn't on the App Store yet. Download the .ipa to a computer.", "Install it on the iPhone with <b>Sideloadly</b> or <b>AltStore</b>, signing in with your Apple ID.", "With a free Apple ID the app <b>expires after 7 days</b> and must be reinstalled.", "iOS pauses apps in the background, so <b>keep BetterDrop open when you want to receive</b>. Files are in Files › On My iPhone › BetterDrop."],
