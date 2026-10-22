@@ -149,6 +149,7 @@
         transferred: 0, speed_bps: 0, status: "waiting", error: null, dir_path: "~/Downloads/BetterDrop",
         files: names.map((n) => ({ name: n, path: "~/Downloads/BetterDrop/" + n })) }, 300);
     },
+    async share_group() { await wait(900); return []; },
     untrust_device({ id }) { trusted = trusted.filter((d) => d.id !== id); return devices(); },
     get_history: () => history,
     delete_history_item({ id }) { history = history.filter((h) => h.id !== id); return null; },

@@ -40,6 +40,28 @@ pub struct Peer {
 pub enum TransferKind {
     Files,
     Text,
+    /// Chia sẻ một nhóm máy (từ 0.3.5). Bản cũ không hiểu loại này và trả lỗi 422.
+    Group,
+}
+
+/// Một máy trong nhóm được chia sẻ: đủ thông tin để máy nhận kết nối được ngay.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SharedMember {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub os: String,
+    /// Dấu vân tay chứng chỉ (trống nếu máy gửi chưa từng thấy máy này).
+    #[serde(default)]
+    pub fp: String,
+    #[serde(default)]
+    pub addrs: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SharedGroup {
+    pub name: String,
+    pub members: Vec<SharedMember>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,6 +80,9 @@ pub struct PrepareRequest {
     pub files: Vec<FileMeta>,
     #[serde(default)]
     pub text: Option<String>,
+    /// Với kind = "group".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<SharedGroup>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -103,6 +128,9 @@ pub struct IncomingRequest {
     pub timeout_secs: u64,
     /// Máy gửi đã chứng minh danh tính nên có thể đánh dấu "Luôn chấp nhận".
     pub can_trust: bool,
+    /// Có giá trị khi đây là yêu cầu chia sẻ nhóm (file_count = số máy, preview = tên máy).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

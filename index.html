@@ -120,7 +120,7 @@
 
     <!-- Yêu cầu nhận file -->
     <dialog id="dlg-request" class="dialog">
-      <h3><span id="req-sender"></span> muốn gửi cho bạn</h3>
+      <h3 id="req-title"><span id="req-sender"></span> muốn gửi cho bạn</h3>
       <p class="req-summary" id="req-summary"></p>
       <ul class="req-preview" id="req-preview"></ul>
       <div class="countdown"><i id="req-bar"></i></div>
@@ -158,6 +158,18 @@
           <button class="btn primary" type="submit">Lưu nhóm</button>
         </div>
       </form>
+    </dialog>
+
+    <!-- Chia sẻ nhóm cho máy khác -->
+    <dialog id="dlg-share-group" class="dialog">
+      <h3 id="share-group-title">Chia sẻ nhóm</h3>
+      <p class="muted small">Máy nhận sẽ có nhóm này cùng các máy trong nhóm (sau khi bấm Chấp nhận).</p>
+      <ul class="group-pick" id="share-group-pick"></ul>
+      <p class="muted small" id="share-group-empty" hidden>Không có máy nào khác đang bật.</p>
+      <div class="dialog-actions">
+        <button class="btn" type="button" id="btn-share-group-cancel">Huỷ</button>
+        <button class="btn primary" type="button" id="btn-share-group-send">Chia sẻ</button>
+      </div>
     </dialog>
 
     <!-- Xác nhận -->

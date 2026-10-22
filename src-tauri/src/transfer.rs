@@ -197,6 +197,7 @@ pub async fn send_text(st: Arc<AppState>, peer: Peer, text: String) -> Result<()
         kind: TransferKind::Text,
         files: vec![],
         text: Some(text),
+        group: None,
     };
     let result = async {
         let client = peer_client(&st, &peer)?;
@@ -216,6 +217,29 @@ pub async fn send_text(st: Arc<AppState>, peer: Peer, text: String) -> Result<()
     };
     result
 }
+
+/// Chia sẻ một nhóm máy cho `peer` (máy nhận phải bấm Chấp nhận).
+pub async fn share_group(st: Arc<AppState>, peer: Peer, group: crate::models::SharedGroup) -> Result<(), String> {
+    let req = PrepareRequest {
+        sender: st.device_info(),
+        kind: TransferKind::Group,
+        files: vec![],
+        text: None,
+        group: Some(group),
+    };
+    let client = peer_client(&st, &peer)?;
+    let (_, resp) = send_prepare(&client, &peer, &req).await?;
+    match resp.status() {
+        s if s.is_success() => Ok(()),
+        StatusCode::FORBIDDEN => Err(format!("{} đã từ chối", peer.info.name)),
+        StatusCode::SERVICE_UNAVAILABLE => Err(RECEIVE_OFF.into()),
+        // Bản cũ không hiểu loại "group" nên không đọc được yêu cầu.
+        StatusCode::UNPROCESSABLE_ENTITY | StatusCode::BAD_REQUEST => Err(GROUP_TOO_OLD.into()),
+        s => Err(format!("Máy nhận trả lỗi {s}")),
+    }
+}
+
+pub const GROUP_TOO_OLD: &str = "Máy nhận cần cập nhật BetterDrop 0.3.5 trở lên để nhận nhóm";
 
 /// Bắt đầu gửi file; chạy nền và trả về id lượt chuyển ngay.
 pub fn start_send_files(st: Arc<AppState>, peer: Peer, files: Vec<LocalFile>) -> String {
@@ -247,6 +271,7 @@ pub async fn send_files(
         kind: TransferKind::Files,
         files: files.iter().map(|f| f.meta.clone()).collect(),
         text: None,
+        group: None,
     };
     let (addr, resp) = send_prepare(&client, peer, &req).await?;
     if tracker.is_cancelled() {

@@ -203,6 +203,12 @@ async fn prepare(
     if !st.settings.read().unwrap().receive_enabled {
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     }
+    if req.kind == TransferKind::Group {
+        let group = req.group.clone().ok_or(StatusCode::BAD_REQUEST)?;
+        receive_group(&st, &req.sender, group).await?;
+        remember_sender(&st, &req.sender, remote);
+        return Ok(Json(PrepareResponse::default()));
+    }
     if req.kind == TransferKind::Text {
         remember_sender(&st, &req.sender, remote);
         receive_text(&st, &req.sender.name, Some(&req.sender.id), req.text.unwrap_or_default());
@@ -273,6 +279,77 @@ pub fn receive_text(st: &AppState, sender_name: &str, sender_id: Option<&str>, t
     tracker.set_status(TransferStatus::Done, None);
 }
 
+/// Hiện hộp thoại Chấp nhận/Từ chối và chờ trả lời (tối đa ACCEPT_TIMEOUT).
+pub async fn ask_user(
+    st: &Arc<AppState>,
+    request: IncomingRequest,
+    trust_candidate: Option<crate::devices::TrustedDevice>,
+) -> bool {
+    let (tx, rx) = oneshot::channel();
+    st.pending.lock().unwrap().insert(
+        request.request_id.clone(),
+        crate::state::PendingRequest { tx, trust_candidate },
+    );
+    let guard = PendingGuard {
+        st: st.clone(),
+        id: request.request_id.clone(),
+    };
+    st.emit("incoming-request", request);
+    let accepted = matches!(tokio::time::timeout(ACCEPT_TIMEOUT, rx).await, Ok(Ok(true)));
+    drop(guard);
+    accepted
+}
+
+/// Nhận một nhóm máy được chia sẻ: hỏi người dùng, rồi thêm nhóm và các máy trong
+/// nhóm (để kết nối được ngay). Nhóm trùng tên thì cập nhật danh sách máy.
+async fn receive_group(st: &Arc<AppState>, sender: &DeviceInfo, group: SharedGroup) -> Result<(), StatusCode> {
+    let me = st.device_info().id;
+    let members: Vec<SharedMember> = group.members.into_iter().filter(|m| m.id != me).take(500).collect();
+    if group.name.trim().is_empty() || members.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let request = IncomingRequest {
+        request_id: uuid::Uuid::new_v4().to_string(),
+        sender_name: sender.name.clone(),
+        sender_os: sender.os.clone(),
+        file_count: members.len(),
+        total_bytes: 0,
+        preview: members.iter().take(5).map(|m| m.name.clone()).collect(),
+        timeout_secs: ACCEPT_TIMEOUT.as_secs(),
+        can_trust: false,
+        group_name: Some(group.name.clone()),
+    };
+    if !ask_user(st, request, None).await {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let refs: Vec<crate::devices::DeviceRef> = members
+        .iter()
+        .map(|m| crate::devices::DeviceRef { id: m.id.clone(), name: m.name.clone(), os: m.os.clone() })
+        .collect();
+    {
+        let mut book = st.devices.lock().unwrap();
+        let existing = book.groups.iter().find(|g| g.name == group.name).map(|g| g.id.clone());
+        book.save_group(existing, group.name.clone(), refs);
+        let _ = book.save(&st.data_dir);
+    }
+    // Máy chưa biết nhưng có địa chỉ + dấu vân tay: lưu lại để gửi được ngay.
+    for m in members.into_iter().filter(|m| !m.fp.is_empty() && !m.addrs.is_empty()) {
+        let known = st.peer_list().iter().any(|p| p.info.id == m.id);
+        if !known {
+            st.remember_peer(Peer {
+                info: DeviceInfo { id: m.id, name: m.name, os: m.os, fp: m.fp, port: 0, version: String::new() },
+                addrs: m.addrs,
+                manual: true,
+                online: true,
+            });
+        }
+    }
+    st.emit_peers();
+    st.emit_devices();
+    st.emit("group-received", serde_json::json!({ "name": group.name, "sender_name": sender.name }));
+    Ok(())
+}
+
 /// Hỏi người dùng có nhận các file này không (chờ tối đa ACCEPT_TIMEOUT). Nếu đồng ý,
 /// tạo phiên nhận và trả về token cho từng file. Dùng chung cho app và trang web.
 pub async fn accept_files(
@@ -295,34 +372,19 @@ pub async fn accept_files(
             serde_json::json!({ "sender_name": sender_name, "file_count": req_files.len(), "total_bytes": total_bytes }),
         );
     } else {
-        let request_id = uuid::Uuid::new_v4().to_string();
-        let (tx, rx) = oneshot::channel();
         let can_trust = trust.candidate.is_some();
-        st.pending.lock().unwrap().insert(
-            request_id.clone(),
-            crate::state::PendingRequest { tx, trust_candidate: trust.candidate },
-        );
-        let guard = PendingGuard {
-            st: st.clone(),
-            id: request_id.clone(),
+        let request = IncomingRequest {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            sender_name: sender_name.to_string(),
+            sender_os: sender_os.to_string(),
+            file_count: req_files.len(),
+            total_bytes,
+            preview: req_files.iter().take(5).map(|f| f.rel_path.clone()).collect(),
+            timeout_secs: ACCEPT_TIMEOUT.as_secs(),
+            can_trust,
+            group_name: None,
         };
-        st.emit(
-            "incoming-request",
-            IncomingRequest {
-                request_id: request_id.clone(),
-                sender_name: sender_name.to_string(),
-                sender_os: sender_os.to_string(),
-                file_count: req_files.len(),
-                total_bytes,
-                preview: req_files.iter().take(5).map(|f| f.rel_path.clone()).collect(),
-                timeout_secs: ACCEPT_TIMEOUT.as_secs(),
-                can_trust,
-            },
-        );
-
-        let accepted = matches!(tokio::time::timeout(ACCEPT_TIMEOUT, rx).await, Ok(Ok(true)));
-        drop(guard);
-        if !accepted {
+        if !ask_user(st, request, trust.candidate).await {
             return Err(StatusCode::FORBIDDEN);
         }
     }

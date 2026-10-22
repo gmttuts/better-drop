@@ -70,6 +70,8 @@ interface IncomingRequest {
   timeout_secs: number;
   /** Máy gửi đã chứng minh danh tính: có thể "Luôn chấp nhận". */
   can_trust?: boolean;
+  /** Yêu cầu chia sẻ nhóm: tên nhóm (file_count = số máy, preview = tên máy). */
+  group_name?: string;
 }
 interface IncomingText {
   sender_name: string;
@@ -356,6 +358,7 @@ function renderBulkBar() {
     $("bulk-label").textContent = `Nhóm “${g.name}”: ${targets.length}/${g.members.length} máy đang bật`;
     action("Gửi cho cả nhóm", "primary", () => sendMany(targets), !ready || targets.length === 0);
     action("Sửa nhóm", "", () => openGroupDialog(g));
+    action("Chia sẻ nhóm", "", () => openShareGroup(g));
     action("Xoá nhóm", "", async () => {
       if (!(await confirmDialog(`Xoá nhóm “${g.name}”?`, "Chỉ xoá nhóm, các máy trong nhóm vẫn giữ nguyên.", "Xoá nhóm"))) return;
       try {
@@ -527,6 +530,43 @@ async function sendMany(targets: Peer[]) {
   for (const f of failed) toast(f as string, "error");
   selected.clear();
   renderPeers();
+}
+
+// ---- Chia sẻ nhóm cho máy khác ----
+
+let sharingGroup: Group | null = null;
+
+function openShareGroup(g: Group) {
+  sharingGroup = g;
+  $("share-group-title").textContent = `Chia sẻ nhóm “${g.name}”`;
+  const online = peers.filter((p) => p.online);
+  $("share-group-empty").hidden = online.length > 0;
+  $("share-group-pick").replaceChildren(
+    ...online.map((p) => {
+      const box = el("input", { type: "checkbox", value: p.id });
+      return el("li", {}, el("label", { className: "check" }, box, `${p.name} `, el("span", { className: "muted small", textContent: osLabel(p.os) })));
+    }),
+  );
+  $<HTMLDialogElement>("dlg-share-group").showModal();
+}
+
+async function sendSharedGroup() {
+  const g = sharingGroup;
+  const ids = [...document.querySelectorAll<HTMLInputElement>("#share-group-pick input:checked")].map((b) => b.value);
+  if (!g || ids.length === 0) {
+    toast("Chọn ít nhất một máy", "error");
+    return;
+  }
+  $<HTMLDialogElement>("dlg-share-group").close();
+  toast(`Đã gửi nhóm “${g.name}” — máy nhận cần bấm Chấp nhận`);
+  try {
+    const failed = await invoke<string[]>("share_group", { groupId: g.id, peerIds: ids });
+    const ok = ids.length - failed.length;
+    if (ok > 0) toast(`${ok} máy đã nhận nhóm “${g.name}”`);
+    for (const f of failed) toast(f, "error");
+  } catch (e) {
+    toast(errorText(e), "error");
+  }
 }
 
 // ---- Hộp thoại nhóm ----
@@ -861,14 +901,19 @@ function showNextRequest() {
     return;
   }
   const r = currentRequest;
-  $("req-sender").textContent = r.sender_name;
-  $("req-trust-row").hidden = !r.can_trust;
+  $("req-trust-row").hidden = !r.can_trust || !!r.group_name;
   $<HTMLInputElement>("req-trust").checked = false;
-  $("req-summary").textContent = `${r.file_count} file · ${formatBytes(r.total_bytes)} · ${r.sender_os === "web" ? "gửi qua trình duyệt" : `từ máy ${osLabel(r.sender_os)}`}`;
   const more = r.file_count - r.preview.length;
+  if (r.group_name) {
+    $("req-title").textContent = `${r.sender_name} muốn chia sẻ nhóm “${r.group_name}” với bạn`;
+    $("req-summary").textContent = `${r.file_count} máy · bấm Chấp nhận để thêm nhóm này`;
+  } else {
+    $("req-title").replaceChildren(el("span", { id: "req-sender", textContent: r.sender_name }), " muốn gửi cho bạn");
+    $("req-summary").textContent = `${r.file_count} file · ${formatBytes(r.total_bytes)} · ${r.sender_os === "web" ? "gửi qua trình duyệt" : `từ máy ${osLabel(r.sender_os)}`}`;
+  }
   $("req-preview").replaceChildren(
     ...r.preview.map((p) => el("li", { textContent: p })),
-    ...(more > 0 ? [el("li", { className: "muted", textContent: `và ${more} file khác…` })] : []),
+    ...(more > 0 ? [el("li", { className: "muted", textContent: r.group_name ? `và ${more} máy khác…` : `và ${more} file khác…` })] : []),
   );
   const bar = $("req-bar");
   const started = Date.now();
@@ -1230,6 +1275,8 @@ async function init() {
 
   $("select-all").addEventListener("change", toggleSelectAll);
   $("group-form").addEventListener("submit", saveGroupFromDialog);
+  $("btn-share-group-send").addEventListener("click", sendSharedGroup);
+  $("btn-share-group-cancel").addEventListener("click", () => $<HTMLDialogElement>("dlg-share-group").close());
   $("btn-group-cancel").addEventListener("click", () => $<HTMLDialogElement>("dlg-group").close());
 
   // Sự kiện từ Rust
@@ -1264,6 +1311,9 @@ async function init() {
   });
   await listen<{ sender_name: string; file_count: number; total_bytes: number }>("auto-accepted", (e) =>
     toast(`Đang nhận ${e.payload.file_count} file từ ${e.payload.sender_name} (máy tin cậy)`),
+  );
+  await listen<{ name: string; sender_name: string }>("group-received", (e) =>
+    toast(`Đã thêm nhóm “${e.payload.name}” từ ${e.payload.sender_name}`),
   );
   await listen<IncomingRequest>("incoming-request", (e) => {
     requestQueue.push(e.payload);

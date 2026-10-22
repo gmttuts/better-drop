@@ -551,6 +551,7 @@ fn old_version_can_read_new_wire_format() {
         kind: crate::models::TransferKind::Files,
         files: vec![crate::models::FileMeta { id: "f".into(), rel_path: "x".into(), size: 1 }],
         text: None,
+        group: None,
     })
     .unwrap();
     assert_eq!(req["kind"], "files");
@@ -858,4 +859,73 @@ async fn resumes_after_connection_drop() {
     assert_eq!(std::fs::read(b_dir.join("lớn.bin")).unwrap(), data, "nội dung đúng từng byte sau khi gửi tiếp");
     let session = b.st.incoming.lock().unwrap().values().next().cloned().unwrap();
     assert_eq!(session.tracker.snapshot().transferred, data.len() as u64);
+}
+
+// ---- Chia sẻ nhóm ----
+
+#[tokio::test(flavor = "multi_thread")]
+async fn shares_a_group_with_another_device() {
+    let a = node("Mac").await;
+    let b = node("Windows").await;
+    let c = node("Máy in phòng 2").await;
+    let peer_b = as_peer(&b);
+    let c_info = c.st.device_info();
+    let group = crate::models::SharedGroup {
+        name: "Phòng kế toán".into(),
+        members: vec![
+            crate::models::SharedMember {
+                id: c_info.id.clone(),
+                name: c_info.name.clone(),
+                os: c_info.os.clone(),
+                fp: c_info.fp.clone(),
+                addrs: vec![format!("127.0.0.1:{}", c.st.port)],
+            },
+            // Chính máy nhận cũng nằm trong nhóm: phải được bỏ ra.
+            crate::models::SharedMember { id: b.st.device_info().id, name: "Windows".into(), os: "windows".into(), fp: String::new(), addrs: vec![] },
+        ],
+    };
+    let st_b = b.st.clone();
+    let watcher = tokio::spawn(async move {
+        let mut b = b;
+        loop {
+            let (ev, v) = b.events.recv().await.unwrap();
+            if ev == "incoming-request" {
+                assert_eq!(v["group_name"], "Phòng kế toán");
+                assert_eq!(v["file_count"], 1, "số máy, không tính chính máy nhận");
+                let id = v["request_id"].as_str().unwrap().to_string();
+                st_b.pending.lock().unwrap().remove(&id).unwrap().tx.send(true).unwrap();
+                return b;
+            }
+        }
+    });
+    transfer::share_group(a.st.clone(), peer_b, group).await.unwrap();
+    let b = watcher.await.unwrap();
+
+    let book = b.st.devices.lock().unwrap().clone();
+    assert_eq!(book.groups.len(), 1);
+    assert_eq!(book.groups[0].name, "Phòng kế toán");
+    assert_eq!(book.groups[0].members.len(), 1);
+    // Máy C được thêm vào để gửi được ngay, và gửi thử được thật.
+    let c_peer = b.st.find_peer(&c_info.id).expect("máy trong nhóm được lưu lại");
+    assert_eq!(c_peer.info.fp, c_info.fp);
+    let mut c_events = c;
+    transfer::send_text(b.st.clone(), c_peer, "chào phòng kế toán".into()).await.unwrap();
+    loop {
+        let (ev, v) = c_events.events.recv().await.unwrap();
+        if ev == "incoming-text" {
+            assert_eq!(v["text"], "chào phòng kế toán");
+            break;
+        }
+    }
+}
+
+#[test]
+fn group_request_is_rejected_by_old_format_parsers() {
+    // Bản cũ chỉ biết "files" | "text": loại "group" làm hỏng việc đọc yêu cầu (422),
+    // nên máy gửi báo cần cập nhật thay vì gửi nhầm thành file/văn bản.
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "lowercase")]
+    #[allow(dead_code)]
+    enum OldKind { Files, Text }
+    assert!(serde_json::from_str::<OldKind>("\"group\"").is_err());
 }

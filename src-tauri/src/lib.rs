@@ -342,6 +342,47 @@ fn respond_request(st: AppStateRef, request_id: String, accept: bool, trust: Opt
     let _ = p.tx.send(accept);
 }
 
+/// Chia sẻ nhóm `group_id` cho các máy `peer_ids`. Trả về lỗi của từng máy (nếu có).
+#[tauri::command]
+async fn share_group(st: AppStateRef<'_>, group_id: String, peer_ids: Vec<String>) -> Result<Vec<String>, String> {
+    let group = st
+        .devices
+        .lock()
+        .unwrap()
+        .groups
+        .iter()
+        .find(|g| g.id == group_id)
+        .cloned()
+        .ok_or("Không tìm thấy nhóm")?;
+    let peers = st.peer_list();
+    let members = group
+        .members
+        .iter()
+        .map(|m| {
+            let p = peers.iter().find(|p| p.info.id == m.id);
+            models::SharedMember {
+                id: m.id.clone(),
+                name: p.map(|p| p.info.name.clone()).unwrap_or_else(|| m.name.clone()),
+                os: m.os.clone(),
+                fp: p.map(|p| p.info.fp.clone()).unwrap_or_default(),
+                addrs: p.map(|p| p.addrs.clone()).unwrap_or_default(),
+            }
+        })
+        .collect::<Vec<_>>();
+    let shared = models::SharedGroup { name: group.name.clone(), members };
+    let tasks = peer_ids.into_iter().map(|id| {
+        let st = st.inner().clone();
+        let shared = shared.clone();
+        async move {
+            let peer = st.find_peer(&id).ok_or_else(|| "Không tìm thấy máy nhận".to_string())?;
+            let name = peer.info.name.clone();
+            transfer::share_group(st, peer, shared).await.map_err(|e| format!("{name}: {e}"))
+        }
+    });
+    let results = futures_util::future::join_all(tasks).await;
+    Ok(results.into_iter().filter_map(Result::err).collect())
+}
+
 #[tauri::command]
 fn untrust_device(st: AppStateRef, id: String) -> Result<DevicesInfo, String> {
     change_devices(&st, |b| b.untrust(&id))
@@ -496,6 +537,7 @@ pub fn run() {
             send_text,
             respond_request,
             untrust_device,
+            share_group,
             cancel_transfer,
             open_folder,
             get_history,

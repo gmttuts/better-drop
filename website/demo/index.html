@@ -153,6 +153,7 @@
         transferred: 0, speed_bps: 0, status: "waiting", error: null, dir_path: "~/Downloads/BetterDrop",
         files: names.map((n) => ({ name: n, path: "~/Downloads/BetterDrop/" + n })) }, 300);
     },
+    async share_group() { await wait(900); return []; },
     untrust_device({ id }) { trusted = trusted.filter((d) => d.id !== id); return devices(); },
     get_history: () => history,
     delete_history_item({ id }) { history = history.filter((h) => h.id !== id); return null; },
@@ -244,7 +245,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>BetterDrop (bản dùng thử)</title>
     <link rel="icon" type="image/png" href="./logo.png" />
-    <script type="module" crossorigin src="./assets/index-BFY-8zhE.js"></script>
+    <script type="module" crossorigin src="./assets/index-DFnneNEC.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-Bri20pwr.css">
   </head>
   <body>
@@ -359,7 +360,7 @@
 
     <!-- Yêu cầu nhận file -->
     <dialog id="dlg-request" class="dialog">
-      <h3><span id="req-sender"></span> muốn gửi cho bạn</h3>
+      <h3 id="req-title"><span id="req-sender"></span> muốn gửi cho bạn</h3>
       <p class="req-summary" id="req-summary"></p>
       <ul class="req-preview" id="req-preview"></ul>
       <div class="countdown"><i id="req-bar"></i></div>
@@ -397,6 +398,18 @@
           <button class="btn primary" type="submit">Lưu nhóm</button>
         </div>
       </form>
+    </dialog>
+
+    <!-- Chia sẻ nhóm cho máy khác -->
+    <dialog id="dlg-share-group" class="dialog">
+      <h3 id="share-group-title">Chia sẻ nhóm</h3>
+      <p class="muted small">Máy nhận sẽ có nhóm này cùng các máy trong nhóm (sau khi bấm Chấp nhận).</p>
+      <ul class="group-pick" id="share-group-pick"></ul>
+      <p class="muted small" id="share-group-empty" hidden>Không có máy nào khác đang bật.</p>
+      <div class="dialog-actions">
+        <button class="btn" type="button" id="btn-share-group-cancel">Huỷ</button>
+        <button class="btn primary" type="button" id="btn-share-group-send">Chia sẻ</button>
+      </div>
     </dialog>
 
     <!-- Xác nhận -->
