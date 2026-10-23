@@ -181,6 +181,7 @@
     each("[data-i18n]", (el) => { el.innerHTML = t(el.dataset.i18n); });
     each("[data-lang]", (b) => b.setAttribute("aria-pressed", String(b.dataset.lang === lang)));
     each("[data-i18n-label]", (el) => { el.setAttribute("aria-label", t(el.dataset.i18nLabel)); });
+    applyTheme();
     renderFeatures();
     renderShare();
     renderFaq();
@@ -196,6 +197,32 @@
     store.set("bd.lang", lang);
     applyLang();
   }));
+
+  // ---------- Light / dark: follows the system until the visitor picks one (set early in index.html) ----------
+  const systemDark = matchMedia("(prefers-color-scheme: dark)");
+  const theme = () => document.documentElement.dataset.theme;
+  function applyTheme(next) {
+    if (next) document.documentElement.dataset.theme = next;
+    const dark = theme() === "dark";
+    each("[data-theme-toggle]", (b) => {
+      const label = t(dark ? "theme.toLight" : "theme.toDark");
+      b.setAttribute("aria-label", label);
+      b.title = label;
+    });
+    each('meta[name="theme-color"]', (m) => { m.content = dark ? "#0c0d10" : "#ffffff"; m.removeAttribute("media"); });
+    each("[data-demo]", setDemoTheme);
+  }
+  // The demo restyles itself through scripts/website-demo/theme.js (window.__bdSetTheme).
+  function setDemoTheme(f) {
+    try { f.contentWindow.__bdSetTheme && f.contentWindow.__bdSetTheme(theme()); } catch {}
+  }
+  each("[data-demo]", (f) => f.addEventListener("load", () => setDemoTheme(f)));
+  each("[data-theme-toggle]", (b) => b.addEventListener("click", () => {
+    const next = theme() === "dark" ? "light" : "dark";
+    store.set("bd.theme", next);
+    applyTheme(next);
+  }));
+  systemDark.addEventListener("change", (e) => { if (!store.get("bd.theme")) applyTheme(e.matches ? "dark" : "light"); });
 
   // ---------- Support the author (QR modal) ----------
   const modal = document.querySelector("[data-support-modal]");
