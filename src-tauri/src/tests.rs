@@ -973,3 +973,155 @@ fn shared_text_comes_from_share_url() {
     assert_eq!(parse("https://share?text=x"), None);
     assert_eq!(parse("file:///tmp/a.txt"), None);
 }
+
+// ---- Đo tốc độ (chạy tay: `cargo test --release -- --ignored bench_ --nocapture --test-threads=1`) ----
+
+/// Proxy TCP thêm độ trễ `rtt` (chia đều hai chiều) như Wi‑Fi thật, không giới hạn băng thông.
+async fn latency_proxy(target: u16, rtt: std::time::Duration) -> u16 {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let delay = rtt / 2;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    fn pipe(mut r: tokio::net::tcp::OwnedReadHalf, mut w: tokio::net::tcp::OwnedWriteHalf, delay: std::time::Duration) {
+        let (tx, mut rx) = mpsc::unbounded_channel::<(tokio::time::Instant, Vec<u8>)>();
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 256 * 1024];
+            loop {
+                let n = match r.read(&mut buf).await { Ok(0) | Err(_) => break, Ok(n) => n };
+                if tx.send((tokio::time::Instant::now() + delay, buf[..n].to_vec())).is_err() {
+                    break;
+                }
+            }
+        });
+        tokio::spawn(async move {
+            while let Some((at, data)) = rx.recv().await {
+                tokio::time::sleep_until(at).await;
+                if w.write_all(&data).await.is_err() {
+                    break;
+                }
+            }
+        });
+    }
+    tokio::spawn(async move {
+        loop {
+            let Ok((client, _)) = listener.accept().await else { return };
+            client.set_nodelay(true).unwrap();
+            let server = tokio::net::TcpStream::connect(("127.0.0.1", target)).await.unwrap();
+            server.set_nodelay(true).unwrap();
+            let (cr, cw) = client.into_split();
+            let (sr, sw) = server.into_split();
+            pipe(cr, sw, delay);
+            pipe(sr, cw, delay);
+        }
+    });
+    port
+}
+
+/// Đếm số lần báo tiến trình ("transfer-update") còn trong hàng đợi sự kiện.
+fn count_updates(rx: &mut mpsc::UnboundedReceiver<(&'static str, serde_json::Value)>) -> usize {
+    std::iter::from_fn(|| rx.try_recv().ok()).filter(|(e, _)| *e == "transfer-update").count()
+}
+
+/// Gửi `paths` từ máy A sang máy B qua HTTPS trên localhost (thêm độ trễ `rtt` nếu có),
+/// in MB/s, file/giây và số lần mỗi bên báo tiến trình lên giao diện.
+async fn bench_send(label: &str, paths: Vec<String>, rtt: Option<std::time::Duration>) {
+    let mut a = node("A").await;
+    let mut b = node("B").await;
+    let mut peer_b = as_peer(&b);
+    if let Some(rtt) = rtt {
+        peer_b.addrs = vec![format!("127.0.0.1:{}", latency_proxy(b.st.port, rtt).await)];
+    }
+    let b_dir = PathBuf::from(b.st.settings.read().unwrap().download_dir.clone());
+    // Bên nhận tự chấp nhận và đếm số lần báo tiến trình cho tới khi xong.
+    let watcher = tokio::spawn(async move {
+        let mut updates = 0usize;
+        while let Some((ev, v)) = b.events.recv().await {
+            if ev == "incoming-request" {
+                let id = v["request_id"].as_str().unwrap().to_string();
+                if let Some(p) = b.st.pending.lock().unwrap().remove(&id) {
+                    p.tx.send(true).unwrap();
+                }
+            } else if ev == "transfer-update" {
+                updates += 1;
+                if v["status"] == "done" {
+                    return updates;
+                }
+                assert!(v["status"] != "error" && v["status"] != "cancelled", "{v}");
+            }
+        }
+        panic!("bên nhận dừng giữa chừng");
+    });
+
+    let files = transfer::collect_files(&a.st, &paths).unwrap();
+    let count = files.len();
+    let bytes: u64 = files.iter().map(|f| f.meta.size).sum();
+    let tracker = sender_tracker(&a.st);
+    let started = std::time::Instant::now();
+    transfer::send_files(&a.st, &peer_b, files, &tracker).await.unwrap();
+    let recv_updates = watcher.await.unwrap();
+    let secs = started.elapsed().as_secs_f64();
+    assert_eq!(tracker.status(), TransferStatus::Done);
+    assert_eq!(tracker.snapshot().transferred, bytes);
+    let sent_updates = count_updates(&mut a.events);
+
+    let (mut got_files, mut got_bytes) = (0usize, 0u64);
+    for e in walkdir::WalkDir::new(&b_dir).into_iter().filter_map(Result::ok) {
+        if e.file_type().is_file() {
+            got_files += 1;
+            got_bytes += e.metadata().unwrap().len();
+        }
+    }
+    assert_eq!((got_files, got_bytes), (count, bytes));
+    let label = match rtt {
+        Some(r) => format!("{label}, RTT {} ms", r.as_millis()),
+        None => label.to_string(),
+    };
+    println!(
+        "BENCH {label}: {count} file, {:.1} MB trong {secs:.2} s -> {:.1} MB/s, {:.0} file/s, \
+         báo tiến trình: gửi {sent_updates}, nhận {recv_updates}",
+        bytes as f64 / 1e6,
+        bytes as f64 / 1e6 / secs,
+        count as f64 / secs
+    );
+}
+
+/// Độ trễ khứ hồi điển hình của Wi‑Fi trong nhà.
+const BENCH_RTT: std::time::Duration = std::time::Duration::from_millis(5);
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn bench_one_2gb_file() {
+    let src = tempfile::tempdir().unwrap();
+    let p = src.path().join("lớn.bin");
+    // File thưa: không tốn đĩa bên gửi (bên nhận vẫn ghi đủ 2 GB, xoá khi test xong).
+    std::fs::File::create(&p).unwrap().set_len(2 << 30).unwrap();
+    bench_send("1 file 2 GB", vec![p.to_string_lossy().into_owned()], None).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn bench_5000_small_files() {
+    let src = tempfile::tempdir().unwrap();
+    let root = src.path().join("nhỏ");
+    let data: Vec<u8> = (0..10_000u32).map(|i| (i % 251) as u8).collect();
+    for i in 0..5000 {
+        write(&root.join(format!("{}/{}/f{i}.txt", i % 10, i % 7)), &data);
+    }
+    let paths = vec![root.to_string_lossy().into_owned()];
+    bench_send("5000 file 10 KB", paths.clone(), None).await;
+    bench_send("5000 file 10 KB", paths, Some(BENCH_RTT)).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn bench_200_files_5mb() {
+    let src = tempfile::tempdir().unwrap();
+    let root = src.path().join("vừa");
+    let data: Vec<u8> = (0..5_000_000u32).map(|i| (i % 251) as u8).collect();
+    for i in 0..200 {
+        write(&root.join(format!("{}/f{i}.bin", i % 4)), &data);
+    }
+    let paths = vec![root.to_string_lossy().into_owned()];
+    bench_send("200 file 5 MB", paths.clone(), None).await;
+    bench_send("200 file 5 MB", paths, Some(BENCH_RTT)).await;
+}
