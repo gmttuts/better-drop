@@ -973,3 +973,301 @@ fn shared_text_comes_from_share_url() {
     assert_eq!(parse("https://share?text=x"), None);
     assert_eq!(parse("file:///tmp/a.txt"), None);
 }
+
+// ---- Bảo mật (xem docs/BAO-MAT.md) ----
+
+/// Gửi JSON thô tới /api/v1/... của `to`, trình chứng chỉ của `me` (None: như bản cũ).
+fn raw_client(to: &Node, me: Option<&Node>) -> (reqwest::Client, String) {
+    let http = crate::client::build_client(
+        crate::client::Pin::Fingerprint(to.st.identity.fingerprint.clone()),
+        me.map(|n| &n.st.identity),
+    )
+    .unwrap();
+    (http, format!("127.0.0.1:{}", to.st.port))
+}
+
+/// Bấm Chấp nhận/Từ chối cho `n` yêu cầu tiếp theo; trả về số yêu cầu đã thấy.
+fn answer_requests(mut n: Node, accept: bool, count: usize) -> tokio::task::JoinHandle<(usize, Node)> {
+    tokio::spawn(async move {
+        let mut seen = 0;
+        while seen < count {
+            let Some((ev, v)) = n.events.recv().await else { break };
+            if ev == "incoming-request" {
+                seen += 1;
+                let id = v["request_id"].as_str().unwrap().to_string();
+                if let Some(p) = n.st.pending.lock().unwrap().remove(&id) {
+                    let _ = p.tx.send(accept);
+                }
+            }
+        }
+        (seen, n)
+    })
+}
+
+/// Máy lạ khai id của một máy đã lưu (kèm chứng chỉ của chính nó) bằng một đoạn văn
+/// bản — không cần ai bấm Chấp nhận. Trước đây máy nhận ghi đè địa chỉ + dấu vân tay
+/// của máy đã lưu, nên lần sau gửi tới "Máy A" thì file đi tới máy lạ.
+#[tokio::test(flavor = "multi_thread")]
+async fn impostor_cannot_hijack_a_saved_device() {
+    let real = node("Máy A").await;
+    let impostor = node("Kẻ giả mạo").await;
+    let b = node("Windows").await;
+    let saved = Peer { manual: true, ..as_peer(&real) };
+    b.st.remember_peer(saved.clone());
+
+    let (http, base) = raw_client(&b, Some(&impostor));
+    let mut fake = impostor.st.device_info();
+    fake.id = real.st.device_info().id;
+    fake.name = "Máy A".into();
+    let body = serde_json::json!({ "sender": fake, "kind": "text", "files": [], "text": "hi" });
+    let r = http.post(crate::client::api_url(&base, "prepare")).json(&body).send().await.unwrap();
+    assert_eq!(r.status(), 200);
+
+    let p = b.st.find_peer(&saved.info.id).unwrap();
+    assert_eq!(p.info.fp, real.st.identity.fingerprint, "dấu vân tay của máy đã lưu bị ghi đè");
+    assert_eq!(p.addrs, saved.addrs, "địa chỉ của máy đã lưu bị ghi đè");
+    let book = b.st.devices.lock().unwrap();
+    assert_eq!(book.fp_of(&saved.info.id), Some(real.st.identity.fingerprint.as_str()));
+}
+
+/// Kích thước khổng lồ cộng lại bị tràn số thành vài byte trong hộp thoại.
+#[tokio::test(flavor = "multi_thread")]
+async fn overflowing_total_size_is_rejected_before_asking() {
+    let a = node("Mac").await;
+    let mut b = node("Windows").await;
+    let (http, base) = raw_client(&b, Some(&a));
+    let body = serde_json::json!({
+        "sender": a.st.device_info(), "kind": "files",
+        "files": [{ "id": "f1", "rel_path": "a", "size": u64::MAX }, { "id": "f2", "rel_path": "b", "size": 1025 }],
+    });
+    let r = http.post(crate::client::api_url(&base, "prepare")).json(&body).send().await.unwrap();
+    assert_eq!(r.status(), 400);
+    while let Ok((ev, _)) = b.events.try_recv() {
+        assert_ne!(ev, "incoming-request");
+    }
+}
+
+/// Gửi dồn dập /prepare: chỉ MAX_PENDING_PER_IP hộp thoại được mở từ một máy,
+/// phần còn lại bị trả 429 ngay (không giữ kết nối, không hiện hộp thoại).
+#[tokio::test(flavor = "multi_thread")]
+async fn prepare_flood_is_limited() {
+    let a = node("Mac").await;
+    let b = node("Windows").await;
+    let (http, base) = raw_client(&b, Some(&a));
+    let body = serde_json::json!({
+        "sender": a.st.device_info(), "kind": "files",
+        "files": [{ "id": "f1", "rel_path": "spam.txt", "size": 1 }],
+    });
+    let url = crate::client::api_url(&base, "prepare");
+    let mut waiting = vec![];
+    for _ in 0..server::MAX_PENDING_PER_IP {
+        let (http, url, body) = (http.clone(), url.clone(), body.clone());
+        waiting.push(tokio::spawn(async move { http.post(url).json(&body).send().await.unwrap().status() }));
+    }
+    // Đợi các yêu cầu trên vào hàng chờ.
+    for _ in 0..100 {
+        if b.st.pending.lock().unwrap().len() == server::MAX_PENDING_PER_IP {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(b.st.pending.lock().unwrap().len(), server::MAX_PENDING_PER_IP);
+    for _ in 0..5 {
+        assert_eq!(http.post(&url).json(&body).send().await.unwrap().status(), 429);
+    }
+    let answer = answer_requests(b, false, server::MAX_PENDING_PER_IP);
+    for w in waiting {
+        assert_eq!(w.await.unwrap(), 403);
+    }
+    let (seen, b) = answer.await.unwrap();
+    assert_eq!(seen, server::MAX_PENDING_PER_IP, "chỉ được hiện đúng số hộp thoại cho phép");
+    // Trả lời xong thì được gửi tiếp như thường.
+    let answer = answer_requests(b, false, 1);
+    assert_eq!(http.post(&url).json(&body).send().await.unwrap().status(), 403);
+    answer.await.unwrap();
+}
+
+/// Văn bản hiện ngay không cần hỏi: giới hạn độ dài và số lần gửi.
+#[tokio::test(flavor = "multi_thread")]
+async fn text_flood_and_huge_text_are_limited() {
+    let a = node("Mac").await;
+    let b = node("Windows").await;
+    let (http, base) = raw_client(&b, Some(&a));
+    let url = crate::client::api_url(&base, "prepare");
+    let text = |t: String| serde_json::json!({ "sender": a.st.device_info(), "kind": "text", "files": [], "text": t });
+    let huge = http.post(&url).json(&text("x".repeat(server::MAX_TEXT_BYTES + 1))).send().await.unwrap();
+    assert_eq!(huge.status(), 413);
+    for i in 0..server::MAX_TEXTS_PER_WINDOW {
+        assert_eq!(http.post(&url).json(&text(format!("tin {i}"))).send().await.unwrap().status(), 200);
+    }
+    assert_eq!(http.post(&url).json(&text("thêm".into())).send().await.unwrap().status(), 429);
+    // Tên máy gửi chứa ký tự đảo chiều chữ / quá dài bị làm sạch trước khi hiện lên.
+    let c = node("Linux").await;
+    let mut c = c;
+    let (http, base) = raw_client(&c, Some(&a));
+    let mut sender = a.st.device_info();
+    sender.name = format!("Máy\u{202E}A{}", "x".repeat(1000));
+    let body = serde_json::json!({ "sender": sender, "kind": "text", "files": [], "text": "hi" });
+    http.post(crate::client::api_url(&base, "prepare")).json(&body).send().await.unwrap();
+    let shown = loop {
+        let (ev, v) = c.events.recv().await.unwrap();
+        if ev == "incoming-text" {
+            break v["sender_name"].as_str().unwrap().to_string();
+        }
+    };
+    assert!(!shown.contains('\u{202E}'));
+    assert!(shown.chars().count() <= 64, "{}", shown.len());
+}
+
+/// Upload sai token, offset vượt kích thước, ghi quá kích thước đã khai, và dùng lại
+/// token sau khi phiên đã lỗi/huỷ: đều bị từ chối, không để lại file.
+#[tokio::test(flavor = "multi_thread")]
+async fn upload_abuse_is_refused() {
+    let a = node("Mac").await;
+    let b = node("Windows").await;
+    let dl = PathBuf::from(b.st.settings.read().unwrap().download_dir.clone());
+    let (http, base) = raw_client(&b, Some(&a));
+    let answer = answer_requests(b, true, 2);
+    let prepare = || async {
+        let body = serde_json::json!({
+            "sender": a.st.device_info(), "kind": "files",
+            "files": [{ "id": "f1", "rel_path": "a.txt", "size": 5 }, { "id": "f2", "rel_path": "b.txt", "size": 3 }],
+        });
+        let r = http.post(crate::client::api_url(&base, "prepare")).json(&body).send().await.unwrap();
+        assert_eq!(r.status(), 200);
+        r.json::<PrepareResponse>().await.unwrap()
+    };
+    let upload = |p: &PrepareResponse, file: &str, token: &str, offset: Option<u64>, body: &'static [u8]| {
+        let mut q = vec![("session", p.session_id.clone()), ("file", file.to_string()), ("token", token.to_string())];
+        if let Some(o) = offset {
+            q.push(("offset", o.to_string()));
+        }
+        let req = http.post(crate::client::api_url(&base, "upload")).query(&q).body(body);
+        async move { req.send().await.unwrap().status() }
+    };
+
+    let p = prepare().await;
+    let t1 = p.tokens["f1"].clone();
+    let t2 = p.tokens["f2"].clone();
+    // Token của file khác / token sai.
+    assert_eq!(upload(&p, "f1", &t2, None, b"12345").await, 403);
+    assert_eq!(upload(&p, "f1", "", None, b"12345").await, 403);
+    // Offset lớn hơn phần đã nhận / lớn hơn kích thước file.
+    assert_eq!(upload(&p, "f1", &t1, Some(3), b"45").await, 409);
+    assert_eq!(upload(&p, "f1", &t1, Some(u64::MAX), b"").await, 409);
+    // Ghi nhiều hơn kích thước đã khai: lỗi, không lưu gì.
+    assert_eq!(upload(&p, "f1", &t1, None, b"123456").await, 500);
+    // Phiên đã lỗi: token cũ không dùng tiếp được.
+    assert_eq!(upload(&p, "f2", &t2, None, b"abc").await, 410);
+    assert_eq!(upload(&p, "f1", &t1, None, b"12345").await, 410);
+    assert!(!dl.join("a.txt").exists() && !dl.join("b.txt").exists());
+
+    // Phiên bị máy gửi huỷ: token không dùng lại được.
+    let p = prepare().await;
+    let r = http
+        .post(crate::client::api_url(&base, "cancel"))
+        .query(&[("session", &p.session_id)])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    assert_eq!(upload(&p, "f1", &p.tokens["f1"], None, b"12345").await, 410);
+    assert!(!dl.join("a.txt").exists());
+    let (_, _b) = answer.await.unwrap(); // giữ thư mục tạm của máy nhận
+    // Không còn file tạm nào sót lại.
+    let left: Vec<_> = std::fs::read_dir(&dl).unwrap().flatten().map(|e| e.file_name()).collect();
+    assert!(left.is_empty(), "{left:?}");
+}
+
+/// Tên file độc từ máy gửi (đi ngược thư mục, đường dẫn tuyệt đối, tên thiết bị
+/// Windows, symlink sẵn có trong thư mục nhận): luôn lưu bên trong thư mục nhận.
+#[tokio::test(flavor = "multi_thread")]
+async fn malicious_names_stay_inside_download_dir() {
+    let a = node("Mac").await;
+    let b = node("Windows").await;
+    let dl = PathBuf::from(b.st.settings.read().unwrap().download_dir.clone());
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(&dl).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(outside.path(), dl.join("Photos")).unwrap();
+    let (http, base) = raw_client(&b, Some(&a));
+    let answer = answer_requests(b, true, 1);
+    let names = ["../../thoát.txt", "/etc/passwd", "..\\..\\win.ini", "Photos/a.txt", "CON", "x/../../../y.txt"];
+    let files: Vec<_> = names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| serde_json::json!({ "id": format!("f{i}"), "rel_path": n, "size": 1 }))
+        .collect();
+    let body = serde_json::json!({ "sender": a.st.device_info(), "kind": "files", "files": files });
+    let p: PrepareResponse = http
+        .post(crate::client::api_url(&base, "prepare"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    for i in 0..names.len() {
+        let id = format!("f{i}");
+        let r = http
+            .post(crate::client::api_url(&base, "upload"))
+            .query(&[("session", p.session_id.as_str()), ("file", &id), ("token", &p.tokens[&id])])
+            .body("z")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 200, "{}", names[i]);
+    }
+    let (_, _b) = answer.await.unwrap(); // giữ thư mục tạm của máy nhận
+    assert!(std::fs::read_dir(outside.path()).unwrap().next().is_none(), "ghi xuyên qua symlink ra ngoài");
+    let saved: Vec<PathBuf> = walkdir::WalkDir::new(&dl)
+        .into_iter()
+        .flatten()
+        .filter(|e| e.file_type().is_file())
+        .map(|e| e.path().to_path_buf())
+        .collect();
+    assert_eq!(saved.len(), names.len(), "{saved:?} {:?}", std::fs::read_dir(&dl).unwrap().flatten().map(|e| e.path()).collect::<Vec<_>>());
+    for f in &saved {
+        assert!(f.starts_with(&dl), "{f:?}");
+    }
+    assert!(dl.join("_CON").exists());
+    assert!(dl.join("thoát.txt").exists());
+}
+
+/// Trang web: chặn DNS rebinding (Host lạ) và có các header chống XSS/nhúng khung.
+#[tokio::test(flavor = "multi_thread")]
+async fn web_page_has_security_headers_and_checks_host() {
+    let desk = node("Mac").await;
+    crate::web::start(desk.st.clone()).await.unwrap();
+    let port = desk.st.web.lock().unwrap().as_ref().unwrap().port;
+    let http = reqwest::Client::new();
+    let base = format!("http://127.0.0.1:{port}");
+
+    let r = http.get(&base).header("host", format!("rebind.attacker.example:{port}")).send().await.unwrap();
+    assert_eq!(r.status(), 421);
+    let r = http
+        .post(format!("{base}/api/login"))
+        .header("host", "rebind.attacker.example")
+        .json(&serde_json::json!({ "pin": "000000" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 421);
+
+    let r = http.get(&base).send().await.unwrap();
+    assert_eq!(r.status(), 200);
+    let h = r.headers().clone();
+    assert_eq!(h["x-content-type-options"], "nosniff");
+    assert_eq!(h["x-frame-options"], "DENY");
+    let csp = h["content-security-policy"].to_str().unwrap().to_string();
+    assert!(csp.contains("frame-ancestors 'none'") && !csp.contains("unsafe-eval"), "{csp}");
+    // Băm của đoạn script trong trang phải khớp, không thì trang không chạy.
+    use sha2::Digest;
+    let page = r.text().await.unwrap();
+    let script = page.split_once("<script>").unwrap().1.split_once("</script>").unwrap().0;
+    let hash = crate::web::base64(&sha2::Sha256::digest(script.as_bytes()));
+    assert!(csp.contains(&format!("script-src 'sha256-{hash}'")), "{csp}");
+    assert_eq!(page.matches("<script").count(), 1, "chỉ được có một thẻ script (CSP băm đúng một đoạn)");
+    crate::web::stop(&desk.st);
+}

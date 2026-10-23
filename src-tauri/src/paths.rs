@@ -5,9 +5,16 @@ use std::path::{Path, PathBuf};
 use unicode_normalization::UnicodeNormalization;
 
 const WINDOWS_RESERVED: &[&str] = &[
-    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
-    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "COM0", "COM1", "COM2", "COM3", "COM4", "COM5",
+    "COM6", "COM7", "COM8", "COM9", "COM¹", "COM²", "COM³", "LPT0", "LPT1", "LPT2", "LPT3", "LPT4",
+    "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", "LPT¹", "LPT²", "LPT³",
 ];
+
+/// Ký tự điều khiển hướng chữ (bidi): dùng được để giả đuôi file, vd
+/// "anh\u{202E}gpj.exe" hiện ra là "anhexe.jpg".
+pub fn is_bidi_control(c: char) -> bool {
+    matches!(c, '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+}
 
 /// Làm sạch một thành phần (tên file hoặc thư mục). Trả về None nếu nên bỏ qua.
 pub fn sanitize_component(raw: &str) -> Option<String> {
@@ -15,7 +22,7 @@ pub fn sanitize_component(raw: &str) -> Option<String> {
         .nfc()
         .map(|c| match c {
             '<' | '>' | ':' | '"' | '|' | '?' | '*' | '/' | '\\' => '_',
-            c if c.is_control() => '_',
+            c if c.is_control() || is_bidi_control(c) => '_',
             c => c,
         })
         .collect();
@@ -27,7 +34,8 @@ pub fn sanitize_component(raw: &str) -> Option<String> {
     if s.is_empty() || s == "." || s == ".." {
         return None;
     }
-    let stem = s.split('.').next().unwrap_or("").to_ascii_uppercase();
+    // Windows coi "NUL .txt" cũng là thiết bị NUL: bỏ khoảng trắng cuối phần tên.
+    let stem = s.split('.').next().unwrap_or("").trim_end().to_uppercase();
     if WINDOWS_RESERVED.contains(&stem.as_str()) {
         return Some(format!("_{s}"));
     }
@@ -50,8 +58,14 @@ pub fn sanitize_rel_path(raw: &str) -> Vec<String> {
 }
 
 /// Trả về đường dẫn chưa tồn tại, thêm hậu tố " (1)", " (2)"... nếu cần.
+/// Đã có gì ở đường dẫn này chưa, kể cả symlink trỏ tới chỗ không tồn tại
+/// (`Path::exists` coi symlink "treo" là chưa có, rồi đổi tên đè lên sẽ mất symlink).
+fn occupied(path: &Path) -> bool {
+    path.symlink_metadata().is_ok()
+}
+
 pub fn unique_path(path: &Path) -> PathBuf {
-    if !path.exists() {
+    if !occupied(path) {
         return path.to_path_buf();
     }
     let parent = path.parent().map(Path::to_path_buf).unwrap_or_default();
@@ -76,7 +90,7 @@ pub fn unique_path(path: &Path) -> PathBuf {
     };
     (1..)
         .map(|i| parent.join(format!("{stem} ({i}){ext}")))
-        .find(|p| !p.exists())
+        .find(|p| !occupied(p))
         .expect("vòng lặp vô hạn luôn tìm được tên")
 }
 
@@ -117,6 +131,25 @@ mod tests {
     }
 
     #[test]
+    fn blocks_more_windows_device_names() {
+        assert_eq!(sanitize_component("nul .txt"), Some("_nul .txt".into()));
+        assert_eq!(sanitize_component("CONIN$"), Some("_CONIN$".into()));
+        assert_eq!(sanitize_component("com\u{b9}.log"), Some("_com\u{b9}.log".into()));
+        assert_eq!(sanitize_component("lpt0"), Some("_lpt0".into()));
+        // Chỉ bắt đầu bằng CON thì giữ nguyên.
+        assert_eq!(sanitize_component("CONTRACT.pdf"), Some("CONTRACT.pdf".into()));
+    }
+
+    #[test]
+    fn strips_bidi_overrides_that_fake_extensions() {
+        // Hiện ra là "anhexe.jpg" nhưng thực ra là file .exe.
+        assert_eq!(sanitize_component("anh\u{202E}gpj.exe"), Some("anh_gpj.exe".into()));
+        assert_eq!(sanitize_component("a\u{2066}b\u{2069}.txt"), Some("a_b_.txt".into()));
+        // Chữ Do Thái bình thường không bị đụng tới.
+        assert_eq!(sanitize_component("שלום.txt"), Some("שלום.txt".into()));
+    }
+
+    #[test]
     fn normalizes_vietnamese_to_nfc() {
         let nfd = "Ba\u{0301}o ca\u{0301}o.pdf"; // "Báo cáo.pdf" dạng NFD
         assert_eq!(sanitize_component(nfd), Some("Báo cáo.pdf".into()));
@@ -136,5 +169,16 @@ mod tests {
         let d = dir.path().join("Photos");
         std::fs::create_dir(&d).unwrap();
         assert_eq!(unique_path(&d), dir.path().join("Photos (1)"));
+    }
+
+    /// Symlink "treo" (trỏ tới chỗ chưa có) trong thư mục nhận vẫn tính là đã có tên:
+    /// file nhận được không được đổi tên đè lên nó.
+    #[cfg(unix)]
+    #[test]
+    fn dangling_symlink_counts_as_taken() {
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("x.txt");
+        std::os::unix::fs::symlink(dir.path().join("khong-co"), &link).unwrap();
+        assert_eq!(unique_path(&link), dir.path().join("x (1).txt"));
     }
 }

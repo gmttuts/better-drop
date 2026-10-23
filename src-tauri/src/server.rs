@@ -22,6 +22,17 @@ use tokio::sync::oneshot;
 pub const ACCEPT_TIMEOUT: Duration = Duration::from_secs(60);
 pub const DEFAULT_PORT: u16 = 53318;
 
+/// Văn bản nhận được dài nhất (byte), giống giới hạn của trang web.
+pub const MAX_TEXT_BYTES: usize = 1_000_000;
+/// Tên máy/nhóm hiện trong hộp thoại dài nhất (ký tự).
+const MAX_NAME_CHARS: usize = 64;
+/// Số hộp thoại Chấp nhận chờ cùng lúc, tổng cộng và từ một địa chỉ IP.
+pub const MAX_PENDING: usize = 6;
+pub const MAX_PENDING_PER_IP: usize = 2;
+/// Số đoạn văn bản tối đa một IP được gửi trong TEXT_WINDOW (văn bản hiện ngay, không hỏi).
+pub const MAX_TEXTS_PER_WINDOW: usize = 20;
+const TEXT_WINDOW: Duration = Duration::from_secs(60);
+
 type St = State<Arc<AppState>>;
 
 pub fn router(state: Arc<AppState>) -> Router {
@@ -156,6 +167,87 @@ async fn info(State(st): St) -> Json<DeviceInfo> {
     Json(st.device_info())
 }
 
+// ---- Chống spam: máy lạ trong LAN gửi dồn dập /prepare ----
+
+/// Bộ đếm theo (máy nhận, IP gửi). Khoá gồm dấu vân tay máy nhận để các "máy" chạy
+/// cùng tiến trình trong test không đếm lẫn của nhau.
+#[derive(Default)]
+struct Flood {
+    pending: HashMap<(String, std::net::IpAddr), usize>,
+    texts: HashMap<(String, std::net::IpAddr), Vec<Instant>>,
+}
+
+static FLOOD: std::sync::LazyLock<std::sync::Mutex<Flood>> = std::sync::LazyLock::new(Default::default);
+
+fn flood_key(st: &AppState, ip: std::net::IpAddr) -> (String, std::net::IpAddr) {
+    (st.identity.fingerprint.clone(), ip.to_canonical())
+}
+
+/// Một chỗ trong hàng chờ hộp thoại Chấp nhận; trả lại khi drop.
+pub struct PendingSlot {
+    key: (String, std::net::IpAddr),
+}
+
+impl Drop for PendingSlot {
+    fn drop(&mut self) {
+        let mut f = FLOOD.lock().unwrap();
+        if let Some(n) = f.pending.get_mut(&self.key) {
+            *n -= 1;
+            if *n == 0 {
+                f.pending.remove(&self.key);
+            }
+        }
+    }
+}
+
+/// Giữ chỗ cho một yêu cầu cần hỏi người dùng. Quá nhiều yêu cầu đang chờ (tổng cộng
+/// hoặc từ cùng một IP) thì trả 429, để không bị spam hộp thoại hay giữ kết nối vô hạn.
+pub fn pending_slot(st: &Arc<AppState>, ip: std::net::IpAddr) -> Result<PendingSlot, StatusCode> {
+    let key = flood_key(st, ip);
+    let mut f = FLOOD.lock().unwrap();
+    let total: usize = f.pending.iter().filter(|(k, _)| k.0 == key.0).map(|(_, n)| n).sum();
+    let mine = f.pending.get(&key).copied().unwrap_or(0);
+    if total >= MAX_PENDING || mine >= MAX_PENDING_PER_IP {
+        return Err(StatusCode::TOO_MANY_REQUESTS);
+    }
+    *f.pending.entry(key.clone()).or_insert(0) += 1;
+    Ok(PendingSlot { key })
+}
+
+/// Văn bản hiện ngay không cần hỏi, nên giới hạn số lần mỗi IP được gửi.
+pub fn allow_text(st: &Arc<AppState>, ip: std::net::IpAddr) -> bool {
+    let key = flood_key(st, ip);
+    let mut f = FLOOD.lock().unwrap();
+    f.texts.retain(|_, v| {
+        v.retain(|t| t.elapsed() < TEXT_WINDOW);
+        !v.is_empty()
+    });
+    let sent = f.texts.entry(key).or_default();
+    if sent.len() >= MAX_TEXTS_PER_WINDOW {
+        return false;
+    }
+    sent.push(Instant::now());
+    true
+}
+
+/// So sánh hai chuỗi bí mật (token, PIN) trong thời gian không phụ thuộc nội dung.
+pub fn ct_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+/// Tên do máy khác khai để hiện lên giao diện: bỏ ký tự điều khiển/đảo chiều chữ
+/// (giả tên máy khác), cắt bớt nếu quá dài.
+pub fn clean_name(raw: &str) -> String {
+    let s: String = raw
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .filter(|c| !crate::paths::is_bidi_control(*c))
+        .take(MAX_NAME_CHARS)
+        .collect();
+    s.trim().to_string()
+}
+
 /// Xoá yêu cầu đang chờ khi handler kết thúc (kể cả khi bên gửi ngắt kết nối)
 /// và báo UI đóng hộp thoại.
 struct PendingGuard {
@@ -178,6 +270,17 @@ fn remember_sender(st: &AppState, sender: &DeviceInfo, remote: SocketAddr) {
         return;
     }
     let addr = format!("{}:{}", remote.ip().to_canonical(), sender.port);
+    // Máy đã biết (đã lưu, tin cậy, hay mDNS) nhưng với chứng chỉ khác: không ghi đè.
+    // Nếu không, máy lạ chỉ cần khai id của máy khác (không cần hỏi, vd gửi văn bản) là
+    // lần sau bấm gửi tới máy đó, file sẽ đi tới máy lạ (client ghim theo dấu vân tay
+    // đã lưu). Máy cài lại có chứng chỉ mới: người dùng "Quên" rồi thêm lại.
+    let other_fp = |fp: &str| !fp.is_empty() && !fp.eq_ignore_ascii_case(&sender.fp);
+    if st.devices.lock().unwrap().fp_of(&sender.id).is_some_and(other_fp) {
+        return;
+    }
+    if st.peers.lock().unwrap().values().any(|p| p.info.id == sender.id && other_fp(&p.info.fp)) {
+        return;
+    }
     let known = st
         .peers
         .lock()
@@ -198,22 +301,33 @@ async fn prepare(
     State(st): St,
     ConnectInfo(remote): ConnectInfo<SocketAddr>,
     Extension(ClientFp(client_fp)): Extension<ClientFp>,
-    Json(req): Json<PrepareRequest>,
+    Json(mut req): Json<PrepareRequest>,
 ) -> Result<Json<PrepareResponse>, StatusCode> {
     if !st.settings.read().unwrap().receive_enabled {
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     }
+    req.sender.name = clean_name(&req.sender.name);
+    req.sender.os = clean_name(&req.sender.os);
     if req.kind == TransferKind::Group {
         let group = req.group.clone().ok_or(StatusCode::BAD_REQUEST)?;
+        let _slot = pending_slot(&st, remote.ip())?;
         receive_group(&st, &req.sender, group).await?;
         remember_sender(&st, &req.sender, remote);
         return Ok(Json(PrepareResponse::default()));
     }
     if req.kind == TransferKind::Text {
+        let text = req.text.unwrap_or_default();
+        if text.len() > MAX_TEXT_BYTES {
+            return Err(StatusCode::PAYLOAD_TOO_LARGE);
+        }
+        if !allow_text(&st, remote.ip()) {
+            return Err(StatusCode::TOO_MANY_REQUESTS);
+        }
         remember_sender(&st, &req.sender, remote);
-        receive_text(&st, &req.sender.name, Some(&req.sender.id), req.text.unwrap_or_default());
+        receive_text(&st, &req.sender.name, Some(&req.sender.id), text);
         return Ok(Json(PrepareResponse::default()));
     }
+    let _slot = pending_slot(&st, remote.ip())?;
     let trust = trust_of(&st, &req.sender, client_fp.as_deref());
     let resp = accept_files(&st, &req.sender.name, Some(&req.sender.id), &req.sender.os, &req.files, trust).await?;
     remember_sender(&st, &req.sender, remote);
@@ -304,7 +418,15 @@ pub async fn ask_user(
 /// nhóm (để kết nối được ngay). Nhóm trùng tên thì cập nhật danh sách máy.
 async fn receive_group(st: &Arc<AppState>, sender: &DeviceInfo, group: SharedGroup) -> Result<(), StatusCode> {
     let me = st.device_info().id;
-    let members: Vec<SharedMember> = group.members.into_iter().filter(|m| m.id != me).take(500).collect();
+    let mut group = group;
+    group.name = clean_name(&group.name);
+    let members: Vec<SharedMember> = group
+        .members
+        .into_iter()
+        .filter(|m| m.id != me)
+        .take(500)
+        .map(|m| SharedMember { name: clean_name(&m.name), os: clean_name(&m.os), ..m })
+        .collect();
     if group.name.trim().is_empty() || members.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -363,7 +485,12 @@ pub async fn accept_files(
     if req_files.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
-    let total_bytes: u64 = req_files.iter().map(|f| f.size).sum();
+    // Cộng có kiểm tra tràn: nếu không, kích thước khổng lồ cộng lại "quay vòng" thành
+    // vài KB trong hộp thoại, rồi máy gửi được ghi tới hết ổ đĩa.
+    let total_bytes = req_files
+        .iter()
+        .try_fold(0u64, |acc, f| acc.checked_add(f.size))
+        .ok_or(StatusCode::BAD_REQUEST)?;
 
     if trust.auto {
         // Máy tin cậy: nhận luôn, chỉ báo cho người dùng biết.
@@ -379,7 +506,8 @@ pub async fn accept_files(
             sender_os: sender_os.to_string(),
             file_count: req_files.len(),
             total_bytes,
-            preview: req_files.iter().take(5).map(|f| f.rel_path.clone()).collect(),
+            // Hiện đúng tên sẽ được lưu (đã làm sạch), không phải tên máy gửi khai.
+            preview: req_files.iter().take(5).map(|f| sanitize_rel_path(&f.rel_path).join("/")).collect(),
             timeout_secs: ACCEPT_TIMEOUT.as_secs(),
             can_trust,
             group_name: None,
@@ -471,7 +599,7 @@ fn find_upload(st: &AppState, q: &UploadQuery) -> Result<(Arc<InSession>, String
         .ok_or((StatusCode::NOT_FOUND, "Không tìm thấy phiên".into()))?;
     match session.files.get(&q.file) {
         None => Err((StatusCode::NOT_FOUND, "Không tìm thấy file".into())),
-        Some(f) if f.token != q.token => Err((StatusCode::FORBIDDEN, "Sai token".into())),
+        Some(f) if !ct_eq(&f.token, &q.token) => Err((StatusCode::FORBIDDEN, "Sai token".into())),
         Some(_) => Ok((session, q.file.clone())),
     }
 }

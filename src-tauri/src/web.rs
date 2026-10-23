@@ -26,6 +26,9 @@ use tokio_util::io::ReaderStream;
 
 pub const WEB_PORT: u16 = 53319;
 const MAX_PIN_FAILURES: u32 = 5;
+/// Tổng số lần sai PIN (mọi IP cộng lại) trong LOCKOUT trước khi khoá cả trang:
+/// trong LAN rất dễ đổi IP (nhất là IPv6), khoá theo từng IP không đủ chặn dò mã.
+const MAX_GLOBAL_FAILURES: usize = 20;
 const LOCKOUT: Duration = Duration::from_secs(60);
 const COOKIE: &str = "bd_session";
 const PAGE: &str = include_str!("../web/index.html");
@@ -41,6 +44,8 @@ pub struct WebShare {
     pub port: u16,
     sessions: HashSet<String>,
     failures: HashMap<IpAddr, (u32, Instant)>,
+    /// Thời điểm các lần sai PIN gần đây, từ mọi IP.
+    recent_failures: Vec<Instant>,
     pub files: Vec<SharedFile>,
     pub text: Option<String>,
     shutdown: Option<oneshot::Sender<()>>,
@@ -105,6 +110,7 @@ pub async fn start(st: Arc<AppState>) -> Result<(), String> {
         port,
         sessions: HashSet::new(),
         failures: HashMap::new(),
+        recent_failures: Vec::new(),
         files: Vec::new(),
         text: None,
         shutdown: Some(tx),
@@ -134,6 +140,7 @@ pub fn renew_pin(st: &AppState) {
         w.pin = new_pin();
         w.sessions.clear();
         w.failures.clear();
+        w.recent_failures.clear();
     }
 }
 
@@ -184,7 +191,76 @@ fn router(st: Arc<AppState>) -> Router {
         .route("/api/prepare", post(prepare).layer(DefaultBodyLimit::max(8 * 1024 * 1024)))
         .route("/api/upload", post(upload).layer(DefaultBodyLimit::disable()))
         .route("/api/cancel", post(cancel))
+        .layer(axum::middleware::from_fn(guard))
         .with_state(st)
+}
+
+/// Chỉ phục vụ khi trình duyệt gọi bằng địa chỉ IP hoặc tên trong mạng nội bộ.
+/// Chặn "DNS rebinding": trang web lạ trên Internet trỏ tên miền của nó về IP máy này
+/// để trình duyệt của người trong LAN gọi API giúp nó.
+fn local_host(host: &str) -> bool {
+    let name = match host.rsplit_once(':') {
+        // "[::1]:53319", "192.168.1.5:53319"
+        Some((h, port)) if port.chars().all(|c| c.is_ascii_digit()) => h,
+        _ => host,
+    };
+    let name = name.trim_start_matches('[').trim_end_matches(']').trim_end_matches('.').to_ascii_lowercase();
+    !name.is_empty() && (name.parse::<IpAddr>().is_ok()
+        || name == "localhost"
+        || !name.contains('.')
+        || name.ends_with(".local")
+        || name.ends_with(".localhost"))
+}
+
+/// Nội dung trang chỉ được chạy đúng đoạn script có sẵn trong trang (băm SHA-256),
+/// không cho nhúng vào khung của trang khác.
+fn csp() -> &'static str {
+    static CSP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        use sha2::Digest;
+        let script = PAGE
+            .split_once("<script>")
+            .and_then(|(_, rest)| rest.split_once("</script>"))
+            .map(|(s, _)| s)
+            .unwrap_or_default();
+        let hash = base64(&sha2::Sha256::digest(script.as_bytes()));
+        format!(
+            "default-src 'none'; script-src 'sha256-{hash}'; style-src 'unsafe-inline'; img-src data:; \
+             connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+        )
+    });
+    &CSP
+}
+
+pub(crate) fn base64(bytes: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for c in bytes.chunks(3) {
+        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        for i in 0..4 {
+            if i <= c.len() {
+                out.push(T[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+/// Kiểm tra Host và gắn các header bảo mật cho mọi phản hồi.
+async fn guard(req: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    let host = req.headers().get(header::HOST).and_then(|h| h.to_str().ok()).unwrap_or("");
+    if !local_host(host) {
+        return (StatusCode::MISDIRECTED_REQUEST, "Hãy mở bằng địa chỉ IP của máy tính").into_response();
+    }
+    let mut resp = next.run(req).await;
+    let h = resp.headers_mut();
+    h.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    h.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    h.insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+    h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    h.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static(csp()));
+    resp
 }
 
 fn session_of(headers: &HeaderMap) -> Option<String> {
@@ -211,6 +287,34 @@ struct LoginReq {
     pin: String,
 }
 
+/// Kiểm tra PIN, có khoá khi sai nhiều lần: theo từng IP, và cả trang khi tổng số
+/// lần sai từ mọi IP quá nhiều (kẻ dò mã đổi IP liên tục).
+fn check_pin(w: &mut WebShare, ip: IpAddr, pin: &str) -> Result<(), (StatusCode, String)> {
+    let locked = |at: Instant| (StatusCode::TOO_MANY_REQUESTS, format!(
+        "Nhập sai quá nhiều lần. Thử lại sau {} giây.",
+        LOCKOUT.saturating_sub(at.elapsed()).as_secs() + 1
+    ));
+    w.failures.retain(|_, (_, at)| at.elapsed() < LOCKOUT);
+    w.recent_failures.retain(|at| at.elapsed() < LOCKOUT);
+    if let Some((n, at)) = w.failures.get(&ip) {
+        if *n >= MAX_PIN_FAILURES {
+            return Err(locked(*at));
+        }
+    }
+    if w.recent_failures.len() >= MAX_GLOBAL_FAILURES {
+        return Err(locked(w.recent_failures[0]));
+    }
+    if !crate::server::ct_eq(pin.trim(), &w.pin) {
+        let e = w.failures.entry(ip).or_insert((0, Instant::now()));
+        e.0 += 1;
+        e.1 = Instant::now();
+        w.recent_failures.push(Instant::now());
+        return Err((StatusCode::UNAUTHORIZED, "Sai mã PIN".into()));
+    }
+    w.failures.remove(&ip);
+    Ok(())
+}
+
 async fn login(
     State(st): St,
     ConnectInfo(remote): ConnectInfo<SocketAddr>,
@@ -221,22 +325,9 @@ async fn login(
     let Some(w) = web.as_mut() else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    if let Some((n, at)) = w.failures.get(&ip) {
-        if *n >= MAX_PIN_FAILURES && at.elapsed() < LOCKOUT {
-            let wait = (LOCKOUT - at.elapsed()).as_secs() + 1;
-            return (StatusCode::TOO_MANY_REQUESTS, format!("Nhập sai quá nhiều lần. Thử lại sau {wait} giây.")).into_response();
-        }
+    if let Err(e) = check_pin(w, ip, &req.pin) {
+        return e.into_response();
     }
-    if req.pin.trim() != w.pin {
-        let e = w.failures.entry(ip).or_insert((0, Instant::now()));
-        if e.1.elapsed() >= LOCKOUT {
-            e.0 = 0;
-        }
-        e.0 += 1;
-        e.1 = Instant::now();
-        return (StatusCode::UNAUTHORIZED, "Sai mã PIN").into_response();
-    }
-    w.failures.remove(&ip);
     let token = new_token();
     w.sessions.insert(token.clone());
     drop(web);
@@ -474,19 +565,27 @@ fn browser_name(name: &str) -> String {
     if n.is_empty() {
         "Trình duyệt".to_string()
     } else {
-        format!("{} (trình duyệt)", n.chars().take(40).collect::<String>())
+        format!("{} (trình duyệt)", crate::server::clean_name(&n.chars().take(40).collect::<String>()))
     }
 }
 
-async fn send_text(State(st): St, headers: HeaderMap, Json(req): Json<TextReq>) -> StatusCode {
+async fn send_text(
+    State(st): St,
+    ConnectInfo(remote): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(req): Json<TextReq>,
+) -> StatusCode {
     if let Err(e) = authed(&st, &headers) {
         return e;
     }
     if !st.settings.read().unwrap().receive_enabled {
         return StatusCode::SERVICE_UNAVAILABLE;
     }
-    if req.text.trim().is_empty() || req.text.len() > 1_000_000 {
+    if req.text.trim().is_empty() || req.text.len() > crate::server::MAX_TEXT_BYTES {
         return StatusCode::BAD_REQUEST;
+    }
+    if !crate::server::allow_text(&st, remote.ip()) {
+        return StatusCode::TOO_MANY_REQUESTS;
     }
     receive_text(&st, &browser_name(&req.name), None, req.text);
     StatusCode::OK
@@ -499,13 +598,22 @@ struct PrepareReq {
     files: Vec<FileMeta>,
 }
 
-async fn prepare(State(st): St, headers: HeaderMap, Json(req): Json<PrepareReq>) -> Response {
+async fn prepare(
+    State(st): St,
+    ConnectInfo(remote): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(req): Json<PrepareReq>,
+) -> Response {
     if let Err(e) = authed(&st, &headers) {
         return e.into_response();
     }
     if !st.settings.read().unwrap().receive_enabled {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     }
+    let _slot = match crate::server::pending_slot(&st, remote.ip()) {
+        Ok(s) => s,
+        Err(code) => return code.into_response(),
+    };
     // Trình duyệt không có chứng chỉ: luôn phải hỏi Chấp nhận.
     match accept_files(&st, &browser_name(&req.name), None, "web", &req.files, Default::default()).await {
         Ok(resp) => Json(resp).into_response(),
@@ -532,7 +640,10 @@ async fn cancel(State(st): St, headers: HeaderMap, Query(q): Query<CancelQuery>)
     if let Err(e) = authed(&st, &headers) {
         return e;
     }
-    crate::transfer::cancel(&st, &q.session);
+    // Trình duyệt chỉ được huỷ lượt nó gửi lên, không đụng tới lượt gửi đi của máy này.
+    if let Some(s) = st.incoming.lock().unwrap().get(&q.session) {
+        s.tracker.set_status(TransferStatus::Cancelled, Some("Đã huỷ".into()));
+    }
     StatusCode::OK
 }
 
@@ -545,6 +656,60 @@ mod tests {
         let h = content_disposition("Báo cáo.pdf");
         assert!(h.contains("filename*=UTF-8''B%C3%A1o%20c%C3%A1o.pdf"), "{h}");
         assert!(h.contains("filename=\"B_o c_o.pdf\""), "{h}");
+    }
+
+    #[test]
+    fn base64_matches_known_values() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foo"), "Zm9v");
+        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+    }
+
+    #[test]
+    fn only_local_hosts_are_served() {
+        for ok in ["192.168.1.5:53319", "192.168.1.5", "[fe80::1]:53319", "localhost:53319", "mac-cua-lan:53319", "mac.local:53319"] {
+            assert!(local_host(ok), "{ok}");
+        }
+        for bad in ["evil.example.com:53319", "rebind.attacker.net", ""] {
+            assert!(!local_host(bad), "{bad}");
+        }
+    }
+
+    fn share(pin: &str) -> WebShare {
+        WebShare {
+            pin: pin.into(),
+            port: 0,
+            sessions: HashSet::new(),
+            failures: HashMap::new(),
+            recent_failures: Vec::new(),
+            files: Vec::new(),
+            text: None,
+            shutdown: None,
+        }
+    }
+
+    /// Kẻ dò mã đổi IP sau mỗi 4 lần sai (không chạm khoá theo IP): vẫn bị khoá
+    /// cả trang sau MAX_GLOBAL_FAILURES lần, kể cả khi đoán đúng.
+    #[test]
+    fn pin_guessing_from_many_ips_is_locked_out() {
+        let mut w = share("424242");
+        let mut tries = 0;
+        for i in 0..100u32 {
+            let ip = IpAddr::from([10, 0, (i / 4 / 250) as u8, (i / 4 % 250) as u8]);
+            match check_pin(&mut w, ip, &format!("{i:06}")) {
+                Err((StatusCode::UNAUTHORIZED, _)) => tries += 1,
+                Err((StatusCode::TOO_MANY_REQUESTS, _)) => break,
+                other => panic!("{other:?}"),
+            }
+        }
+        assert_eq!(tries, MAX_GLOBAL_FAILURES);
+        let fresh = IpAddr::from([10, 9, 9, 9]);
+        assert_eq!(check_pin(&mut w, fresh, "424242").unwrap_err().0, StatusCode::TOO_MANY_REQUESTS);
+        // Hết thời gian khoá (giả lập bằng đổi PIN) thì đăng nhập lại được.
+        w.recent_failures.clear();
+        assert!(check_pin(&mut w, fresh, " 424242 ").is_ok());
     }
 
     #[test]

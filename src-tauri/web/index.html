@@ -224,6 +224,7 @@ $("send").addEventListener("click", async () => {
       body: JSON.stringify({ name: $("me").value, files: metas }),
     });
     if (r.status === 403) throw new Error("Máy tính đã từ chối (hoặc không trả lời trong 60 giây)");
+    if (r.status === 429) throw new Error("Máy tính đang có nhiều yêu cầu chờ trả lời, hãy thử lại sau ít phút");
     if (!r.ok) throw new Error(`Lỗi ${r.status}`);
     const prep = await r.json();
     $("bar").hidden = false;
@@ -260,6 +261,7 @@ $("send-text").addEventListener("click", async () => {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: $("me").value, text }),
     });
+    if (r.status === 429) throw new Error("Gửi quá nhiều văn bản, hãy đợi một phút");
     if (!r.ok) throw new Error(`Lỗi ${r.status}`);
     $("text").value = "";
     setStatus(st, "Đã gửi văn bản", "ok");

@@ -95,6 +95,15 @@ impl DeviceBook {
         self.trusted.iter().any(|t| t.id == id && t.fp.eq_ignore_ascii_case(fp))
     }
 
+    /// Dấu vân tay chứng chỉ đã lưu của máy `id` (máy tin cậy trước, rồi máy đã lưu).
+    pub fn fp_of(&self, id: &str) -> Option<&str> {
+        self.trusted
+            .iter()
+            .find(|t| t.id == id)
+            .map(|t| t.fp.as_str())
+            .or_else(|| self.known.iter().find(|k| k.info.id == id).map(|k| k.info.fp.as_str()))
+    }
+
     pub fn trust(&mut self, dev: TrustedDevice) {
         self.trusted.retain(|t| t.id != dev.id);
         self.trusted.push(dev);
