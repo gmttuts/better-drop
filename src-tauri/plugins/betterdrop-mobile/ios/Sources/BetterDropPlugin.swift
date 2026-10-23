@@ -53,9 +53,13 @@ class BetterDropPlugin: Plugin {
     invoke.resolve(["granted": true])
   }
 
-  /// iOS nhận file qua "Mở bằng BetterDrop" (RunEvent::Opened ở Rust), không qua đây.
+  /// Lấy (và xoá) các mục do Share Extension "Chia sẻ → BetterDrop" để lại trong App Group.
+  /// "Mở bằng BetterDrop" thì đi đường RunEvent::Opened ở Rust, không qua đây.
   @objc public func takeShared(_ invoke: Invoke) throws {
-    invoke.resolve(["uris": [String]()])
+    let (uris, text) = SharedInbox.take()
+    var ret: [String: Any] = ["uris": uris]
+    if let text { ret["text"] = text }
+    invoke.resolve(ret)
   }
 
   @objc public func scanFile(_ invoke: Invoke) throws {

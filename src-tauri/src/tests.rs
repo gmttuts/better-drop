@@ -960,3 +960,16 @@ fn update_version_compare() {
     assert!(!is_newer("v0.3.3", "0.3.6"));
     assert!(!is_newer("0.3.6-beta", "0.3.6"));
 }
+
+#[test]
+fn shared_text_comes_from_share_url() {
+    let parse = |s: &str| crate::shared_text_from_url(&tauri::Url::parse(s).unwrap());
+    assert_eq!(
+        parse("betterdrop://share?text=Xin%20ch%C3%A0o%0Ahttps%3A%2F%2Fvi.wikipedia.org%2Fwiki%2FH%C3%A0_N%E1%BB%99i%3Fa%3D1%26b%3D2"),
+        Some("Xin chào\nhttps://vi.wikipedia.org/wiki/Hà_Nội?a=1&b=2".to_string())
+    );
+    assert_eq!(parse("betterdrop://share?text="), None);
+    assert_eq!(parse("betterdrop://shared"), None);
+    assert_eq!(parse("https://share?text=x"), None);
+    assert_eq!(parse("file:///tmp/a.txt"), None);
+}
