@@ -156,6 +156,11 @@ jobs:
       - name: Build IPA (chưa ký)
         run: npm run tauri ios build -- --target aarch64 --no-sign --ci
 
+      # Vẫn là bản chưa ký thật (chỉ ký ad-hoc), để Sideloadly/AltStore biết cần App Group
+      # cho "Chia sẻ → BetterDrop".
+      - name: Gắn entitlements vào IPA
+        run: scripts/ios-add-entitlements.sh src-tauri/gen/apple/build/arm64/BetterDrop.ipa
+
       - name: Đổi tên IPA
         run: |
           mkdir -p out

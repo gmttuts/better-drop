@@ -148,6 +148,15 @@ pub(crate) fn paths_from_args<I: IntoIterator<Item = String>>(args: I) -> Vec<St
         .collect()
 }
 
+/// Văn bản trong đường dẫn `betterdrop://share?text=…` (Share Extension trên iOS mở app bằng đường dẫn này).
+#[cfg_attr(not(any(target_os = "macos", target_os = "ios", test)), allow(dead_code))]
+pub(crate) fn shared_text_from_url(url: &tauri::Url) -> Option<String> {
+    if url.scheme() != discovery::LINK_SCHEME || url.host_str() != Some("share") {
+        return None;
+    }
+    url.query_pairs().find(|(k, _)| k == "text").map(|(_, v)| v.into_owned()).filter(|t| !t.is_empty())
+}
+
 #[tauri::command]
 fn get_peers(st: AppStateRef) -> Vec<Peer> {
     st.peer_list()
@@ -606,8 +615,10 @@ pub fn run() {
                         }
                     })
                     .collect();
+                // iOS: Share Extension không có App Group thì gửi văn bản/link qua betterdrop://share?text=…
+                let text = urls.iter().find_map(shared_text_from_url);
                 if let Some(st) = app.try_state::<Arc<AppState>>() {
-                    st.add_shared(items, None);
+                    st.add_shared(items, text);
                 }
                 #[cfg(desktop)]
                 tray::show_main(app);

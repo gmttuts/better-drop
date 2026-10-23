@@ -60,6 +60,9 @@ targets:
         CFBundleVersion: "0.1.0"
     entitlements:
       path: better-drop_iOS/better-drop_iOS.entitlements
+      properties:
+        # Hộp thư chung giữa app và Share Extension (xem ShareExtension/SharedInbox.swift).
+        com.apple.security.application-groups: [group.com.nguyentuyen.betterdrop]
     scheme:
       environmentVariables:
         RUST_BACKTRACE: full
@@ -84,6 +87,9 @@ targets:
       - sdk: Security.framework
       - sdk: UIKit.framework
       - sdk: WebKit.framework
+      # "Chia sẻ → BetterDrop" (Share Extension), nhúng vào BetterDrop.app/PlugIns.
+      - target: BetterDropShare
+        embed: true
     preBuildScripts:
       - script: |
           npm run -- tauri ios xcode-script -v --platform "${PLATFORM_DISPLAY_NAME:?}" --sdk-root "${SDKROOT:?}" --framework-search-paths "${FRAMEWORK_SEARCH_PATHS:?}" --header-search-paths "${HEADER_SEARCH_PATHS:?}" --gcc-preprocessor-definitions "${GCC_PREPROCESSOR_DEFINITIONS:-}" --configuration "${CONFIGURATION:?}" ${FORCE_COLOR} ${ARCHS:?}
@@ -92,3 +98,51 @@ targets:
         outputFiles:
           - $(SRCROOT)/Externals/x86_64/${CONFIGURATION}/libapp.a
           - $(SRCROOT)/Externals/arm64/${CONFIGURATION}/libapp.a
+  # Share Extension: hiện BetterDrop trong bảng Chia sẻ (ảnh, file, link, văn bản).
+  # Chép mục được chia sẻ vào App Group chung rồi mở app chính (xem ShareExtension/).
+  BetterDropShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ShareExtension
+    info:
+      path: ShareExtension/Info.plist
+      properties:
+        CFBundleDisplayName: BetterDrop
+        CFBundleShortVersionString: 0.1.0
+        CFBundleVersion: "0.1.0"
+        BetterDropAppGroup: group.com.nguyentuyen.betterdrop
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsFileWithMaxCount: 100
+              NSExtensionActivationSupportsImageWithMaxCount: 100
+              NSExtensionActivationSupportsMovieWithMaxCount: 100
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsText: true
+    entitlements:
+      path: ShareExtension/ShareExtension.entitlements
+      properties:
+        # Hộp thư chung giữa app và Share Extension (xem ShareExtension/SharedInbox.swift).
+        com.apple.security.application-groups: [group.com.nguyentuyen.betterdrop]
+    settings:
+      base:
+        PRODUCT_NAME: BetterDropShare
+        PRODUCT_BUNDLE_IDENTIFIER: com.nguyentuyen.betterdrop.share
+        ENABLE_BITCODE: false
+        ARCHS: [arm64]
+        EXCLUDED_ARCHS[sdk=iphoneos*]: x86_64
+        APPLICATION_EXTENSION_API_ONLY: true
+        SKIP_INSTALL: true
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+    postBuildScripts:
+      # Tauri chỉ ghi số phiên bản vào Info.plist của app; extension phải cùng phiên bản với app.
+      - script: |
+          v=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${SRCROOT}/better-drop_iOS/Info.plist")
+          b=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "${SRCROOT}/better-drop_iOS/Info.plist")
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $v" -c "Set :CFBundleVersion $b" "${TARGET_BUILD_DIR}/${INFOPLIST_PATH}"
+        name: Sync Version
+        basedOnDependencyAnalysis: false

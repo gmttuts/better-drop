@@ -10,7 +10,7 @@ Chuyển file, thư mục và văn bản giữa Mac ⇄ Windows ⇄ Linux ⇄ An
 - Dữ liệu đi qua HTTPS (TLS). Mỗi máy có chứng chỉ riêng, và bên gửi chỉ chấp nhận đúng chứng chỉ đã quảng bá. Mã 4 ký tự (vd `520D`) dùng để so với máy kia.
 - **Gửi tiếp khi rớt mạng**: mất Wi‑Fi giữa chừng thì tự gửi tiếp từ chỗ đang dở (chờ tối đa 2 phút), không gửi lại từ đầu.
 - **Nhóm máy**: chia sẻ một nhóm cho máy khác bằng nút "Gửi nhóm".
-- **Chia sẻ từ app khác**: Android "Chia sẻ → BetterDrop", Mac "Mở bằng"/kéo vào Dock, Windows chuột phải › "Send to › BetterDrop", iPhone "Mở bằng". File được đưa sẵn vào danh sách gửi.
+- **Chia sẻ từ app khác**: Android "Chia sẻ → BetterDrop", Mac "Mở bằng"/kéo vào Dock, Windows chuột phải › "Send to › BetterDrop", iPhone/iPad "Chia sẻ → BetterDrop" (ảnh, video, file trong app Tệp, link và văn bản từ Safari…) hoặc "Mở bằng". File/văn bản được đưa sẵn vào danh sách gửi.
 - **Tiếng Anh**: Cài đặt › Ngôn ngữ (Tự động/Tiếng Việt/English).
 - **Tự cập nhật** (Mac/Windows/Linux AppImage): mở app sẽ tự xem có bản phát hành mới trên GitHub, bấm "Cập nhật và mở lại". Bản cập nhật được ký, app kiểm tra chữ ký trước khi cài.
 - File nhận được lưu vào `~/Downloads/BetterDrop` (đổi được trong Cài đặt). Nếu trùng tên, file mới được thêm hậu tố ` (1)`, không ghi đè file cũ.
@@ -59,6 +59,9 @@ npm run tauri build
 3. Nếu dùng Apple ID miễn phí, app hết hạn sau 7 ngày (phải cài lại). Tài khoản Apple Developer (99 USD/năm) thì không hết hạn và đưa lên TestFlight được.
 4. File nhận được nằm trong app **Tệp › Trên iPhone › BetterDrop**.
 5. iOS dừng app khi chuyển ra màn hình khác, nên **phải mở BetterDrop khi muốn nhận file**.
+6. **Chia sẻ → BetterDrop**: nếu chưa thấy BetterDrop trong hàng app của bảng Chia sẻ, kéo hàng đó sang phải, bấm *Thêm* và bật BetterDrop. Sau khi chia sẻ, BetterDrop tự mở (nếu iOS không cho thì tự mở app); mục vừa chia sẻ nằm sẵn trong danh sách gửi.
+   - Phần này là một Share Extension (`src-tauri/gen/apple/ShareExtension`), chép mục được chia sẻ vào **App Group** `group.com.nguyentuyen.betterdrop` để app chính đọc. Khi ký bằng Xcode, bật App Groups cho cả hai target `better-drop_iOS` và `BetterDropShare` với cùng một mã nhóm.
+   - Cài bằng Sideloadly/AltStore: IPA trên GitHub mang sẵn entitlements App Group (ký ad-hoc, `scripts/ios-add-entitlements.sh`) để công cụ ký lại xin nhóm cho bạn; app tự đọc mã nhóm thật trong hồ sơ cấp phép nên mã có bị đổi vẫn chạy. Extension tính thêm một App ID (Apple ID miễn phí chỉ có vài App ID mỗi tuần). Nếu công cụ không cấp được App Group (hoặc bỏ extension), **link và văn bản vẫn gửi được** (qua `betterdrop://share?text=…`), còn **file thì không**: mở BetterDrop và bấm *Chọn file* (bộ chọn file của iOS đọc được cả Ảnh lẫn app Tệp).
 
 Build Android trên máy: `source scripts/mobile-env.sh && npm run tauri android build -- --apk` (cần Java 17, Android SDK/NDK).
 

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1262134D318A4A91AB01660D /* BetterDropShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 9C2CF1694A4341B2DA9CAB56 /* BetterDropShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		1F249468E6AB002DEA3ADC79 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = EE876FEBF44FE5C26F630C18 /* main.mm */; };
 		1FBA133F102FD5482369ACAD /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B7D66DCF7C2761798336D5FA /* Metal.framework */; };
 		26BC1DDD53EFF64487B5BF97 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EFF1C90000FD3D110FE887F9 /* CoreGraphics.framework */; };
@@ -17,18 +18,50 @@
 		8F89405C9593C272BFA2A5B6 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = EE8EABBA97EEA4C643159BC2 /* LaunchScreen.storyboard */; };
 		93FF5E2D574A7834FB98CD7A /* assets in Resources */ = {isa = PBXBuildFile; fileRef = BD6067C43D01E7D46F4C3140 /* assets */; };
 		C449DB9F955C4384450052A0 /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 476BF5DD377349029465F921 /* libapp.a */; };
+		C92199CF8180E2C438A28CC8 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 549D006388851BE5DB3E18D0 /* ShareViewController.swift */; };
+		CFD4CA3BDEF25DE517C0A4EA /* SharedInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87BD832F0AA417122F5F8E9F /* SharedInbox.swift */; };
 		DD9134339888D5DCE771E30D /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8197D3787D043C33C65EA4EE /* WebKit.framework */; };
 		F17134651424CD0641E7FCD9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DA8E52075AF0E9D9BF591B60 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		35CA0DDB492F852D1E6CC1CA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5EA850FBF42CF15A2DFB9632 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BE002A21B5CFE84A51EE81F6;
+			remoteInfo = BetterDropShare;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		4E9AE2E8D5AACF210D35AD2C /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				1262134D318A4A91AB01660D /* BetterDropShare.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		035F1F01E48B28FF5E179B03 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		1FBA89BE25EEBC0AB3A7DA65 /* identity.rs */ = {isa = PBXFileReference; path = identity.rs; sourceTree = "<group>"; };
+		2210947D1F930B816868F53B /* updater.rs */ = {isa = PBXFileReference; path = updater.rs; sourceTree = "<group>"; };
 		26A5709F5F43D4BD88F0221E /* tests.rs */ = {isa = PBXFileReference; path = tests.rs; sourceTree = "<group>"; };
 		2A132520468F0EC68A8EF0AD /* client.rs */ = {isa = PBXFileReference; path = client.rs; sourceTree = "<group>"; };
+		3DE55BAA036579BD770EF338 /* devices.rs */ = {isa = PBXFileReference; path = devices.rs; sourceTree = "<group>"; };
+		452825B58B37EE7E1978AD75 /* web.rs */ = {isa = PBXFileReference; path = web.rs; sourceTree = "<group>"; };
 		476BF5DD377349029465F921 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
+		4C2290728ED8693E8039A9BA /* ShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ShareExtension.entitlements; sourceTree = "<group>"; };
 		4C67143A22A9CDCC527FEEF8 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		4C7C7C0A2A99A501BA1AF3B5 /* history.rs */ = {isa = PBXFileReference; path = history.rs; sourceTree = "<group>"; };
 		545B181E6ABBB1BAAD3471D1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		549D006388851BE5DB3E18D0 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		5F8F154662B1809CF9A54D9F /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
 		627ECBC0DB01997F43F0229E /* better-drop_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "better-drop_iOS.entitlements"; sourceTree = "<group>"; };
 		7188A740D023F2B4A1952ACD /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
@@ -38,7 +71,9 @@
 		8197D3787D043C33C65EA4EE /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		8309357076115219CEEE7D09 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
 		838B6DFD83791C291126BE56 /* server.rs */ = {isa = PBXFileReference; path = server.rs; sourceTree = "<group>"; };
+		87BD832F0AA417122F5F8E9F /* SharedInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedInbox.swift; sourceTree = "<group>"; };
 		9BD403516ADF161FFA945B97 /* tray.rs */ = {isa = PBXFileReference; path = tray.rs; sourceTree = "<group>"; };
+		9C2CF1694A4341B2DA9CAB56 /* BetterDropShare.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = BetterDropShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		9E8FB37B6D1C670424C67D47 /* paths.rs */ = {isa = PBXFileReference; path = paths.rs; sourceTree = "<group>"; };
 		B7D66DCF7C2761798336D5FA /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		BCCD8613CBCCE24C9B7A1819 /* better-drop_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "better-drop_iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -47,6 +82,7 @@
 		DA8E52075AF0E9D9BF591B60 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E64F221233D00FAAD039ADF5 /* discovery.rs */ = {isa = PBXFileReference; path = discovery.rs; sourceTree = "<group>"; };
 		E788FBE1BF333AD2CC92BA4B /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
+		EDD5A0045524B4CAED2E3E98 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		EE876FEBF44FE5C26F630C18 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
 		EE8EABBA97EEA4C643159BC2 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		EFF1C90000FD3D110FE887F9 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
@@ -80,6 +116,7 @@
 				EE8EABBA97EEA4C643159BC2 /* LaunchScreen.storyboard */,
 				06687666F688A5569A319721 /* better-drop_iOS */,
 				A0034E68F48466F1D1C64013 /* Externals */,
+				8EB275B4FDF3A29282EB5076 /* ShareExtension */,
 				BB353E1E84590C9E5D48DC30 /* Sources */,
 				DC5997A8DECEA3C810F8BF17 /* src */,
 				7C14D04DCD746EF62E74C6BA /* Frameworks */,
@@ -128,6 +165,17 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		8EB275B4FDF3A29282EB5076 /* ShareExtension */ = {
+			isa = PBXGroup;
+			children = (
+				EDD5A0045524B4CAED2E3E98 /* Info.plist */,
+				87BD832F0AA417122F5F8E9F /* SharedInbox.swift */,
+				4C2290728ED8693E8039A9BA /* ShareExtension.entitlements */,
+				549D006388851BE5DB3E18D0 /* ShareViewController.swift */,
+			);
+			path = ShareExtension;
+			sourceTree = "<group>";
+		};
 		A0034E68F48466F1D1C64013 /* Externals */ = {
 			isa = PBXGroup;
 			children = (
@@ -139,6 +187,7 @@
 			isa = PBXGroup;
 			children = (
 				BCCD8613CBCCE24C9B7A1819 /* better-drop_iOS.app */,
+				9C2CF1694A4341B2DA9CAB56 /* BetterDropShare.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -155,7 +204,9 @@
 			isa = PBXGroup;
 			children = (
 				2A132520468F0EC68A8EF0AD /* client.rs */,
+				3DE55BAA036579BD770EF338 /* devices.rs */,
 				E64F221233D00FAAD039ADF5 /* discovery.rs */,
+				4C7C7C0A2A99A501BA1AF3B5 /* history.rs */,
 				1FBA89BE25EEBC0AB3A7DA65 /* identity.rs */,
 				802D027B17B06978DBDB85A8 /* lib.rs */,
 				E788FBE1BF333AD2CC92BA4B /* main.rs */,
@@ -167,9 +218,25 @@
 				26A5709F5F43D4BD88F0221E /* tests.rs */,
 				C99838543864AA4642AD971E /* transfer.rs */,
 				9BD403516ADF161FFA945B97 /* tray.rs */,
+				2210947D1F930B816868F53B /* updater.rs */,
+				452825B58B37EE7E1978AD75 /* web.rs */,
 			);
 			name = src;
 			path = ../../src;
+			sourceTree = "<group>";
+		};
+		"TEMP_35257D99-F972-4E2E-B566-BFCB5A74D29F" /* arm64 */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = arm64;
+			sourceTree = "<group>";
+		};
+		"TEMP_A184FE9F-FD51-4CC5-91FB-4D6B90E76598" /* x86_64 */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = x86_64;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -183,10 +250,12 @@
 				2F07FE32F9438A03B6024F0F /* Sources */,
 				C3280253B8A4E69AE6426B43 /* Resources */,
 				70A87396C8E7E819ECA70159 /* Frameworks */,
+				4E9AE2E8D5AACF210D35AD2C /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				C6A061B4E08FA24E30903B1A /* PBXTargetDependency */,
 			);
 			name = "better-drop_iOS";
 			packageProductDependencies = (
@@ -194,6 +263,24 @@
 			productName = "better-drop_iOS";
 			productReference = BCCD8613CBCCE24C9B7A1819 /* better-drop_iOS.app */;
 			productType = "com.apple.product-type.application";
+		};
+		BE002A21B5CFE84A51EE81F6 /* BetterDropShare */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A0204A5CD063D0DECEF4939B /* Build configuration list for PBXNativeTarget "BetterDropShare" */;
+			buildPhases = (
+				147DE0A0B1598E0EC5E609B8 /* Sources */,
+				601128BC09D852430D8CE9B4 /* Sync Version */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BetterDropShare;
+			packageProductDependencies = (
+			);
+			productName = BetterDropShare;
+			productReference = 9C2CF1694A4341B2DA9CAB56 /* BetterDropShare.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -221,6 +308,7 @@
 			projectRoot = "";
 			targets = (
 				AA5D87FE37AA3900CCF57B92 /* better-drop_iOS */,
+				BE002A21B5CFE84A51EE81F6 /* BetterDropShare */,
 			);
 		};
 /* End PBXProject section */
@@ -239,6 +327,25 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		601128BC09D852430D8CE9B4 /* Sync Version */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Sync Version";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "v=$(/usr/libexec/PlistBuddy -c \"Print :CFBundleShortVersionString\" \"${SRCROOT}/better-drop_iOS/Info.plist\")\nb=$(/usr/libexec/PlistBuddy -c \"Print :CFBundleVersion\" \"${SRCROOT}/better-drop_iOS/Info.plist\")\n/usr/libexec/PlistBuddy -c \"Set :CFBundleShortVersionString $v\" -c \"Set :CFBundleVersion $b\" \"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n";
+		};
 		BC29F32CB8A017FC448E0C87 /* Build Rust Code */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -263,6 +370,15 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		147DE0A0B1598E0EC5E609B8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C92199CF8180E2C438A28CC8 /* ShareViewController.swift in Sources */,
+				CFD4CA3BDEF25DE517C0A4EA /* SharedInbox.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		2F07FE32F9438A03B6024F0F /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -273,7 +389,40 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		C6A061B4E08FA24E30903B1A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BE002A21B5CFE84A51EE81F6 /* BetterDropShare */;
+			targetProxy = 35CA0DDB492F852D1E6CC1CA /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		15A8061CB24FF099A708127A /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				ARCHS = (
+					arm64,
+				);
+				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				INFOPLIST_FILE = ShareExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nguyentuyen.betterdrop.share;
+				PRODUCT_NAME = BetterDropShare;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = release;
+		};
 		22666F86EFEB64BC611D1130 /* release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -424,6 +573,31 @@
 			};
 			name = debug;
 		};
+		BBBC37E61350644C3186F869 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				ARCHS = (
+					arm64,
+				);
+				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				INFOPLIST_FILE = ShareExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nguyentuyen.betterdrop.share;
+				PRODUCT_NAME = BetterDropShare;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = debug;
+		};
 		E9A0FCF94EB715B4202AB5E0 /* release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -463,6 +637,15 @@
 			buildConfigurations = (
 				98A39AD1F719A4B1051EDEB9 /* debug */,
 				22666F86EFEB64BC611D1130 /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+		A0204A5CD063D0DECEF4939B /* Build configuration list for PBXNativeTarget "BetterDropShare" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BBBC37E61350644C3186F869 /* debug */,
+				15A8061CB24FF099A708127A /* release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = debug;
