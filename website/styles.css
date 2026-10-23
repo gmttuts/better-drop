@@ -175,6 +175,14 @@ code { font: 0.88em var(--mono); background: var(--panel); padding: 1px 5px; bor
 .web-btn { padding: 11px; border-radius: 12px; text-align: center; font-size: 14px; font-weight: 600; color: #fff; background: var(--blue); }
 .web-btn.ghost { background: #f0f0f2; color: #111; }
 
+/* ---------- Share from other apps ---------- */
+.share-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 40px; align-items: start; }
+.share-card { min-width: 0; padding: 22px; border-radius: 20px; background: var(--panel); }
+.share-card.mine { background: var(--tint); box-shadow: inset 0 0 0 1.5px var(--blue); }
+.share-card header { display: flex; gap: 12px; align-items: center; }
+.share-card ul { margin: 16px 0 0; padding-left: 18px; color: var(--muted); font-size: 15px; display: grid; gap: 8px; }
+.share-card b { color: var(--text); font-weight: 600; }
+
 /* ---------- Download ---------- */
 .release-line { margin: 18px 0 0; min-height: 1.5em; }
 .platforms { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 16px; margin-top: 36px; align-items: start; }
@@ -196,13 +204,14 @@ code { font: 0.88em var(--mono); background: var(--panel); padding: 1px 5px; bor
 .code button { flex: none; background: rgba(255,255,255,.12); color: #fff; border: 0; border-radius: 7px; padding: 6px 12px; font: 500 13px var(--font); cursor: pointer; }
 
 .notes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
-.warn, .netbox { padding: 22px 24px; border-radius: 20px; }
+.warn, .netbox, .updbox { padding: 22px 24px; border-radius: 20px; }
+.updbox { grid-column: 1 / -1; background: var(--tint); }
 .warn { background: var(--warn); }
 .netbox { box-shadow: inset 0 0 0 1px var(--line); }
-.warn h3, .netbox h3 { font-size: 16px; }
+.warn h3, .netbox h3, .updbox h3 { font-size: 16px; }
 .warn p { margin: 8px 0 0; color: var(--muted); font-size: 15px; }
-.netbox ul { margin: 10px 0 0; padding-left: 18px; color: var(--muted); font-size: 15px; display: grid; gap: 8px; }
-.netbox b { color: var(--text); font-weight: 600; }
+.netbox ul, .updbox ul { margin: 10px 0 0; padding-left: 18px; color: var(--muted); font-size: 15px; display: grid; gap: 8px; }
+.netbox b, .updbox b { color: var(--text); font-weight: 600; }
 
 /* ---------- Support: calm text on the left, a friendly coffee cup on the right ---------- */
 .btn-coffee { background: #ffdd00; color: #1a1400; }
@@ -246,7 +255,7 @@ code { font: 0.88em var(--mono); background: var(--panel); padding: 1px 5px; bor
 .faq summary::-webkit-details-marker { display: none; }
 .faq summary::before { content: "+"; flex: none; color: var(--muted); width: 14px; transition: transform .2s; }
 .faq details[open] summary::before { transform: rotate(45deg); }
-.faq p { color: var(--muted); margin: 12px 0 0 30px; }
+.faq p { color: var(--muted); margin: 12px 0 0 30px; overflow-wrap: anywhere; }
 
 /* ---------- Closing call to action ---------- */
 .cta-card { text-align: center; padding: clamp(40px, 6vw, 80px) clamp(20px, 4vw, 48px); border-radius: 32px; background: radial-gradient(110% 90% at 50% 100%, var(--tint), var(--panel) 70%); }
@@ -285,6 +294,7 @@ code { font: 0.88em var(--mono); background: var(--panel); padding: 1px 5px; bor
 @media (max-width: 600px) {
   body { font-size: 16px; }
   .features { grid-template-columns: 1fr; gap: 30px; }
+  .share-grid { grid-template-columns: 1fr; }
   .platforms { grid-template-columns: 1fr; }
   .hero-sky { border-radius: 24px; }
   .support-text .btn { width: 100%; }

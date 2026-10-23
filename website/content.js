@@ -84,6 +84,27 @@ window.SITE = {
     "br.mock.all": { vi: "Tải tất cả (.zip)", en: "Download all (.zip)" },
     "br.mock.send": { vi: "Gửi file lên máy tính", en: "Send files to the computer" },
 
+    "share.kicker": { vi: "Chia sẻ từ app khác", en: "Share from other apps" },
+    "share.title": { vi: "Gửi thẳng từ Ảnh, Finder hay Explorer.", en: "Send straight from Photos, Finder or Explorer." },
+    "share.sub": {
+      vi: "Không cần mở BetterDrop rồi đi tìm file. File, link hay văn bản được đưa sẵn vào danh sách gửi, bạn chỉ việc chọn máy nhận và bấm Gửi.",
+      en: "No need to open BetterDrop and hunt for the file. Files, links or text land in the send list; just pick a device and hit Send.",
+    },
+
+    "upd.title": { vi: "Cập nhật lên bản mới", en: "Updating" },
+    "upd.1": {
+      vi: "<b>Máy tính:</b> khi có bản mới, app hiện thông báo, bấm <b>Cập nhật và mở lại</b>. Bản cập nhật có chữ ký, app kiểm tra trước khi cài. Trên Linux, chỉ bản <b>.AppImage</b> tự cập nhật; .deb và .rpm thì tải bản mới về cài đè.",
+      en: "<b>Computers:</b> when a new version is out, the app tells you; click <b>Update and restart</b>. Updates are signed and checked before installing. On Linux only the <b>.AppImage</b> updates itself; for .deb and .rpm, install the new package over the old one.",
+    },
+    "upd.2": {
+      vi: "<b>Điện thoại:</b> app báo “có bản mới” kèm nút <b>Tải bản mới</b>, mở file .apk (Android) hoặc trang tải .ipa (iPhone, iPad). Cài như lần đầu.",
+      en: "<b>Phones:</b> the app says a new version is available, with a <b>Download update</b> button that opens the .apk (Android) or the .ipa download page (iPhone, iPad). Install it like the first time.",
+    },
+    "upd.3": {
+      vi: "<b>Bản cũ:</b> máy tính đang dùng v0.3.4 trở về trước, điện thoại đang dùng v0.3.6 trở về trước chưa biết tự báo. Tải bản mới ở trên và cài đè một lần, từ đó về sau app tự lo.",
+      en: "<b>Older versions:</b> computers on v0.3.4 or earlier and phones on v0.3.6 or earlier can't tell you yet. Download the new version above and install it over the old one, once. After that it's automatic.",
+    },
+
     "dl.kicker": { vi: "Tải về", en: "Download" },
     "dl.title": { vi: "Chọn hệ điều hành của bạn.", en: "Pick your platform." },
     "dl.loading": { vi: "Đang lấy bản mới nhất từ GitHub…", en: "Checking GitHub for the latest version…" },
@@ -162,6 +183,46 @@ window.SITE = {
     { icon: "🔁", vi: ["Mọi phiên bản nói chuyện được", "Giao thức giữ nguyên từ v0.1.0, máy cũ máy mới vẫn gửi nhận được với nhau."], en: ["Every version works together", "The protocol hasn't changed since v0.1.0, so old and new versions still talk to each other."] },
   ],
 
+  // "Share from other apps" cards, one per platform (`os` picks the icon; the visitor's own platform goes first).
+  share: [
+    {
+      os: "android", name: "Android",
+      steps: {
+        vi: ["Trong Ảnh, Tệp, Chrome hay app bất kỳ, bấm <b>Chia sẻ › BetterDrop</b>.", "Một hay nhiều file, link, văn bản đều được."],
+        en: ["In Photos, Files, Chrome or any app, tap <b>Share › BetterDrop</b>.", "One file or many, links and text all work."],
+      },
+    },
+    {
+      os: "ios", name: "iPhone / iPad",
+      steps: {
+        vi: [
+          "Trong Ảnh, Tệp hay Safari, bấm <b>Chia sẻ › BetterDrop</b>: ảnh, video, file, link, văn bản.",
+          "Chưa thấy BetterDrop? Kéo hàng app sang phải, bấm <b>Thêm</b> rồi bật BetterDrop.",
+          "Cài bằng Apple ID miễn phí: phần chia sẻ tốn thêm một App ID. Nếu Sideloadly hay AltStore không cấp được, link và văn bản vẫn chia sẻ được, còn file thì mở BetterDrop và bấm <b>Chọn file</b>.",
+        ],
+        en: [
+          "In Photos, Files or Safari, tap <b>Share › BetterDrop</b>: photos, videos, files, links, text.",
+          "Don't see BetterDrop? Swipe the app row to the end, tap <b>More</b> and turn BetterDrop on.",
+          "Installed with a free Apple ID: sharing needs one more App ID. If Sideloadly or AltStore can't get it, links and text still work; for files, open BetterDrop and tap <b>Choose files</b>.",
+        ],
+      },
+    },
+    {
+      os: "windows", name: "Windows",
+      steps: {
+        vi: ["Trong File Explorer, chuột phải vào file hoặc thư mục › <b>Send to › BetterDrop</b>.", "Windows 11: bấm <b>Show more options</b> trước để thấy Send to.", "Có ở bản cài <b>.exe</b>; bản .msi không thêm mục này."],
+        en: ["In File Explorer, right-click files or folders › <b>Send to › BetterDrop</b>.", "Windows 11: click <b>Show more options</b> first to see Send to.", "Comes with the <b>.exe</b> installer; the .msi doesn't add it."],
+      },
+    },
+    {
+      os: "mac", name: "macOS",
+      steps: {
+        vi: ["Trong Finder, chuột phải vào file › <b>Mở bằng › BetterDrop</b>.", "Hoặc kéo file, thư mục thả lên biểu tượng BetterDrop trên Dock."],
+        en: ["In Finder, Control-click files › <b>Open With › BetterDrop</b>.", "Or drag files and folders onto the BetterDrop icon in the Dock."],
+      },
+    },
+  ],
+
   // Download cards. `match` picks the file out of the GitHub release; `file` is its name for fallbackVersion;
   // `os` is what detectOS() returns.
   platforms: [
@@ -237,6 +298,22 @@ window.SITE = {
     {
       vi: ["File nhận được nằm ở đâu?", "Máy tính: <code>Downloads/BetterDrop</code> (đổi được trong Cài đặt). Android: <code>Download/BetterDrop</code>. iPhone: Tệp › Trên iPhone › BetterDrop. Nếu trùng tên, file mới được thêm “ (1)”, file cũ không bị ghi đè."],
       en: ["Where do received files go?", "Computers: <code>Downloads/BetterDrop</code> (changeable in Settings). Android: <code>Download/BetterDrop</code>. iPhone: Files › On My iPhone › BetterDrop. If a name is taken, the new file gets “ (1)”; nothing is overwritten."],
+    },
+    {
+      vi: ["Làm sao cập nhật?", "Máy tính tự báo khi có bản mới, bấm <b>Cập nhật và mở lại</b> là xong (Linux: bản .AppImage). Điện thoại báo “có bản mới” kèm nút <b>Tải bản mới</b> để tải file .apk hoặc .ipa rồi cài như lần đầu. Máy tính đang dùng v0.3.4 trở về trước, điện thoại v0.3.6 trở về trước thì tải bản mới ở mục Tải về và cài đè một lần."],
+      en: ["How do I update?", "Computers tell you when a new version is out; click <b>Update and restart</b> and that's it (Linux: the .AppImage). Phones say a new version is available, with a <b>Download update</b> button for the .apk or .ipa; install it like the first time. Computers on v0.3.4 or earlier and phones on v0.3.6 or earlier: get the new version from Download and install it over the old one once."],
+    },
+    {
+      vi: ["Mất Wi‑Fi giữa chừng thì sao?", "BetterDrop tự thử nối lại. Máy nhận giữ phần đã nhận trong <b>2 phút</b>; mạng có lại trong khoảng đó thì gửi tiếp từ đúng chỗ đang dở, không phải gửi lại từ đầu. Quá 2 phút thì báo lỗi, phần dở bị xoá, bạn bấm gửi lại. Cả hai máy cần v0.3.5 trở lên."],
+      en: ["What if the Wi‑Fi drops mid-transfer?", "BetterDrop keeps trying to reconnect. The receiver holds what it already got for <b>2 minutes</b>; if the network comes back in time, the transfer picks up exactly where it stopped instead of starting over. After 2 minutes it reports an error, drops the partial file, and you send again. Both devices need v0.3.5 or later."],
+    },
+    {
+      vi: ["Máy tin cậy là gì?", "Khi nhận file, tích <b>“Luôn chấp nhận từ máy này”</b> thì lần sau máy đó gửi tới là nhận luôn, không hỏi (vẫn có thông báo). Máy gửi phải chứng minh danh tính bằng chứng chỉ riêng của nó, nên máy khác đặt cùng tên cũng không giả mạo được. Bỏ tin cậy trong Cài đặt › Máy tin cậy, hoặc quên máy đó. Máy gửi dùng bản cũ hơn v0.3.4 thì luôn phải hỏi."],
+      en: ["What's a trusted device?", "When receiving, tick <b>“Always accept from this device”</b> and that device's transfers come in without asking next time (you still get a notification). The sender has to prove who it is with its own certificate, so another device using the same name can't fake it. Stop trusting it in Settings › Trusted devices, or forget the device. Senders older than v0.3.4 always need your OK."],
+    },
+    {
+      vi: ["Lịch sử lưu ở đâu, xoá thế nào?", "Lịch sử nằm ở mục <b>Hoạt động</b>, chỉ lưu trên chính máy đó (1.000 lượt gần nhất, kể cả văn bản đã gửi). Bấm × ở một dòng để xoá dòng đó, hoặc <b>Xoá lịch sử</b> để xoá hết. File đã gửi nhận vẫn còn nguyên. Trên máy tính, lịch sử là file <code>history.jsonl</code> trong thư mục dữ liệu của app: Mac <code>~/Library/Application Support/BetterDrop</code>, Windows <code>%APPDATA%\\BetterDrop</code>, Linux <code>~/.local/share/BetterDrop</code>."],
+      en: ["Where is the history kept, and how do I clear it?", "History lives under <b>Activity</b>, on that device only (the last 1,000 transfers, including text you sent). Click × on a row to remove it, or <b>Clear history</b> to remove everything. The files themselves stay put. On computers it's the file <code>history.jsonl</code> in the app's data folder: Mac <code>~/Library/Application Support/BetterDrop</code>, Windows <code>%APPDATA%\\BetterDrop</code>, Linux <code>~/.local/share/BetterDrop</code>."],
     },
     {
       vi: ["Có mất phí không?", "Không. BetterDrop miễn phí, không quảng cáo, không cần tài khoản, và mã nguồn nằm công khai trên GitHub."],
