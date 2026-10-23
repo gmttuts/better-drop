@@ -39,7 +39,7 @@ cd src-tauri && cargo test
 **GitHub Actions**:
 - Đẩy code lên `main`: chỉ chạy test (`test.yml`, một máy Linux).
 - Gắn tag `v*` (vd `git tag v0.3.7 && git push origin v0.3.7`): build đủ mọi nền tảng và tạo bản phát hành nháp (`build.yml`).
-- Muốn lấy file cài thử mà không phát hành: vào tab Actions › Build › **Run workflow**. File nằm trong mục Artifacts, giữ 5 ngày.
+- Muốn lấy file cài thử mà không phát hành: vào tab Actions › Build › **Run workflow**, tích nền tảng cần build (macOS/iOS tốn nhất nên mặc định tắt). File nằm trong mục Artifacts, giữ 5 ngày.
 
 **macOS** — tạo `.dmg` trong `src-tauri/target/release/bundle/dmg/`:
 
