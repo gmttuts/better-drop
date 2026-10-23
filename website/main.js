@@ -156,6 +156,16 @@
     });
   }
 
+  function renderShare() {
+    each("[data-share]", (box) => {
+      const list = [...S.share].sort((a, b) => (b.os === os) - (a.os === os));
+      box.innerHTML = list.map((p) => `<article class="share-card${p.os === os ? " mine" : ""}">
+          <header><span class="picon">${ICONS[p.os]}</span><h3>${p.name}</h3></header>
+          <ul>${tv(p.steps).map((s) => `<li>${s}</li>`).join("")}</ul>
+        </article>`).join("");
+    });
+  }
+
   function renderFaq() {
     each("[data-faq]", (box) => {
       box.innerHTML = S.faq.map((f) => {
@@ -172,6 +182,7 @@
     each("[data-lang]", (b) => b.setAttribute("aria-pressed", String(b.dataset.lang === lang)));
     each("[data-i18n-label]", (el) => { el.setAttribute("aria-label", t(el.dataset.i18nLabel)); });
     renderFeatures();
+    renderShare();
     renderFaq();
     renderDownloads();
     // The demo follows the page language (it restarts, which is fine for a demo).
