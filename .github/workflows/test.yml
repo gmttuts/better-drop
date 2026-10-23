@@ -1,0 +1,52 @@
+name: Test
+
+# Đẩy code lên main hoặc mở PR: chỉ chạy test (Rust + kiểm tra kiểu TypeScript) trên một máy Linux.
+# Build file cài cho mọi nền tảng nằm ở build.yml (chạy khi gắn tag v*).
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["website/**", "docs/**", "**/*.md"]
+  pull_request:
+    paths-ignore: ["website/**", "docs/**", "**/*.md"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cài thư viện hệ thống
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          # Chỉ lưu cache từ main để các PR không đẻ thêm cache mới.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - run: npm ci
+
+      - name: Kiểm tra kiểu TypeScript
+        run: npx tsc --noEmit
+
+      - name: Test Rust
+        working-directory: src-tauri
+        run: cargo test

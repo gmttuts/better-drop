@@ -36,6 +36,11 @@ cd src-tauri && cargo test
 
 ## Đóng gói
 
+**GitHub Actions**:
+- Đẩy code lên `main`: chỉ chạy test (`test.yml`, một máy Linux).
+- Gắn tag `v*` (vd `git tag v0.3.7 && git push origin v0.3.7`): build đủ mọi nền tảng và tạo bản phát hành nháp (`build.yml`).
+- Muốn lấy file cài thử mà không phát hành: vào tab Actions › Build › **Run workflow**. File nằm trong mục Artifacts, giữ 5 ngày.
+
 **macOS** — tạo `.dmg` trong `src-tauri/target/release/bundle/dmg/`:
 
 ```bash
@@ -51,7 +56,7 @@ npm run tauri build
 
 ## Điện thoại
 
-**Android**: tải `BetterDrop-android` (file `.apk`) từ GitHub Actions, mở trên điện thoại và cho phép "Cài ứng dụng không rõ nguồn gốc". File nhận được nằm ở `Download/BetterDrop` (xem bằng app Files).
+**Android**: tải `BetterDrop-android.apk` từ trang Releases (hoặc Artifacts của lần chạy Build), mở trên điện thoại và cho phép "Cài ứng dụng không rõ nguồn gốc". File nhận được nằm ở `Download/BetterDrop` (xem bằng app Files).
 
 **iPhone/iPad**: cần build bằng Xcode trên máy Mac.
 1. Một lần duy nhất: `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`.

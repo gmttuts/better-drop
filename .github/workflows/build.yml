@@ -1,16 +1,21 @@
 name: Build
 
-# Mỗi lần đẩy code lên nhánh main: build bản Windows + macOS + Linux và đính kèm vào trang Actions.
-# Đẩy tag dạng v0.2.0: tạo một bản phát hành nháp (Release) chứa file cài của mọi nền tảng.
+# Build file cài cho mọi nền tảng. Chỉ chạy khi:
+# - đẩy tag dạng v0.3.7: tạo một bản phát hành nháp (Release) chứa file cài của mọi nền tảng;
+# - bấm "Run workflow" trong tab Actions (lấy file cài thử trong mục Artifacts, giữ 5 ngày).
+# Đẩy code lên main thì chỉ chạy test nhẹ (test.yml) cho đỡ tốn tài nguyên.
 on:
   push:
-    branches: [main]
     tags: ["v*"]
-  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: write
+
+# Chạy lại cùng một tag/nhánh thì huỷ lần chạy cũ.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -61,6 +66,8 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+          # Cache tạo từ tag không dùng lại được cho tag sau, nên chỉ lưu khi chạy tay trên main.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - run: npm ci
 
@@ -84,6 +91,7 @@ jobs:
           name: BetterDrop-${{ matrix.name }}
           path: ${{ matrix.bundles }}
           if-no-files-found: error
+          retention-days: 5
 
 
   android:
@@ -108,6 +116,8 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+          # Cache tạo từ tag không dùng lại được cho tag sau, nên chỉ lưu khi chạy tay trên main.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Cài Android NDK
         run: |
@@ -129,6 +139,7 @@ jobs:
           name: BetterDrop-android
           path: out/BetterDrop-android.apk
           if-no-files-found: error
+          retention-days: 5
 
 
   ios:
@@ -150,6 +161,8 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+          # Cache tạo từ tag không dùng lại được cho tag sau, nên chỉ lưu khi chạy tay trên main.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - run: npm ci
 
@@ -171,6 +184,7 @@ jobs:
           name: BetterDrop-ios
           path: out/BetterDrop-ios-unsigned.ipa
           if-no-files-found: error
+          retention-days: 5
 
   release:
     # Đẩy tag dạng v0.2.0: gom file cài của mọi nền tảng vào MỘT bản phát hành nháp.
