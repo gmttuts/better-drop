@@ -11,7 +11,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio_util::io::ReaderStream;
 
-const PARALLEL_UPLOADS: usize = 3;
+/// Số "suất" gửi song song. File lớn chiếm `LARGE_COST` suất (tối đa 3 file lớn cùng
+/// lúc, như trước); file nhỏ chiếm 1 suất, nên nhiều file nhỏ được gửi chồng lên nhau
+/// thay vì mỗi file phải chờ trọn một vòng hỏi-đáp qua mạng.
+const UPLOAD_SLOTS: u32 = 16;
+const LARGE_COST: u32 = 5;
+const LARGE_FILE: u64 = 1024 * 1024;
 const RECEIVE_OFF: &str = "Máy nhận đang tắt chế độ nhận file";
 const SKIP_NAMES: &[&str] = &[".DS_Store", "Thumbs.db", "desktop.ini"];
 
@@ -292,9 +297,15 @@ pub async fn send_files(
     let prep: PrepareResponse = resp.json().await.map_err(|e| e.to_string())?;
     tracker.set_status(TransferStatus::Transferring, None);
 
+    let slots = tokio::sync::Semaphore::new(UPLOAD_SLOTS as usize);
     let result = futures_util::stream::iter(files.into_iter().map(Ok))
-        .try_for_each_concurrent(PARALLEL_UPLOADS, |f| {
-            upload_one(st, &client, &addr, &prep, f, tracker)
+        .try_for_each_concurrent(UPLOAD_SLOTS as usize, |f| {
+            let (slots, client, addr, prep) = (&slots, &client, &addr, &prep);
+            async move {
+                let cost = if f.meta.size >= LARGE_FILE { LARGE_COST } else { 1 };
+                let _slot = slots.acquire_many(cost).await.map_err(|e| e.to_string())?;
+                upload_one(st, client, addr, prep, f, tracker).await
+            }
         })
         .await;
 
@@ -352,7 +363,12 @@ async fn upload_one(
     loop {
         match upload_from(st, client, addr, prep, &f, &token, offset, tracker, &counted).await {
             Ok(()) => {
-                tracker.set_note(None);
+                // Chỉ xoá ghi chú khi file này đã phải thử lại: mỗi lần đổi ghi chú là
+                // một lần báo lên giao diện, gọi cho từng file thì hàng nghìn file nhỏ
+                // sẽ làm giao diện giật.
+                if attempt > 0 {
+                    tracker.set_note(None);
+                }
                 return Ok(());
             }
             Err(UploadError::Fatal(e)) => return Err(e),
