@@ -936,9 +936,10 @@ async function answerRequest(accept: boolean) {
   showNextRequest();
 }
 
-// ---- Tự cập nhật (chỉ máy tính) ----
+// ---- Tự cập nhật (máy tính) / báo có bản mới (điện thoại) ----
 
-type UpdateInfo = { version: string; current: string; notes?: string | null };
+// Điện thoại có thêm `url`: link tải APK (Android) hoặc trang phát hành (iOS).
+type UpdateInfo = { version: string; current: string; notes?: string | null; url?: string };
 
 let updateDismissed = false;
 
@@ -946,6 +947,7 @@ function showUpdate(u: UpdateInfo) {
   $("update-text").textContent = `Đã có BetterDrop v${u.version} (máy này đang dùng v${u.current}).`;
   $("update-banner").hidden = updateDismissed;
   $("update-status").textContent = `Có bản mới v${u.version}`;
+  $("btn-update-install").textContent = u.url ? "Tải bản mới" : "Cập nhật và mở lại";
 }
 
 async function checkUpdate(manual: boolean) {
@@ -973,6 +975,18 @@ async function checkUpdate(manual: boolean) {
 
 async function installUpdate() {
   const btn = $<HTMLButtonElement>("btn-update-install");
+  if (me?.mobile) {
+    // Điện thoại không tự cài được: mở link tải (Android tải APK về rồi bấm cài).
+    btn.disabled = true;
+    try {
+      await invoke("install_update");
+    } catch (e) {
+      toast(errorText(e), "error");
+    } finally {
+      btn.disabled = false;
+    }
+    return;
+  }
   btn.disabled = true;
   $("btn-update-later").hidden = true;
   $("update-text").textContent = "Đang tải bản mới…";
@@ -996,7 +1010,6 @@ function openSettings() {
   const isMac = me.info.os === "mac";
   $("row-dock").hidden = !isMac;
   $("row-autostart").hidden = me.mobile;
-  $("row-update").hidden = me.mobile;
   $("btn-choose-dir").hidden = me.mobile;
   $("bg-hint").textContent = me.mobile
     ? "Trên điện thoại, hãy mở BetterDrop khi muốn nhận file."
@@ -1434,10 +1447,8 @@ async function init() {
   await pullShared();
   await listen("shared-items", pullShared);
   // Mở app thì tự xem có bản mới không (mỗi 6 tiếng xem lại, vì app hay chạy nền lâu).
-  if (!me.mobile) {
-    setTimeout(() => checkUpdate(false), 3000);
-    setInterval(() => checkUpdate(false), 6 * 3600 * 1000);
-  }
+  setTimeout(() => checkUpdate(false), 3000);
+  setInterval(() => checkUpdate(false), 6 * 3600 * 1000);
   // Android: quay lại app sau khi chọn "Chia sẻ → BetterDrop" từ app khác.
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) pullShared();

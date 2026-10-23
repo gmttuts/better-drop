@@ -948,3 +948,15 @@ fn shared_paths_come_from_command_line_args() {
         vec![f.to_string_lossy().into_owned(), dir.path().to_string_lossy().into_owned()]
     );
 }
+
+#[test]
+fn update_version_compare() {
+    use crate::updater::is_newer;
+    assert!(is_newer("0.3.7", "0.3.6"));
+    assert!(is_newer("v0.4.0", "0.3.10"));
+    assert!(is_newer("0.3.10", "0.3.9"));
+    assert!(is_newer("1.0", "0.9.9"));
+    assert!(!is_newer("0.3.6", "0.3.6"));
+    assert!(!is_newer("v0.3.3", "0.3.6"));
+    assert!(!is_newer("0.3.6-beta", "0.3.6"));
+}
