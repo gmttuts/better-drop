@@ -4,7 +4,7 @@ window.SITE = {
   repo: "gmttuts/better-drop",
   // Shown until the GitHub API answers. If the API can't be reached (e.g. its hourly limit), the buttons
   // link straight to this version's files, named as in `file` below (the names CI gives them).
-  fallbackVersion: "0.3.3",
+  fallbackVersion: "0.3.6",
 
   // Support the author (the app is free). Same accounts as the Better Finder site.
   support: {
@@ -153,6 +153,12 @@ window.SITE = {
     { icon: "👥", vi: ["Nhiều máy, nhóm máy", "Chọn nhiều máy gửi một lần, lưu thành nhóm như “Phòng kế toán”, hoặc chọn tất cả."], en: ["Many devices, groups", "Send to several devices at once, save them as a group like “Accounting”, or select all."] },
     { icon: "🔤", vi: ["Giữ tên tiếng Việt", "Tên file có dấu giữ nguyên giữa Mac và Windows. Trùng tên thì thêm “ (1)”, không ghi đè."], en: ["Names stay intact", "Accented file names survive between Mac and Windows. Duplicates get “ (1)”, never overwritten."] },
     { icon: "🖥️", vi: ["Chạy nền", "Nằm trên thanh menu Mac hoặc khay hệ thống Windows, báo khi có người gửi, tự mở cùng máy."], en: ["Runs in the background", "Lives in the Mac menu bar or the Windows tray, notifies you when something arrives, starts with your computer."] },
+    { icon: "🤝", vi: ["Máy tin cậy", "Tích “Luôn chấp nhận từ máy này” để lần sau nhận luôn. Máy gửi phải chứng minh danh tính bằng chứng chỉ, không giả mạo được."], en: ["Trusted devices", "Tick “Always accept from this device” to skip the prompt next time. The sender proves who it is with its certificate, so it can't be faked."] },
+    { icon: "🕘", vi: ["Lịch sử", "Lưu 1.000 lượt gửi nhận gần nhất. Mở lại file, hiện trong thư mục, gửi lại hoặc chép lại văn bản."], en: ["History", "Keeps your last 1,000 transfers. Reveal files, open the folder, send again or copy the text again."] },
+    { icon: "📶", vi: ["Gửi tiếp khi rớt mạng", "Wi‑Fi chập chờn giữa chừng thì tự gửi tiếp từ chỗ đang dở, không phải gửi lại từ đầu."], en: ["Resumes after a drop", "If the Wi‑Fi drops mid-transfer, it picks up where it left off instead of starting over."] },
+    { icon: "📤", vi: ["Chia sẻ từ app khác", "Android: Chia sẻ › BetterDrop. Windows: chuột phải › Send to. Mac và iPhone: Mở bằng BetterDrop."], en: ["Share from other apps", "Android: Share › BetterDrop. Windows: right-click › Send to. Mac and iPhone: Open with BetterDrop."] },
+    { icon: "⬆️", vi: ["Tự cập nhật, có tiếng Anh", "Trên máy tính, app tự báo khi có bản mới và cập nhật bằng một nút. Giao diện tiếng Việt hoặc tiếng Anh."], en: ["Updates itself, speaks English", "On computers the app tells you about new versions and updates with one click. Vietnamese or English interface."] },
+    { icon: "🌐", vi: ["Không cần cài app", "Máy không có BetterDrop vẫn gửi nhận được: mở trình duyệt, quét QR, nhập mã PIN."], en: ["No app needed", "Devices without BetterDrop can still send and receive: open a browser, scan the QR code, enter the PIN."] },
     { icon: "🔁", vi: ["Mọi phiên bản nói chuyện được", "Giao thức giữ nguyên từ v0.1.0, máy cũ máy mới vẫn gửi nhận được với nhau."], en: ["Every version works together", "The protocol hasn't changed since v0.1.0, so old and new versions still talk to each other."] },
   ],
 
