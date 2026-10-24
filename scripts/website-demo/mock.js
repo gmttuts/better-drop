@@ -204,17 +204,16 @@
 
     // Gửi qua Internet: giả lập tải lên (không có gì rời khỏi trình duyệt).
     online_providers: () => [
-      { id: "litterbox", name: "Litterbox", max_bytes: 1e9, days: 3, app_download: true, browser_download: true },
       { id: "storage-to", name: "storage.to", max_bytes: 25e9, days: 7, app_download: false, browser_download: false },
       { id: "temp-sh", name: "temp.sh", max_bytes: 4e9, days: 3, app_download: true, browser_download: false },
     ],
     online_send({ paths, provider }) {
-      const name = { "temp-sh": "temp.sh", litterbox: "Litterbox" }[provider] || "storage.to";
+      const name = provider === "temp-sh" ? "temp.sh" : "storage.to";
       const days = provider === "storage-to" ? 7 : 3;
       const t = { id: "t" + ++tid, direction: "send", peer_name: name, kind: "files", file_count: paths.length,
         total_bytes: paths.reduce((s, x) => s + sizeOf(x), 0), transferred: 0, speed_bps: 0, status: "waiting", error: null, dir_path: null,
         files: paths.map((x) => ({ name: baseName(x), path: x })) };
-      const link = `https://gmttuts.github.io/better-drop/nhan/#1.${{ "temp-sh": "ts.dEmO1/betterdrop.bdrop", litterbox: "lb.dEmO12.bdrop" }[provider] || "st.DEMOdemo1"}.Wb3lYv0Yx2Qd5c8m1nH4pK7rT9uE6sA0zB3gJ5kL8oM`;
+      const link = `https://gmttuts.github.io/better-drop/nhan/#1.${provider === "temp-sh" ? "ts.dEmO1/betterdrop.bdrop" : "st.DEMOdemo1"}.Wb3lYv0Yx2Qd5c8m1nH4pK7rT9uE6sA0zB3gJ5kL8oM`;
       const expires_at = now() + days * 86400;
       live.set(t.id, t);
       (async () => {
@@ -240,7 +239,7 @@
       return t.id;
     },
     online_receive_link: ({ link }) => {
-      if (!/\/nhan\/#1\.(st|ts|lb)\./.test(link)) throw "Link BetterDrop không hợp lệ (thiếu hoặc sai phần sau dấu #)";
+      if (!/\/nhan\/#1\.(st|ts)\./.test(link)) throw "Link BetterDrop không hợp lệ (thiếu hoặc sai phần sau dấu #)";
       if (!link.includes("#1.st.")) throw "Bản dùng thử trên web không tải được file thật.";
       return { transfer_id: null, provider_name: "storage.to", page_url: "" };
     },

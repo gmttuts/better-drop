@@ -908,7 +908,7 @@ function progressBar(pct: number): HTMLElement {
 
 // ---- Gửi qua Internet ----
 
-type ProviderId = "litterbox" | "storage-to" | "temp-sh";
+type ProviderId = "storage-to" | "temp-sh";
 interface ProviderInfo {
   id: ProviderId;
   name: string;
@@ -1009,10 +1009,6 @@ async function openOnline() {
   }
   if (!providers.length) providers = await invoke<ProviderInfo[]>("online_providers");
   const size = stagedBytes();
-  // Mặc định: Litterbox (người nhận tải thẳng trong trình duyệt) khi chắc chắn ≤ 1 GB,
-  // còn lại storage.to. Thư mục chưa biết dung lượng nên dùng storage.to.
-  const lb = providers.find((p) => p.id === "litterbox");
-  onlineProvider = lb && !staged.some((s) => s.is_dir) && size <= lb.max_bytes ? "litterbox" : "storage-to";
   $("online-summary").textContent =
     staged.length === 1
       ? `${staged[0].name}${size ? ` · ${formatBytes(size)}` : ""}`

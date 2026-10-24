@@ -83,13 +83,6 @@
   // direct: URL để trang tự tải (dịch vụ phải cho phép CORS). null: người nhận tự tải file .bdrop.
   // Khớp với src-tauri/src/online/providers.rs.
   const PROVIDERS = {
-    lb: {
-      name: "Litterbox",
-      valid: (id) => /^[A-Za-z0-9]{4,32}\.[A-Za-z0-9]{1,10}$/.test(id),
-      page: (id) => `https://litter.catbox.moe/${id}`,
-      direct: (id) => `https://litter.catbox.moe/${id}`,
-      appDirect: true,
-    },
     st: {
       name: "storage.to",
       valid: (id) => /^[A-Za-z0-9_-]{6,32}$/.test(id),

@@ -16,7 +16,6 @@ use std::time::Duration;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Provider {
-    Litterbox,
     StorageTo,
     TempSh,
 }
@@ -37,20 +36,12 @@ pub struct ProviderInfo {
     pub browser_download: bool,
 }
 
-pub const ALL: &[Provider] = &[Provider::Litterbox, Provider::StorageTo, Provider::TempSh];
+pub const ALL: &[Provider] = &[Provider::StorageTo, Provider::TempSh];
 const GB: u64 = 1_000_000_000;
 
 impl Provider {
     pub fn info(self) -> ProviderInfo {
         match self {
-            Provider::Litterbox => ProviderInfo {
-                id: self,
-                name: "Litterbox",
-                max_bytes: GB,
-                days: 3,
-                app_download: true,
-                browser_download: true,
-            },
             Provider::StorageTo => ProviderInfo {
                 id: self,
                 name: "storage.to",
@@ -73,7 +64,6 @@ impl Provider {
     /// Mã ngắn trong link.
     pub fn code(self) -> &'static str {
         match self {
-            Provider::Litterbox => "lb",
             Provider::StorageTo => "st",
             Provider::TempSh => "ts",
         }
@@ -88,17 +78,6 @@ impl Provider {
         let ok = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
         match self {
             Provider::StorageTo => (6..=32).contains(&id.len()) && id.chars().all(ok),
-            // "abc123.bdrop": tên ngẫu nhiên + đuôi file.
-            Provider::Litterbox => match id.split_once('.') {
-                Some((name, ext)) => {
-                    (4..=32).contains(&name.len())
-                        && name.chars().all(|c| c.is_ascii_alphanumeric())
-                        && !ext.is_empty()
-                        && ext.len() <= 10
-                        && ext.chars().all(|c| c.is_ascii_alphanumeric())
-                }
-                None => false,
-            },
             Provider::TempSh => match id.split_once('/') {
                 Some((code, name)) => {
                     !code.is_empty()
@@ -115,7 +94,6 @@ impl Provider {
     /// Trang tải của dịch vụ (người nhận tự bấm tải file .bdrop ở đây).
     pub fn page_url(self, id: &str) -> String {
         match self {
-            Provider::Litterbox => format!("https://litter.catbox.moe/{id}"),
             Provider::StorageTo => format!("https://storage.to/{id}"),
             Provider::TempSh => format!("https://temp.sh/{id}"),
         }
@@ -297,7 +275,6 @@ where
 
 pub async fn upload(p: Provider, u: &Upload) -> Result<Uploaded, String> {
     match p {
-        Provider::Litterbox => litterbox::upload(u).await,
         Provider::StorageTo => storage_to::upload(u).await,
         Provider::TempSh => temp_sh::upload(u).await,
     }
@@ -311,7 +288,6 @@ pub async fn download(
     id: &str,
 ) -> Result<(reqwest::Response, Option<u64>), String> {
     match p {
-        Provider::Litterbox => litterbox::download(client, id).await,
         Provider::TempSh => temp_sh::download(client, id).await,
         Provider::StorageTo => Err("storage.to không cho tải thẳng".into()),
     }
@@ -624,45 +600,6 @@ async fn fetch_file(req: reqwest::RequestBuilder, name: &str) -> Result<(reqwest
     Ok((r, len))
 }
 
-/// Đầu thông báo lỗi khi Litterbox từ chối (tường lửa của họ chặn một số mạng); app tự chuyển
-/// sang storage.to khi gặp lỗi này.
-pub const LB_REFUSED: &str = "Litterbox từ chối tải lên";
-
-mod litterbox {
-    //! https://litterbox.catbox.moe/tools.php — một yêu cầu multipart (`reqtype=fileupload`,
-    //! `time=72h`, `fileToUpload`), trả về link tải trực tiếp dạng văn bản. Link tải có CORS `*`
-    //! nên trang nhận trên website tự tải được.
-    use super::*;
-
-    pub async fn upload(u: &Upload) -> Result<Uploaded, String> {
-        let form = reqwest::multipart::Form::new()
-            .text("reqtype", "fileupload")
-            .text("time", "72h")
-            .part("fileToUpload", streamed_part(u)?);
-        let url = format!("{}/resources/internals/api.php", base("https://litterbox.catbox.moe"));
-        let r = send_form(u, url, form).await?;
-        let status = r.status();
-        let text = r.text().await.map_err(net_err)?;
-        if !status.is_success() {
-            return Err(if status.as_u16() == 413 {
-                "Litterbox: file quá lớn (tối đa 1 GB)".into()
-            } else {
-                format!("{LB_REFUSED} (HTTP {})", status.as_u16())
-            });
-        }
-        let id = text
-            .trim()
-            .strip_prefix("https://litter.catbox.moe/")
-            .filter(|id| Provider::Litterbox.valid_id(id))
-            .ok_or_else(|| format!("Litterbox trả về kết quả lạ: {}", text.chars().take(80).collect::<String>()))?;
-        Ok(Uploaded { id: id.to_string(), expires_at: crate::history::now_secs() + 3 * 86_400 })
-    }
-
-    pub async fn download(client: &reqwest::Client, id: &str) -> Result<(reqwest::Response, Option<u64>), String> {
-        fetch_file(client.get(format!("{}/{id}", base("https://litter.catbox.moe"))), "Litterbox").await
-    }
-}
-
 mod temp_sh {
     //! https://temp.sh — một yêu cầu multipart `file=@…`, trả về link dạng văn bản.
     use super::*;
@@ -717,10 +654,6 @@ mod tests {
         assert!(Provider::StorageTo.valid_id("FQxyz1234"));
         assert!(!Provider::StorageTo.valid_id("../x"));
         assert!(!Provider::StorageTo.valid_id("a?b=c"));
-        assert!(Provider::Litterbox.valid_id("x7k2p9.bdrop"));
-        assert!(!Provider::Litterbox.valid_id("x7k2p9"));
-        assert!(!Provider::Litterbox.valid_id("../x.bdrop"));
-        assert!(!Provider::Litterbox.valid_id("abcd.bd/rop"));
         assert!(Provider::TempSh.valid_id("AbCdE/betterdrop.bdrop"));
         assert!(!Provider::TempSh.valid_id("AbCdE/../x"));
         assert!(!Provider::TempSh.valid_id("AbCdE"));

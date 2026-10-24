@@ -26,8 +26,6 @@ struct Mock {
     /// Lần PUT phần 2 đầu tiên trả lỗi 500 (thử gửi lại).
     fail_once: bool,
     visitor: Option<String>,
-    /// Litterbox trả 403 (như tường lửa của họ) cho lần tải lên tiếp theo.
-    lb_refuse: bool,
     expiry_days: Option<u64>,
 }
 
@@ -130,31 +128,6 @@ async fn temp_upload(State(m): State<Shared>, headers: axum::http::HeaderMap, bo
     "https://temp.sh/TsAbC/betterdrop.bdrop\n".into()
 }
 
-async fn litter_upload(State(m): State<Shared>, headers: axum::http::HeaderMap, body: Bytes) -> (StatusCode, String) {
-    if std::mem::take(&mut m.lock().unwrap().lb_refuse) {
-        return (StatusCode::FORBIDDEN, "<title>403 | Forbidden</title>".into());
-    }
-    let ct = headers["content-type"].to_str().unwrap();
-    let boundary = ct.split("boundary=").nth(1).unwrap();
-    let text = String::from_utf8_lossy(&body);
-    assert!(text.contains("name=\"reqtype\"\r\n\r\nfileupload"));
-    assert!(text.contains("name=\"time\"\r\n\r\n72h"));
-    let marker = b"filename=\"betterdrop.bdrop\"";
-    let at = body.windows(marker.len()).position(|w| w == marker).unwrap();
-    let start = at + body[at..].windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
-    let tail = format!("\r\n--{boundary}--\r\n");
-    let data = body[start..body.len() - tail.len()].to_vec();
-    m.lock().unwrap().files.insert("lbX7k2p9.bdrop".into(), data);
-    (StatusCode::OK, "https://litter.catbox.moe/lbX7k2p9.bdrop".into())
-}
-
-async fn litter_download(State(m): State<Shared>, AxPath(id): AxPath<String>) -> (StatusCode, Vec<u8>) {
-    match m.lock().unwrap().files.get(&id) {
-        Some(d) => (StatusCode::OK, d.clone()),
-        None => (StatusCode::NOT_FOUND, vec![]),
-    }
-}
-
 async fn temp_download(State(m): State<Shared>, AxPath((code, _name)): AxPath<(String, String)>) -> (StatusCode, Vec<u8>) {
     match m.lock().unwrap().files.get(&code) {
         Some(d) => (StatusCode::OK, d.clone()),
@@ -171,8 +144,6 @@ async fn mock_server(m: Shared) -> String {
         .route("/api/upload/abort", post(|| async { Json(json!({ "success": true })) }))
         .route("/r2/{key}", put(put_part))
         .route("/upload", post(temp_upload))
-        .route("/resources/internals/api.php", post(litter_upload))
-        .route("/{id}", axum::routing::get(litter_download))
         .route("/{code}/{name}", post(temp_download))
         .layer(axum::extract::DefaultBodyLimit::disable())
         .with_state(m);
@@ -311,34 +282,6 @@ async fn send_and_receive_through_mock_services() {
     assert_eq!(std::fs::read(dl.join("Ảnh/thư mục con/b.txt")).unwrap(), b"xin chao");
     assert_eq!(hist["dir_path"], dl.to_string_lossy().as_ref());
 
-    // --- Litterbox, một file: app tự tải về (GET link trực tiếp) ---
-    send(a.st.clone(), vec![path.clone()], Provider::Litterbox).await.unwrap();
-    let done = wait_for(&mut a, "online-done").await;
-    let link = done["link"].as_str().unwrap().to_string();
-    assert!(link.contains("#1.lb.lbX7k2p9.bdrop."), "{link}");
-    assert_eq!(done["page_url"], "https://litter.catbox.moe/lbX7k2p9.bdrop");
-    std::fs::remove_file(dl.join("phim.mp4")).unwrap();
-    let r = receive_link(b.st.clone(), link).await.unwrap();
-    assert!(r.transfer_id.is_some());
-    let hist = loop {
-        let h = wait_for(&mut b, "history-added").await;
-        if h["online"]["provider"] == "Litterbox" {
-            break h;
-        }
-    };
-    assert_eq!(hist["status"], "done", "{hist}");
-    assert_eq!(std::fs::read(dl.join("phim.mp4")).unwrap(), big);
-
-    // Litterbox từ chối (tường lửa chặn mạng này): tự chuyển sang storage.to.
-    mock.lock().unwrap().lb_refuse = true;
-    send(a.st.clone(), vec![path.clone()], Provider::Litterbox).await.unwrap();
-    let done = wait_for(&mut a, "online-done").await;
-    assert_eq!(done["provider_name"], "storage.to");
-    assert!(done["link"].as_str().unwrap().contains("#1.st."));
-    let hist = wait_for(&mut a, "history-added").await;
-    assert_eq!(hist["peer_name"], "storage.to");
-    assert_eq!(hist["online"]["provider"], "storage.to");
-
     // Quá giới hạn dịch vụ: báo lỗi ngay, không tải lên.
     let huge = src.path().join("huge.bin");
     std::fs::File::create(&huge).unwrap().set_len(5_000_000_000).unwrap();
@@ -349,7 +292,7 @@ async fn send_and_receive_through_mock_services() {
 }
 
 /// Thử thật với dịch vụ trên Internet, dữ liệu ngẫu nhiên tự tạo. Chỉ chạy tay:
-/// `BDROP_LIVE=lb,st,ts BDROP_SIZES=1000000,50000000 cargo test live_services -- --ignored --nocapture`
+/// `BDROP_LIVE=st,ts BDROP_SIZES=1000000,50000000 cargo test live_services -- --ignored --nocapture`
 /// In ra mỗi dòng `RESULT dịch-vụ cỡ giây-tải-lên MB/s giây-tải-về checksum link`.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
@@ -387,9 +330,7 @@ async fn live_services() {
             let link = done["link"].as_str().unwrap().to_string();
             let mut down = String::from("-");
             let mut check = String::from("tải tay");
-            // Litterbox có thể tự chuyển sang storage.to: dùng dịch vụ thật sự đã lưu.
-            let used = Link::parse(&link).unwrap().provider;
-            if used.info().app_download {
+            if p.info().app_download {
                 let mut b = node();
                 let t1 = std::time::Instant::now();
                 receive_link(b.st.clone(), link.clone()).await.unwrap();
@@ -402,7 +343,7 @@ async fn live_services() {
             }
             println!(
                 "RESULT {} {} {:.1} {:.1} {} {} sha={} hết-hạn={} {}",
-                if used == p { p.info().name.to_string() } else { format!("{}→{}", p.info().name, used.info().name) },
+                p.info().name,
                 size,
                 up,
                 size as f64 / up / 1e6,
