@@ -1,0 +1,29 @@
+/* Trang nhận file "Gửi qua Internet" (dùng chung styles.css của website). */
+.recv { max-width: 640px; padding: 40px 0 20px; }
+.recv-card { padding: clamp(24px, 5vw, 44px); border-radius: 28px; background: var(--panel); }
+.recv-card h1 { font-size: clamp(26px, 4vw, 34px); line-height: 1.15; margin-top: 18px; }
+.recv-card > .fine { margin: 10px 0 0; }
+.recv-icon { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 16px; color: #fff; background: linear-gradient(135deg, var(--sky), var(--blue)); }
+.recv-icon svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.recv-meta { margin: 18px 0 0; }
+.recv-steps { list-style: none; counter-reset: s; padding: 0; margin: 22px 0 0; display: grid; gap: 14px; }
+.recv-steps > li { counter-increment: s; padding: 18px 20px; border-radius: 18px; background: var(--card); display: grid; gap: 10px; justify-items: start; }
+.step-head { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.step-head::before { content: counter(s); display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; font-size: 13px; color: #fff; background: var(--blue); flex: none; }
+.recv-steps .fine { margin: 0; }
+.drop { width: 100%; display: grid; gap: 4px; justify-items: center; text-align: center; padding: 26px 16px; border-radius: 14px; border: 2px dashed var(--line); cursor: pointer; transition: border-color .15s, background .15s; }
+.drop:hover, .drop.hover { border-color: var(--blue); background: var(--tint); }
+.recv-ready { margin-top: 18px; padding: 18px 20px; border-radius: 18px; background: var(--card); display: grid; gap: 14px; justify-items: start; }
+.recv-name { font-weight: 600; word-break: break-word; }
+.recv-progress { margin-top: 18px; }
+.recv-bar { height: 8px; border-radius: 4px; background: var(--panel-2); overflow: hidden; margin-bottom: 8px; }
+.recv-bar i { display: block; height: 100%; width: 0; background: var(--blue); transition: width .2s; }
+.recv-ok { margin: 18px 0 0; font-weight: 600; color: #0f9d6b; }
+.recv-error { margin: 18px 0 0; padding: 12px 14px; border-radius: 12px; background: var(--warn); }
+.recv-warn { margin: 0; }
+.recv-paste { display: flex; gap: 8px; margin-top: 14px; }
+.recv-paste input { flex: 1; min-width: 0; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text); font: 13px var(--mono); }
+.recv-app { margin-top: 22px; }
+.recv-app summary { cursor: pointer; font-weight: 600; font-size: 15px; }
+.recv-app p { margin: 10px 0; }
+.recv-foot { margin: 18px 8px 40px; }

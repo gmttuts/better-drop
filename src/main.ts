@@ -763,6 +763,12 @@ interface HistoryEntry {
   dir_path: string | null;
   files: HistoryFile[];
   text: string | null;
+  online?: OnlineLink | null;
+}
+interface OnlineLink {
+  url: string;
+  provider: string;
+  expires_at: number;
 }
 
 let history: HistoryEntry[] = [];
@@ -810,6 +816,12 @@ function renderHistoryEntry(h: HistoryEntry): HTMLLIElement {
       await writeText(h.text ?? "");
       toast("Đã sao chép");
     });
+    stop(b);
+    actions.append(b);
+  }
+  if (h.online && h.direction === "send" && h.status === "done") {
+    const b = el("button", { className: "btn small", textContent: "Sao chép link", title: expiryText(h.online.expires_at) });
+    b.addEventListener("click", () => copyText(h.online!.url, "Đã sao chép link"));
     stop(b);
     actions.append(b);
   }
@@ -869,6 +881,14 @@ function renderHistoryDetails(h: HistoryEntry): HTMLElement {
   const box = el("div", { className: "t-more" });
   box.addEventListener("click", (e) => e.stopPropagation());
   if (h.text) box.append(el("pre", { textContent: h.text }));
+  if (h.online && h.direction === "send" && h.status === "done") {
+    const qr = el("button", { className: "link small", textContent: "Hiện mã QR" });
+    qr.addEventListener("click", () => showOnlineResult(h.online!));
+    box.append(
+      el("div", { className: "online-hist" }, el("span", { className: "code online-hist-link", textContent: h.online.url }), qr),
+      el("div", { className: "muted small", textContent: `${h.online.provider} · ${expiryText(h.online.expires_at)}` }),
+    );
+  }
   for (const f of h.files) {
     const row = el("div", { className: "file-row" }, el("span", { className: "name", textContent: f.name, title: f.path ?? f.name }));
     if (f.path && !me?.mobile && !f.path.startsWith("content://")) {
@@ -886,6 +906,251 @@ function progressBar(pct: number): HTMLElement {
   const fill = el("i");
   fill.style.width = `${pct}%`;
   return el("div", { className: "bar" }, fill);
+}
+
+// ---- Gửi qua Internet ----
+
+type ProviderId = "storage-to" | "temp-sh";
+interface ProviderInfo {
+  id: ProviderId;
+  name: string;
+  max_bytes: number;
+  days: number;
+  app_download: boolean;
+  browser_download: boolean;
+}
+interface OnlineSent {
+  transfer_id: string;
+  link: string;
+  provider: ProviderId;
+  provider_name: string;
+  page_url: string;
+  expires_at: number;
+  qr: string;
+  file_count: number;
+  name: string;
+}
+
+let providers: ProviderInfo[] = [];
+let onlineProvider: ProviderId = "storage-to";
+/** Lượt tải lên đang hiện trong hộp thoại. */
+let onlineTransfer: string | null = null;
+let onlineRecvLink = "";
+
+async function copyText(text: string, message = "Đã sao chép") {
+  try {
+    await writeText(text);
+    toast(message);
+  } catch (e) {
+    toast(errorText(e), "error");
+  }
+}
+
+function dateText(secs: number): string {
+  const d = new Date(secs * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())} ${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+}
+
+function expiryText(secs: number): string {
+  if (!secs) return "";
+  return secs * 1000 < Date.now() ? "Link đã hết hạn" : `Hết hạn lúc ${dateText(secs)}`;
+}
+
+const gbText = (n: number) => `${Math.round(n / 1e9)} GB`;
+
+function stagedBytes(): number {
+  return staged.reduce((sum, s) => sum + (s.size ?? 0), 0);
+}
+
+function onlineStep(step: "pick" | "progress" | "done") {
+  $("online-pick").hidden = step !== "pick";
+  $("online-progress").hidden = step !== "progress";
+  $("online-done").hidden = step !== "done";
+}
+
+function renderProviders() {
+  const size = stagedBytes();
+  const hasDir = staged.some((s) => s.is_dir);
+  $("online-providers").replaceChildren(
+    ...providers.map((p) => {
+      const tooBig = !hasDir && size > p.max_bytes;
+      const radio = el("input", { type: "radio", name: "online-provider", value: p.id, checked: p.id === onlineProvider, disabled: tooBig });
+      radio.addEventListener("change", () => (onlineProvider = p.id));
+      const how = p.browser_download
+        ? "Người nhận tải thẳng trong trình duyệt"
+        : p.app_download
+          ? "Người nhận mở link bằng app BetterDrop, hoặc tải file rồi mở trên trang nhận"
+          : "Người nhận tải file từ trang của dịch vụ rồi mở trên trang nhận";
+      return el(
+        "label",
+        { className: `online-provider${tooBig ? " disabled" : ""}` },
+        radio,
+        el(
+          "div",
+          {},
+          el("div", {}, el("strong", { textContent: p.name }), ` · tối đa ${gbText(p.max_bytes)} · giữ ${p.days} ngày`),
+          el("div", { className: "muted small", textContent: tooBig ? "Quá dung lượng tối đa của dịch vụ này" : how }),
+        ),
+      );
+    }),
+  );
+  if (providers.find((p) => p.id === onlineProvider && !hasDir && size > p.max_bytes)) {
+    const ok = providers.find((p) => hasDir || size <= p.max_bytes);
+    if (ok) onlineProvider = ok.id;
+    renderProviders();
+  }
+}
+
+async function openOnline() {
+  if (!staged.length) {
+    const r = await open({ multiple: true, directory: false });
+    if (!r) return;
+    await addStaged(Array.isArray(r) ? r : [r]);
+    if (!staged.length) return;
+  }
+  if (!providers.length) providers = await invoke<ProviderInfo[]>("online_providers");
+  const size = stagedBytes();
+  $("online-summary").textContent =
+    staged.length === 1
+      ? `${staged[0].name}${size ? ` · ${formatBytes(size)}` : ""}`
+      : `${staged.length} mục đã chọn${size ? ` · ${formatBytes(size)}` : ""}`;
+  renderProviders();
+  onlineStep("pick");
+  const dlg = $<HTMLDialogElement>("dlg-online");
+  if (!dlg.open) dlg.showModal();
+}
+
+async function startOnline() {
+  const btn = $<HTMLButtonElement>("btn-online-start");
+  btn.disabled = true;
+  try {
+    const id = await invoke<string>("online_send", { paths: staged.map((s) => s.path), provider: onlineProvider });
+    onlineTransfer = id;
+    staged = [];
+    renderStaged();
+    $("online-status").textContent = "Đang mã hoá và tải lên…";
+    $("online-detail").textContent = "";
+    $("online-bar").style.width = "0%";
+    onlineStep("progress");
+    const t = transfers.get(id);
+    if (t) updateOnlineProgress(t);
+  } catch (e) {
+    toast(errorText(e), "error");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function updateOnlineProgress(t: TransferUpdate) {
+  if (t.id !== onlineTransfer || $("online-progress").hidden) return;
+  $("online-bar").style.width = `${progressOf(t)}%`;
+  $("online-detail").textContent = t.status === "waiting" ? t.note ?? "Đang chuẩn bị…" : detailOf(t);
+  if (t.status === "error" || t.status === "cancelled") {
+    onlineTransfer = null;
+    $<HTMLDialogElement>("dlg-online").close();
+  }
+}
+
+function renderOnlinePeers() {
+  const sel = $<HTMLSelectElement>("online-peer");
+  const online = peers.filter((p) => p.online);
+  sel.replaceChildren(
+    ...(online.length
+      ? online.map((p) => el("option", { value: p.id, textContent: p.name }))
+      : [el("option", { value: "", textContent: "Không có máy nào đang bật" })]),
+  );
+  sel.disabled = !online.length;
+  $<HTMLButtonElement>("btn-online-send-link").disabled = !online.length;
+}
+
+/** Hiện link đã tạo (vừa tải lên xong, hoặc mở lại từ Lịch sử). */
+async function showOnlineResult(r: { url: string; expires_at: number; provider: string; qr?: string }) {
+  $<HTMLInputElement>("online-link").value = r.url;
+  $("online-expiry").textContent = `Lưu ở ${r.provider} · ${expiryText(r.expires_at)}`;
+  $("online-qr").innerHTML = r.qr ?? (await invoke<string>("online_qr", { link: r.url }).catch(() => ""));
+  const p = providers.find((x) => x.name === r.provider);
+  $("online-receive-hint").textContent = p?.browser_download
+    ? "Người nhận mở link bằng trình duyệt là tải được, không cần cài app."
+    : `Người nhận mở link bằng trình duyệt, làm theo hướng dẫn để tải file từ ${r.provider} rồi giải mã ngay trên trang. Có BetterDrop thì dán link vào “Nhận bằng link”.`;
+  renderOnlinePeers();
+  onlineStep("done");
+  const dlg = $<HTMLDialogElement>("dlg-online");
+  if (!dlg.open) dlg.showModal();
+}
+
+function openOnlineRecv(link = "") {
+  $<HTMLInputElement>("online-recv-link").value = link;
+  $("online-recv-manual").hidden = true;
+  $<HTMLDialogElement>("dlg-online-recv").showModal();
+  if (link) receiveOnline();
+}
+
+async function receiveOnline(ev?: Event) {
+  ev?.preventDefault();
+  const link = $<HTMLInputElement>("online-recv-link").value.trim();
+  if (!link) return;
+  const btn = $<HTMLButtonElement>("btn-online-recv-go");
+  btn.disabled = true;
+  try {
+    const r = await invoke<{ transfer_id: string | null; provider_name: string; page_url: string }>("online_receive_link", { link });
+    if (r.transfer_id) {
+      $<HTMLDialogElement>("dlg-online-recv").close();
+      toast("Đang tải về và giải mã…");
+      return;
+    }
+    onlineRecvLink = link;
+    $("online-recv-why").textContent = `${r.provider_name} không cho app tải thẳng. Làm hai bước:`;
+    $("online-recv-manual").hidden = false;
+  } catch (e) {
+    toast(errorText(e), "error");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function receiveOnlineFile() {
+  const r = await open({ multiple: false, directory: false });
+  const path = Array.isArray(r) ? r[0] : r;
+  if (!path) return;
+  try {
+    await invoke<string>("online_receive_file", { link: onlineRecvLink, path });
+    $<HTMLDialogElement>("dlg-online-recv").close();
+    toast("Đang giải mã…");
+  } catch (e) {
+    toast(errorText(e), "error");
+  }
+}
+
+/** Link BetterDrop gửi qua Internet? */
+const isOnlineLink = (s: string) => /\/nhan\/#\d+\.[a-z]+\./.test(s.trim());
+
+function bindOnline() {
+  $("btn-online").addEventListener("click", openOnline);
+  $("btn-online-recv").addEventListener("click", () => openOnlineRecv());
+  $("btn-online-cancel").addEventListener("click", () => $<HTMLDialogElement>("dlg-online").close());
+  $("btn-online-start").addEventListener("click", startOnline);
+  $("btn-online-abort").addEventListener("click", () => onlineTransfer && invoke("cancel_transfer", { id: onlineTransfer }));
+  $("btn-online-hide").addEventListener("click", () => $<HTMLDialogElement>("dlg-online").close());
+  $("btn-online-close").addEventListener("click", () => $<HTMLDialogElement>("dlg-online").close());
+  $("btn-online-copy").addEventListener("click", () => copyText($<HTMLInputElement>("online-link").value, "Đã sao chép link"));
+  $("btn-online-send-link").addEventListener("click", async () => {
+    const peerId = $<HTMLSelectElement>("online-peer").value;
+    const p = peers.find((x) => x.id === peerId);
+    if (!p) return;
+    try {
+      await invoke("send_text", { peerId, text: $<HTMLInputElement>("online-link").value });
+      toast(`Đã gửi link tới ${p.name}`);
+    } catch (e) {
+      toast(errorText(e), "error");
+    }
+  });
+  $("online-recv-form").addEventListener("submit", receiveOnline);
+  $("btn-online-recv-close").addEventListener("click", () => $<HTMLDialogElement>("dlg-online-recv").close());
+  $("btn-online-recv-page").addEventListener("click", () =>
+    invoke("online_open_page", { link: onlineRecvLink }).catch((e) => toast(errorText(e), "error")),
+  );
+  $("btn-online-recv-file").addEventListener("click", receiveOnlineFile);
 }
 
 // ---- Hộp thoại nhận ----
@@ -1318,6 +1583,11 @@ async function init() {
     const input = $<HTMLInputElement>("manual-addr");
     const addr = input.value.trim();
     if (!addr) return;
+    if (isOnlineLink(addr)) {
+      input.value = "";
+      openOnlineRecv(addr);
+      return;
+    }
     const btn = (ev.target as HTMLFormElement).querySelector("button")!;
     btn.disabled = true;
     try {
@@ -1340,6 +1610,10 @@ async function init() {
     answerRequest(false);
   });
   $("btn-text-close").addEventListener("click", () => $<HTMLDialogElement>("dlg-text").close());
+  $("btn-text-receive").addEventListener("click", () => {
+    $<HTMLDialogElement>("dlg-text").close();
+    openOnlineRecv($("txt-body").textContent ?? "");
+  });
   $("btn-text-copy").addEventListener("click", async () => {
     await writeText($("txt-body").textContent ?? "");
     toast("Đã sao chép vào clipboard");
@@ -1404,9 +1678,12 @@ async function init() {
     const prev = transfers.get(e.payload.id);
     transfers.set(e.payload.id, e.payload);
     upsertTransfer(e.payload, prev);
+    updateOnlineProgress(e.payload);
     if (prev?.status !== e.payload.status) {
       const t = e.payload;
-      if (t.status === "done" && t.kind === "files")
+      if (t.status === "done" && t.kind === "files" && t.id === onlineTransfer) {
+        // Hộp thoại "Gửi qua Internet" tự hiện link (event online-done).
+      } else if (t.status === "done" && t.kind === "files")
         toast(t.direction === "send" ? `Đã gửi xong tới ${t.peer_name}` : `Đã nhận ${t.file_count} file từ ${t.peer_name}`);
       if (t.status === "rejected") toast(`${t.peer_name} đã từ chối`, "error");
       if (t.status === "error") toast(t.error ?? "Lỗi khi chuyển", "error");
@@ -1438,10 +1715,19 @@ async function init() {
   await listen<IncomingText>("incoming-text", (e) => {
     $("txt-sender").textContent = e.payload.sender_name;
     $("txt-body").textContent = e.payload.text;
+    $("btn-text-receive").hidden = !isOnlineLink(e.payload.text);
     const dlg = $<HTMLDialogElement>("dlg-text");
     if (!dlg.open) dlg.showModal();
   });
   await listen<string>("fatal-error", (e) => toast(e.payload, "error"));
+  await listen<OnlineSent>("online-done", (e) => {
+    const r = e.payload;
+    const show = () => showOnlineResult({ url: r.link, expires_at: r.expires_at, provider: r.provider_name, qr: r.qr });
+    if (r.transfer_id === onlineTransfer && $<HTMLDialogElement>("dlg-online").open) show();
+    else toast(`Đã tải lên ${r.provider_name}: mở Lịch sử để sao chép link`);
+    onlineTransfer = null;
+  });
+  bindOnline();
 
   renderMe();
   if (me.mobile) {

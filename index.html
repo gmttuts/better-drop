@@ -62,6 +62,13 @@
             <span id="staged-count"></span>
             <button class="link" id="btn-clear">Xoá hết</button>
           </div>
+          <div class="online-row">
+            <button class="btn" id="btn-online" title="Mã hoá rồi tải lên dịch vụ lưu file, tạo link gửi cho bất kỳ ai">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18a4.5 4.5 0 0 1-.5-9A6 6 0 0 1 18 9.5 4 4 0 0 1 17.5 18zM12 15V9m0 0-2.5 2.5M12 9l2.5 2.5"/></svg>
+              <span>Gửi qua Internet</span>
+            </button>
+            <button class="link small" id="btn-online-recv">Nhận bằng link</button>
+          </div>
         </div>
 
         <div class="tab-panel" id="panel-text" hidden>
@@ -146,6 +153,7 @@
       <pre class="received-text" id="txt-body"></pre>
       <div class="dialog-actions">
         <button class="btn" id="btn-text-close">Đóng</button>
+        <button class="btn" id="btn-text-receive" hidden>Tải về bằng link này</button>
         <button class="btn primary" id="btn-text-copy">Sao chép</button>
       </div>
     </dialog>
@@ -247,6 +255,73 @@
           <button class="btn" id="btn-web-stop">Tắt chia sẻ</button>
           <button class="btn primary" id="btn-web-close2">Đóng</button>
         </div>
+      </div>
+    </dialog>
+
+    <!-- Gửi qua Internet -->
+    <dialog id="dlg-online" class="dialog online-dialog">
+      <h3>Gửi qua Internet</h3>
+      <div id="online-pick">
+        <p class="muted small" id="online-summary"></p>
+        <div class="legend">Lưu ở dịch vụ</div>
+        <div class="online-providers" id="online-providers" role="radiogroup"></div>
+        <p class="muted small online-note">File được <strong>mã hoá ngay trên máy này</strong> trước khi tải lên. Dịch vụ lưu file không xem được nội dung hay tên file. Ai có link thì tải được: chỉ gửi link cho người cần nhận.</p>
+        <div class="dialog-actions">
+          <button class="btn" id="btn-online-cancel">Huỷ</button>
+          <button class="btn primary" id="btn-online-start">Tải lên và tạo link</button>
+        </div>
+      </div>
+      <div id="online-progress" hidden>
+        <p class="online-status" id="online-status">Đang mã hoá và tải lên…</p>
+        <div class="bar"><i id="online-bar"></i></div>
+        <p class="muted small" id="online-detail"></p>
+        <p class="muted small">Đóng cửa sổ này vẫn tiếp tục tải lên (xem ở mục Hoạt động).</p>
+        <div class="dialog-actions">
+          <button class="btn" id="btn-online-abort">Huỷ tải lên</button>
+          <button class="btn primary" id="btn-online-hide">Ẩn</button>
+        </div>
+      </div>
+      <div id="online-done" hidden>
+        <p class="online-ok">Đã tải lên. Gửi link này cho người nhận:</p>
+        <div class="input-row">
+          <input id="online-link" readonly spellcheck="false" />
+          <button class="btn primary" id="btn-online-copy">Sao chép</button>
+        </div>
+        <p class="muted small" id="online-expiry"></p>
+        <div class="online-done-cols">
+          <div class="qr" id="online-qr"></div>
+          <div class="online-near">
+            <div class="legend">Gửi link tới máy gần</div>
+            <div class="input-row">
+              <select id="online-peer"></select>
+              <button class="btn" id="btn-online-send-link">Gửi</button>
+            </div>
+            <p class="muted small" id="online-receive-hint"></p>
+          </div>
+        </div>
+        <div class="dialog-actions">
+          <button class="btn primary" id="btn-online-close">Đóng</button>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- Nhận bằng link BetterDrop -->
+    <dialog id="dlg-online-recv" class="dialog">
+      <h3>Nhận bằng link</h3>
+      <form id="online-recv-form" class="manual-form">
+        <input id="online-recv-link" placeholder="Dán link BetterDrop (https://gmttuts.github.io/better-drop/nhan/#…)" autocomplete="off" spellcheck="false" />
+        <button class="btn primary" type="submit" id="btn-online-recv-go">Tải về</button>
+      </form>
+      <div id="online-recv-manual" hidden>
+        <p class="muted small" id="online-recv-why"></p>
+        <ol class="online-steps">
+          <li><button class="btn small" id="btn-online-recv-page">Mở trang tải</button> và bấm tải file <span class="code">betterdrop.bdrop</span></li>
+          <li><button class="btn small" id="btn-online-recv-file">Chọn file đã tải…</button> để giải mã và lưu</li>
+        </ol>
+      </div>
+      <p class="muted small">File được giải mã ngay trên máy này và lưu vào thư mục nhận file.</p>
+      <div class="dialog-actions">
+        <button class="btn" id="btn-online-recv-close">Đóng</button>
       </div>
     </dialog>
 

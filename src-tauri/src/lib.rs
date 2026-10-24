@@ -4,6 +4,7 @@ mod history;
 mod discovery;
 mod identity;
 mod models;
+mod online;
 mod paths;
 mod platform;
 mod server;
@@ -517,6 +518,47 @@ async fn resend_history(st: AppStateRef<'_>, id: String, peer_id: String) -> Res
     Ok(())
 }
 
+// ---- Gửi qua Internet ----
+
+#[tauri::command]
+fn online_providers() -> Vec<online::providers::ProviderInfo> {
+    online::providers()
+}
+
+#[tauri::command]
+async fn online_send(
+    st: AppStateRef<'_>,
+    paths: Vec<String>,
+    provider: online::providers::Provider,
+) -> Result<String, String> {
+    online::send(st.inner().clone(), paths, provider).await
+}
+
+#[tauri::command]
+async fn online_receive_link(st: AppStateRef<'_>, link: String) -> Result<online::ReceiveStart, String> {
+    online::receive_link(st.inner().clone(), link).await
+}
+
+#[tauri::command]
+async fn online_receive_file(st: AppStateRef<'_>, link: String, path: String) -> Result<String, String> {
+    online::receive_file(st.inner().clone(), link, path).await
+}
+
+/// Mở trang tải của dịch vụ (chỉ trang suy ra từ link BetterDrop, không mở URL tuỳ ý).
+#[tauri::command]
+fn online_open_page(app: tauri::AppHandle, link: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let l = online::Link::parse(&link)?;
+    app.opener()
+        .open_url(l.provider.page_url(&l.id), None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn online_qr(link: String) -> Result<String, String> {
+    online::qr_svg(&link)
+}
+
 #[tauri::command]
 fn open_folder(app: tauri::AppHandle, path: String) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
@@ -616,6 +658,12 @@ pub fn run() {
             clear_history,
             reveal_path,
             resend_history,
+            online_providers,
+            online_send,
+            online_receive_link,
+            online_receive_file,
+            online_qr,
+            online_open_page,
         ])
         .build(tauri::generate_context!())
         .expect("không khởi động được BetterDrop")

@@ -6,6 +6,7 @@ Chuyển file, thư mục và văn bản giữa Mac ⇄ Windows ⇄ Linux ⇄ An
 - Máy nhận tự nhớ máy vừa gửi tới, nên gửi ngược lại được ngay.
 - Máy nhận phải bấm **Chấp nhận** mới bắt đầu nhận. Tích **"Luôn chấp nhận từ máy này"** để lần sau nhận luôn (máy tin cậy). Máy gửi phải chứng minh danh tính bằng chứng chỉ của nó (TLS hai chiều), nên máy khác không giả mạo được. Bỏ tin cậy trong Cài đặt.
 - **Lịch sử**: mục Hoạt động lưu 1000 lượt gần nhất (kể cả sau khi tắt app), có "Hiện trong Finder/Explorer", "Gửi lại", "Sao chép".
+- **Gửi qua Internet** (kiểu WeTransfer, nút ☁ trong "Chọn nội dung"): gửi cho người ở xa, không cần cùng mạng. App **mã hoá ngay trên máy** (AES-256-GCM), tải lên dịch vụ lưu file tạm không cần tài khoản (storage.to: 25 GB, giữ 7 ngày, mặc định; temp.sh: 4 GB, 3 ngày), rồi tạo link `https://gmttuts.github.io/better-drop/nhan/#…` kèm mã QR và nút "Gửi link tới máy gần". Khoá nằm sau dấu `#` nên không bao giờ tới máy chủ nào. Người nhận mở link bằng trình duyệt (trang nhận giải mã ngay trên trình duyệt) hoặc dán vào "Nhận bằng link" trong app. Lịch sử giữ link để chép lại. Chi tiết, kết quả kiểm chứng từng dịch vụ: [docs/GUI-QUA-INTERNET.md](docs/GUI-QUA-INTERNET.md).
 - **Chia sẻ qua trình duyệt** (nút 🌐 Trình duyệt): thiết bị không cài BetterDrop mở `http://<ip-máy-tính>:53319` (hoặc quét QR), nhập mã PIN, rồi gửi file/văn bản lên hoặc tải những gì máy tính chia sẻ. Chỉ trong mạng LAN, mặc định tắt.
 - Dữ liệu đi qua HTTPS (TLS). Mỗi máy có chứng chỉ riêng, và bên gửi chỉ chấp nhận đúng chứng chỉ đã quảng bá. Mã 4 ký tự (vd `520D`) dùng để so với máy kia.
 - **Gửi tiếp khi rớt mạng**: mất Wi‑Fi giữa chừng thì tự gửi tiếp từ chỗ đang dở (chờ tối đa 2 phút), không gửi lại từ đầu.
@@ -103,4 +104,6 @@ Lưu ý: tương thích giao thức không giúp được khi hệ điều hành
 | `src-tauri/src/paths.rs` | Làm sạch đường dẫn (chặn `../`, ký tự cấm trên Windows, chuẩn hoá tên tiếng Việt) |
 | `src-tauri/src/identity.rs` | Cài đặt và chứng chỉ tự ký |
 | `src-tauri/src/tray.rs` | Thanh menu/khay hệ thống: chạy nền, thông báo, gửi nhanh clipboard/file |
+| `src-tauri/src/online/` | Gửi qua Internet: mã hoá theo khối (`crypto.rs`), đóng gói zip (`package.rs`, `zip.rs`), dịch vụ lưu file (`providers.rs`) |
+| `website/nhan/` | Trang nhận link "Gửi qua Internet" (giải mã bằng WebCrypto, lưu thẳng xuống đĩa) |
 | `src/main.ts`, `index.html`, `src/styles.css` | Giao diện |

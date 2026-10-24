@@ -483,3 +483,32 @@ html.scanning body > :not(.scan-overlay):not(.toasts) { visibility: hidden; }
 .update-banner span { flex: 1; min-width: 180px; }
 .update-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .update-row[hidden] { display: none; }
+
+/* ---- Gửi qua Internet ---- */
+.online-row { display: flex; align-items: center; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+.online-row .btn { display: inline-flex; align-items: center; gap: 6px; }
+.online-row svg, .online-dialog .legend svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.online-dialog { width: min(560px, calc(100vw - 32px)); }
+.online-dialog .legend { font-weight: 600; margin: 10px 0 6px; }
+.online-providers { display: grid; gap: 8px; }
+.online-provider { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
+.online-provider:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.online-provider.disabled { opacity: 0.55; cursor: not-allowed; }
+.online-provider input { flex: none; width: auto; margin: 3px 0 0; }
+.online-provider > div { flex: 1; min-width: 0; }
+.online-note { margin: 12px 0 0; }
+.online-status { font-weight: 500; margin: 4px 0; }
+.online-ok { font-weight: 500; color: var(--ok); margin: 4px 0 8px; }
+.online-dialog .input-row input { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.online-done-cols { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: start; margin-top: 8px; }
+.online-done-cols .qr { margin: 0; width: 184px; }
+.online-done-cols .qr svg { width: 168px; height: 168px; }
+.online-near .legend { margin-top: 0; }
+.online-near select { flex: 1; min-width: 0; }
+.online-steps { padding-left: 20px; margin: 8px 0; display: grid; gap: 8px; }
+.online-hist { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin-bottom: 2px; }
+.online-hist-link { word-break: break-all; -webkit-user-select: text; user-select: text; font-size: 11px; }
+@media (max-width: 520px) {
+  .online-done-cols { grid-template-columns: 1fr; }
+  .online-done-cols .qr { margin: 0 auto; }
+}

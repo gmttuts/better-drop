@@ -318,6 +318,7 @@ impl Tracker {
             dir_path: u.dir_path,
             files: extras.files,
             text: extras.text,
+            online: None,
         });
     }
 
