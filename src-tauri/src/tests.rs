@@ -1274,6 +1274,42 @@ async fn web_page_has_security_headers_and_checks_host() {
     crate::web::stop(&desk.st);
 }
 
+/// Nhiều file trùng tên tới cùng lúc: mỗi file một tên riêng, không file nào bị ghi đè.
+/// (Chọn tên + đổi tên chạy trên luồng blocking, vẫn phải nguyên tử.)
+#[tokio::test(flavor = "multi_thread")]
+async fn same_name_files_received_concurrently_get_unique_names() {
+    use futures_util::StreamExt;
+    let node = node("B").await;
+    let st = node.st.clone();
+    let metas: Vec<FileMeta> =
+        (0..40).map(|i| FileMeta { id: i.to_string(), rel_path: "trùng.txt".into(), size: 4 }).collect();
+    let trust = server::Trust { auto: true, candidate: None };
+    let prep = server::accept_files(&st, "A", None, "macos", &metas, trust).await.unwrap();
+    futures_util::stream::iter(metas)
+        .for_each_concurrent(16, |m| {
+            let st = st.clone();
+            let q = UploadQuery {
+                session: prep.session_id.clone(),
+                token: prep.tokens[&m.id].clone(),
+                file: m.id.clone(),
+                offset: None,
+            };
+            async move {
+                let body = axum::body::Body::from(format!("{:>4}", m.id));
+                server::receive_upload(&st, q, body).await.unwrap();
+            }
+        })
+        .await;
+    let dir = PathBuf::from(st.settings.read().unwrap().download_dir.clone());
+    let mut got: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| std::fs::read_to_string(e.unwrap().path()).unwrap().trim().to_string())
+        .collect();
+    got.sort_by_key(|s| s.parse::<u32>().unwrap());
+    assert_eq!(got, (0..40).map(|i| i.to_string()).collect::<Vec<_>>());
+    assert!(dir.join("trùng.txt").exists() && dir.join("trùng (39).txt").exists());
+}
+
 // ---- Đo tốc độ (chạy tay: `cargo test --release -- --ignored bench_ --nocapture --test-threads=1`) ----
 
 /// Proxy TCP thêm độ trễ `rtt` (chia đều hai chiều) như Wi‑Fi thật, không giới hạn băng thông.
@@ -1424,4 +1460,61 @@ async fn bench_200_files_5mb() {
     let paths = vec![root.to_string_lossy().into_owned()];
     bench_send("200 file 5 MB", paths.clone(), None).await;
     bench_send("200 file 5 MB", paths, Some(BENCH_RTT)).await;
+}
+
+/// Chỉ đo phía nhận: gọi thẳng `receive_upload` (không TLS, không bên gửi), `parallel`
+/// file cùng lúc, body chia chunk 16 KB như hyper giao từ TLS.
+async fn bench_receive(label: &str, count: usize, size: usize, parallel: usize) {
+    use futures_util::StreamExt;
+    let node = node("B").await;
+    let st = node.st.clone();
+    let metas: Vec<FileMeta> = (0..count)
+        .map(|i| FileMeta { id: i.to_string(), rel_path: format!("thư mục/{i}.bin"), size: size as u64 })
+        .collect();
+    let trust = server::Trust { auto: true, candidate: None };
+    let prep = server::accept_files(&st, "A", None, "macos", &metas, trust).await.unwrap();
+    let data = axum::body::Bytes::from((0..size).map(|i| (i % 251) as u8).collect::<Vec<u8>>());
+    let started = std::time::Instant::now();
+    futures_util::stream::iter(metas)
+        .for_each_concurrent(parallel, |m| {
+            let (st, data) = (st.clone(), data.clone());
+            let q = UploadQuery {
+                session: prep.session_id.clone(),
+                token: prep.tokens[&m.id].clone(),
+                file: m.id,
+                offset: None,
+            };
+            async move {
+                let chunks: Vec<Result<axum::body::Bytes, std::io::Error>> =
+                    (0..size).step_by(16 << 10).map(|o| Ok(data.slice(o..(o + (16 << 10)).min(size)))).collect();
+                let body = axum::body::Body::from_stream(futures_util::stream::iter(chunks));
+                server::receive_upload(&st, q, body).await.unwrap();
+            }
+        })
+        .await;
+    let secs = started.elapsed().as_secs_f64();
+    let session = st.incoming.lock().unwrap().values().next().cloned().unwrap();
+    assert_eq!(session.tracker.status(), TransferStatus::Done);
+    let mb = (count * size) as f64 / 1e6;
+    println!(
+        "BENCH nhận {label}: {count} file trong {secs:.2} s -> {:.0} file/s, {:.0} MB/s",
+        count as f64 / secs,
+        mb / secs
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn bench_receive_small() {
+    for _ in 0..3 {
+        bench_receive("5000 file 10 KB", 5000, 10_000, 16).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn bench_receive_large() {
+    for _ in 0..2 {
+        bench_receive("200 file 5 MB", 200, 5_000_000, 3).await;
+    }
 }

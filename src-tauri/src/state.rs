@@ -242,7 +242,10 @@ pub struct Tracker {
     update: Mutex<TransferUpdate>,
     transferred: AtomicU64,
     started: Mutex<Option<Instant>>,
-    last_emit: Mutex<Instant>,
+    created: Instant,
+    /// Lần báo gần nhất, tính bằng micro giây từ `created` (atomic: `add` chạy mỗi chunk,
+    /// từ nhiều file cùng lúc).
+    last_emit: AtomicU64,
     cancelled: AtomicBool,
     /// Ghi vào lịch sử khi lượt chuyển kết thúc (None = không ghi, vd trong test).
     recorder: Mutex<Option<Recorder>>,
@@ -268,7 +271,8 @@ impl Tracker {
             update: Mutex::new(update),
             transferred: AtomicU64::new(0),
             started: Mutex::new(None),
-            last_emit: Mutex::new(Instant::now()),
+            created: Instant::now(),
+            last_emit: AtomicU64::new(0),
             cancelled: AtomicBool::new(false),
             recorder: Mutex::new(None),
             history: Mutex::new(HistoryExtras::default()),
@@ -334,7 +338,7 @@ impl Tracker {
     }
 
     pub fn emit_now(&self) {
-        *self.last_emit.lock().unwrap() = Instant::now();
+        self.last_emit.store(self.micros(), Ordering::Relaxed);
         if let Ok(mut v) = serde_json::to_value(self.snapshot()) {
             if let Some(note) = self.note.lock().unwrap().clone() {
                 v["note"] = serde_json::Value::String(note);
@@ -364,10 +368,21 @@ impl Tracker {
 
     pub fn add(&self, n: u64) {
         self.transferred.fetch_add(n, Ordering::Relaxed);
-        let due = self.last_emit.lock().unwrap().elapsed() >= EMIT_INTERVAL;
+        let now = self.micros();
+        let last = self.last_emit.load(Ordering::Relaxed);
+        // Chỉ một luồng thắng compare_exchange: không báo trùng khi nhiều file cùng tới hạn.
+        let due = now.saturating_sub(last) >= EMIT_INTERVAL.as_micros() as u64
+            && self
+                .last_emit
+                .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok();
         if due {
             self.emit_now();
         }
+    }
+
+    fn micros(&self) -> u64 {
+        self.created.elapsed().as_micros() as u64
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -425,13 +440,15 @@ pub struct InSession {
     /// File bị ngắt giữa chừng, đang chờ máy gửi nối lại (thời điểm ngắt).
     pub interrupted: Mutex<HashMap<String, Instant>>,
     pub done: AtomicUsize,
+    /// Thư mục đã tạo trong phiên này: khỏi gọi create_dir_all (mkdir + stat) cho mỗi file.
+    pub made_dirs: Mutex<HashSet<PathBuf>>,
 }
 
 impl InSession {
     /// Đường dẫn đích (chưa đảm bảo duy nhất với file đơn lẻ; xử lý khi đổi tên).
     pub fn dest_path(&self, rel: &[String]) -> std::io::Result<PathBuf> {
         if rel.len() == 1 {
-            std::fs::create_dir_all(&self.base_dir)?;
+            self.ensure_dir(&self.base_dir)?;
             return Ok(self.base_dir.join(&rel[0]));
         }
         let root = {
@@ -455,8 +472,17 @@ impl InSession {
             p.push(c);
         }
         if let Some(parent) = p.parent() {
-            std::fs::create_dir_all(parent)?;
+            self.ensure_dir(parent)?;
         }
         Ok(p)
+    }
+
+    fn ensure_dir(&self, dir: &std::path::Path) -> std::io::Result<()> {
+        if self.made_dirs.lock().unwrap().contains(dir) {
+            return Ok(());
+        }
+        std::fs::create_dir_all(dir)?;
+        self.made_dirs.lock().unwrap().insert(dir.to_path_buf());
+        Ok(())
     }
 }
