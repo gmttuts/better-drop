@@ -1,9 +1,9 @@
 //! "Gửi qua Internet" (kiểu WeTransfer): mã hoá trên máy, đưa lên một dịch vụ lưu file
 //! tạm không cần tài khoản, rồi tạo link
-//! `https://gmttuts.github.io/better-drop/nhan/#1.<dịch vụ>.<mã file>.<khoá>`.
+//! `https://gmttuts.github.io/better-drop/receive/#1.<dịch vụ>.<mã file>.<khoá>`.
 //!
 //! Khoá nằm sau `#` nên trình duyệt không bao giờ gửi nó lên máy chủ nào. Người nhận mở
-//! link bằng trình duyệt (trang `website/nhan/`) hoặc dán vào app.
+//! link bằng trình duyệt (trang `website/receive/`) hoặc dán vào app.
 
 pub mod crypto;
 pub mod package;
@@ -22,7 +22,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-pub const RECEIVE_PAGE: &str = "https://gmttuts.github.io/better-drop/nhan/";
+pub const RECEIVE_PAGE: &str = "https://gmttuts.github.io/better-drop/receive/";
 /// Phiên bản định dạng link (đổi khi đổi cách mã hoá/đóng gói).
 const LINK_VERSION: &str = "1";
 
@@ -379,7 +379,7 @@ mod tests {
         let key = crypto::random_key();
         let l = Link { provider: Provider::TempSh, id: "AbCdE/betterdrop.bdrop".into(), key };
         let url = l.to_url();
-        assert!(url.starts_with("https://gmttuts.github.io/better-drop/nhan/#1.ts.AbCdE/betterdrop.bdrop."));
+        assert!(url.starts_with("https://gmttuts.github.io/better-drop/receive/#1.ts.AbCdE/betterdrop.bdrop."));
         assert_eq!(Link::parse(&url).unwrap(), l);
         // Chỉ phần sau dấu # cũng được, có khoảng trắng thừa cũng được.
         let frag = url.split_once('#').unwrap().1;

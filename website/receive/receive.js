@@ -1,5 +1,5 @@
 // Trang nhận "Gửi qua Internet" của BetterDrop.
-// Link: https://gmttuts.github.io/better-drop/nhan/#1.<dịch vụ>.<mã file>.<khoá base64url>
+// Link: https://gmttuts.github.io/better-drop/receive/#1.<dịch vụ>.<mã file>.<khoá base64url>
 // Phần sau # không bao giờ được trình duyệt gửi lên máy chủ. File được giải mã ngay tại đây bằng
 // WebCrypto (AES-256-GCM theo khối, định dạng .bdrop v1, xem src-tauri/src/online/crypto.rs) và
 // ghi thẳng xuống đĩa từng khối, không giữ cả file trong bộ nhớ (trừ trình duyệt không hỗ trợ).

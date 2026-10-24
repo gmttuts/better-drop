@@ -1121,7 +1121,7 @@ async function receiveOnlineFile() {
 }
 
 /** Link BetterDrop gửi qua Internet? */
-const isOnlineLink = (s: string) => /\/nhan\/#\d+\.[a-z]+\./.test(s.trim());
+const isOnlineLink = (s: string) => /\/(receive|nhan)\/#\d+\.[a-z]+\./.test(s.trim());
 
 function bindOnline() {
   $("btn-online").addEventListener("click", openOnline);

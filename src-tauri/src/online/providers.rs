@@ -1,6 +1,6 @@
 //! Các dịch vụ lưu file tạm (không cần tài khoản). Thêm dịch vụ mới: thêm một biến
 //! thể vào `Provider`, điền các thông số trong `info`, viết hàm upload (và download nếu
-//! dịch vụ cho tải thẳng), rồi thêm vào trang nhận `website/nhan/`.
+//! dịch vụ cho tải thẳng), rồi thêm vào trang nhận `website/receive/`.
 //!
 //! Kết quả kiểm chứng từng dịch vụ: `docs/GUI-QUA-INTERNET.md`.
 
