@@ -128,6 +128,28 @@ async fn temp_upload(State(m): State<Shared>, headers: axum::http::HeaderMap, bo
     "https://temp.sh/TsAbC/betterdrop.bdrop\n".into()
 }
 
+async fn litter_upload(State(m): State<Shared>, headers: axum::http::HeaderMap, body: Bytes) -> String {
+    let ct = headers["content-type"].to_str().unwrap();
+    let boundary = ct.split("boundary=").nth(1).unwrap();
+    let text = String::from_utf8_lossy(&body);
+    assert!(text.contains("name=\"reqtype\"\r\n\r\nfileupload"));
+    assert!(text.contains("name=\"time\"\r\n\r\n72h"));
+    let marker = b"filename=\"betterdrop.bdrop\"";
+    let at = body.windows(marker.len()).position(|w| w == marker).unwrap();
+    let start = at + body[at..].windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
+    let tail = format!("\r\n--{boundary}--\r\n");
+    let data = body[start..body.len() - tail.len()].to_vec();
+    m.lock().unwrap().files.insert("lbX7k2p9.bdrop".into(), data);
+    "https://litter.catbox.moe/lbX7k2p9.bdrop".into()
+}
+
+async fn litter_download(State(m): State<Shared>, AxPath(id): AxPath<String>) -> (StatusCode, Vec<u8>) {
+    match m.lock().unwrap().files.get(&id) {
+        Some(d) => (StatusCode::OK, d.clone()),
+        None => (StatusCode::NOT_FOUND, vec![]),
+    }
+}
+
 async fn temp_download(State(m): State<Shared>, AxPath((code, _name)): AxPath<(String, String)>) -> (StatusCode, Vec<u8>) {
     match m.lock().unwrap().files.get(&code) {
         Some(d) => (StatusCode::OK, d.clone()),
@@ -144,6 +166,8 @@ async fn mock_server(m: Shared) -> String {
         .route("/api/upload/abort", post(|| async { Json(json!({ "success": true })) }))
         .route("/r2/{key}", put(put_part))
         .route("/upload", post(temp_upload))
+        .route("/resources/internals/api.php", post(litter_upload))
+        .route("/{id}", axum::routing::get(litter_download))
         .route("/{code}/{name}", post(temp_download))
         .layer(axum::extract::DefaultBodyLimit::disable())
         .with_state(m);
@@ -277,6 +301,24 @@ async fn send_and_receive_through_mock_services() {
     assert_eq!(std::fs::read(dl.join("Ảnh/a.jpg")).unwrap(), data(5000, 2));
     assert_eq!(std::fs::read(dl.join("Ảnh/thư mục con/b.txt")).unwrap(), b"xin chao");
     assert_eq!(hist["dir_path"], dl.to_string_lossy().as_ref());
+
+    // --- Litterbox, một file: app tự tải về (GET link trực tiếp) ---
+    send(a.st.clone(), vec![path.clone()], Provider::Litterbox).await.unwrap();
+    let done = wait_for(&mut a, "online-done").await;
+    let link = done["link"].as_str().unwrap().to_string();
+    assert!(link.contains("#1.lb.lbX7k2p9.bdrop."), "{link}");
+    assert_eq!(done["page_url"], "https://litter.catbox.moe/lbX7k2p9.bdrop");
+    std::fs::remove_file(dl.join("phim.mp4")).unwrap();
+    let r = receive_link(b.st.clone(), link).await.unwrap();
+    assert!(r.transfer_id.is_some());
+    let hist = loop {
+        let h = wait_for(&mut b, "history-added").await;
+        if h["online"]["provider"] == "Litterbox" {
+            break h;
+        }
+    };
+    assert_eq!(hist["status"], "done", "{hist}");
+    assert_eq!(std::fs::read(dl.join("phim.mp4")).unwrap(), big);
 
     // Quá giới hạn dịch vụ: báo lỗi ngay, không tải lên.
     let huge = src.path().join("huge.bin");

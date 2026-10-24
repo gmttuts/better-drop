@@ -44,6 +44,11 @@
     notBdrop: { vi: "Đây không phải file BetterDrop (.bdrop).", en: "This isn't a BetterDrop (.bdrop) file." },
     fileNewer: { vi: "File được tạo bằng BetterDrop mới hơn trang này. Hãy tải lại trang.", en: "This file was made by a newer BetterDrop. Reload the page." },
     cancelled: { vi: "Đã huỷ lưu.", en: "Saving was cancelled." },
+    expired: { vi: "File không còn trên {p}: link đã hết hạn hoặc file đã bị xoá.", en: "The file is no longer on {p}: the link expired or the file was deleted." },
+    fetchFailed: {
+      vi: "Không tự tải được từ {p} ({e}). Bấm nút ở bước 1 để tải file, rồi thả vào bước 2.",
+      en: "Couldn't download from {p} automatically ({e}). Use the button in step 1 to download the file, then drop it in step 2.",
+    },
     failed: { vi: "Lỗi khi lưu: {e}", en: "Couldn't save: {e}" },
     appTitle: { vi: "Có app BetterDrop?", en: "Have the BetterDrop app?" },
     appText: {
@@ -78,6 +83,13 @@
   // direct: URL để trang tự tải (dịch vụ phải cho phép CORS). null: người nhận tự tải file .bdrop.
   // Khớp với src-tauri/src/online/providers.rs.
   const PROVIDERS = {
+    lb: {
+      name: "Litterbox",
+      valid: (id) => /^[A-Za-z0-9]{4,32}\.[A-Za-z0-9]{1,10}$/.test(id),
+      page: (id) => `https://litter.catbox.moe/${id}`,
+      direct: (id) => `https://litter.catbox.moe/${id}`,
+      appDirect: true,
+    },
     st: {
       name: "storage.to",
       valid: (id) => /^[A-Za-z0-9_-]{6,32}$/.test(id),
@@ -171,6 +183,7 @@
   /** Nguồn byte từ fetch (dịch vụ cho phép CORS). */
   async function fetchSource(url) {
     const r = await fetch(url, { referrerPolicy: "no-referrer" });
+    if (r.status === 404 || r.status === 410) throw new BdropError("expired");
     if (!r.ok || !r.body) throw new Error(`HTTP ${r.status}`);
     const reader = r.body.getReader();
     let buf = new Uint8Array(0);
@@ -469,8 +482,9 @@
       render();
     } catch (e) {
       show("progress", false);
-      if (e instanceof BdropError) setError(e.code);
       // Không tải thẳng được thì vẫn còn cách tải tay ở bước 1.
+      const p = link.provider.name;
+      setError(e instanceof BdropError ? e.code : "fetchFailed", { p, e: e.message });
     }
   }
 
@@ -521,7 +535,7 @@
   window.addEventListener("hashchange", () => setLink(location.hash));
 
   // Cho phép kiểm thử giải mã (xem docs/GUI-QUA-INTERNET.md).
-  window.BetterDropReceive = { parseLink, openPackage, fileSource };
+  window.BetterDropReceive = { parseLink, openPackage, fileSource, fetchSource };
 
   link = parseLink(location.hash);
   applyLang();

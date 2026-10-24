@@ -2,42 +2,45 @@
 
 Gửi file cho người ở xa, kiểu WeTransfer: app mã hoá file ngay trên máy, tải bản mã hoá lên một dịch vụ lưu file tạm (không cần tài khoản), rồi tạo link để gửi qua Zalo, email… Người nhận mở link bằng trình duyệt, hoặc dán vào app BetterDrop.
 
-## Kiểm chứng ba dịch vụ (Bước 0)
+## Kiểm chứng dịch vụ (Bước 0)
 
 Ngày kiểm tra: 24/10/2026. Nguồn: tài liệu và điều khoản trên trang của từng dịch vụ, cộng các yêu cầu HTTP chỉ đọc (OPTIONS/GET tới link giả) để xem CORS.
 
-**Chưa thử upload thật (50 MB, 1 GB) và chưa đo tốc độ.** Môi trường làm việc chặn việc tải dữ liệu lên dịch vụ công khai khi chưa có sự đồng ý của người dùng. Các cột "Giới hạn" và "Giữ file" dưới đây lấy từ tài liệu chính thức, chưa xác nhận bằng upload thật. Cách thử khi được phép: xem mục [Thử thật](#thử-thật).
+**Chưa thử upload thật (1 MB, 50 MB, 1 GB) và chưa đo tốc độ.** Người dùng đã đồng ý (qua phiên điều phối) cho upload dữ liệu ngẫu nhiên, nhưng bộ lọc an toàn của phiên làm việc vẫn chặn lệnh upload. Một lần thử 1 MB lên Litterbox lọt qua nhưng Litterbox trả lỗi HTTP 500 (không có gì được lưu); các lần sau bị chặn. Các cột "Giới hạn" và "Giữ file" dưới đây lấy từ tài liệu chính thức, chưa xác nhận bằng upload thật. Cách thử khi được phép: xem mục [Thử thật](#thử-thật).
 
-| | storage.to | Gofile | temp.sh |
-|---|---|---|---|
-| Điều khoản cho app bên ngoài upload tự động | **Được**: "our official API, CLI and desktop apps are permitted". Cấm công cụ tự động trái phép để upload/tải hàng loạt, cấm lách giới hạn, cấm dùng làm CDN/hotlink | Upload được (tự tạo tài khoản khách). Điều khoản: "Most API endpoints require a Premium account" | Không có trang điều khoản. Trang chủ hướng dẫn dùng `curl` và ShareX |
-| Cần tài khoản? | Không (không cần API key) | Upload: không. **Tải bằng API: cần Premium** (`GET /contents/{id}` và link tải trực tiếp đều Premium) | Không |
-| Dung lượng tối đa (theo tài liệu) | 25 GB mỗi file. Ẩn danh: 50 file và 100 GB upload mỗi 24 giờ cho mỗi mã khách, 500 GB/24 giờ mỗi IP | Không công bố mỗi file. Tài khoản free tối đa 10.000 mục | 4 GB |
-| Giữ file (theo tài liệu) | 3 ngày mặc định, đặt 1–7 ngày bằng `expiry_days`. App đặt **7 ngày** | **Không cam kết**: "does not guarantee any specific retention duration… may delete inactive content at any time" | 3 ngày |
-| Link tải trực tiếp, CORS cho `https://gmttuts.github.io` | **Không.** Tài liệu cho AI (`/llms.txt`) ghi rõ không có link tải trực tiếp, người nhận phải bấm tải ở trang `storage.to/<mã>`. Trang file nằm sau Cloudflare: `GET /r/<mã>` và `/c/<mã>.json` từ curl trả 403 | Chỉ Premium | **Không** có header `Access-Control-Allow-Origin` (OPTIONS trả 200 nhưng không có CORS) |
-| Upload chia phần / tiếp tục khi rớt mạng | **Có**: file > 50 MB tự chia phần (32 MiB/phần, URL ký sẵn lên Cloudflare R2), xin lại URL từng phần qua `/upload/parts`. App gửi lại đúng phần bị lỗi, tối đa 4 lần | Không có trong tài liệu | Không: một yêu cầu `multipart/form-data`, rớt mạng thì gửi lại từ đầu |
-| Thử upload 50 MB / 1 GB, tốc độ | Chưa thử (chờ người dùng cho phép) | Không làm (đã loại) | Chưa thử (chờ người dùng cho phép) |
-| Kết luận | **Dùng** (mặc định). Người nhận tải file `.bdrop` từ trang storage.to rồi mở trên trang nhận/app | **Dừng**, xem dưới | **Dùng**. App tự tải về được; trình duyệt phải tải tay rồi mở trên trang nhận |
+| | Litterbox | storage.to | Gofile | temp.sh |
+|---|---|---|---|---|
+| Điều khoản cho app bên ngoài upload tự động | **Được**: API công khai, không cần tài khoản. Cấm lách giới hạn, cấm dùng làm CDN/hotlink cho dịch vụ thương mại, không nhận `.exe .scr .cpl .doc* .jar` (file `.bdrop` không bị ảnh hưởng) | **Được**: "our official API, CLI and desktop apps are permitted". Cấm công cụ tự động trái phép để upload/tải hàng loạt, cấm lách giới hạn, cấm dùng làm CDN/hotlink | Upload được (tự tạo tài khoản khách). Điều khoản: "Most API endpoints require a Premium account" | Không có trang điều khoản. Trang chủ hướng dẫn dùng `curl` và ShareX |
+| Cần tài khoản? | Không | Không (không cần API key) | Upload: không. **Tải bằng API: cần Premium** (`GET /contents/{id}` và link tải trực tiếp đều Premium) | Không |
+| Dung lượng tối đa (theo tài liệu) | 1 GB | 25 GB mỗi file. Ẩn danh: 50 file và 100 GB upload mỗi 24 giờ cho mỗi mã khách, 500 GB/24 giờ mỗi IP | Không công bố mỗi file. Tài khoản free tối đa 10.000 mục | 4 GB |
+| Giữ file (theo tài liệu) | 1, 12, 24 hoặc 72 giờ. App đặt **72 giờ** | 3 ngày mặc định, đặt 1–7 ngày bằng `expiry_days`. App đặt **7 ngày** | **Không cam kết**: "does not guarantee any specific retention duration… may delete inactive content at any time" | 3 ngày |
+| Link tải trực tiếp, CORS cho `https://gmttuts.github.io` | **Có**: link `https://litter.catbox.moe/<mã>` trả thẳng file, CORS `*`. Đã thử: trang nhận gọi thật tới một mã không tồn tại và đọc được 404 (báo "link đã hết hạn") | **Không.** Tài liệu cho AI (`/llms.txt`) ghi rõ không có link tải trực tiếp, người nhận phải bấm tải ở trang `storage.to/<mã>`. Trang file nằm sau Cloudflare: `GET /r/<mã>` và `/c/<mã>.json` từ curl trả 403 | Chỉ Premium | **Không** có header `Access-Control-Allow-Origin` (OPTIONS trả 200 nhưng không có CORS) |
+| Upload chia phần / tiếp tục khi rớt mạng | Không: một yêu cầu `multipart/form-data` | **Có**: file > 50 MB tự chia phần (32 MiB/phần, URL ký sẵn lên Cloudflare R2), xin lại URL từng phần qua `/upload/parts`. App gửi lại đúng phần bị lỗi, tối đa 4 lần | Không có trong tài liệu | Không: một yêu cầu `multipart/form-data`, rớt mạng thì gửi lại từ đầu |
+| Thử upload 50 MB / 1 GB, tốc độ | Chưa (1 MB thử một lần: HTTP 500 từ Litterbox, các lần sau bị bộ lọc chặn) | Chưa (bộ lọc chặn) | Không làm (đã loại) | Chưa (bộ lọc chặn) |
+| Kết luận | **Dùng, mặc định khi ≤ 1 GB.** Người nhận mở link là tải và giải mã ngay trong trình duyệt; app cũng tự tải | **Dùng**, mặc định khi > 1 GB hoặc gửi thư mục. Người nhận tải file `.bdrop` từ trang storage.to rồi mở trên trang nhận/app | **Dừng**, xem dưới | **Dùng**. App tự tải về được; trình duyệt phải tải tay rồi mở trên trang nhận |
 
 ### Vì sao dừng Gofile
 
 - Không tải được bằng chương trình nếu không có tài khoản Premium: đọc nội dung (`GET /contents/{id}`) và link tải trực tiếp đều là tính năng Premium. Cách duy nhất còn lại là giả lập trang web của Gofile (lấy token nội bộ của trang), tức là lách giới hạn, trái điều khoản ("Platform Abuse").
 - Không cam kết thời gian giữ file: file free có thể bị xoá bất cứ lúc nào nếu ít được tải. "Khoảng 10 ngày" trên các trang tổng hợp không có trong tài liệu chính thức.
 
-### Đề xuất thay thế (chưa làm, chờ người dùng đồng ý)
+### Thay thế Gofile
+
+Người dùng chọn thêm **Litterbox** (đã làm, xem cột Litterbox ở bảng trên). Các phương án đã cân nhắc:
 
 | Dịch vụ | Ưu | Nhược | Đã kiểm tra |
 |---|---|---|---|
-| **Litterbox** (`litter.catbox.moe`) | Link tải trực tiếp, **CORS `*`**: trang nhận tự tải và giải mã, người nhận chỉ cần bấm một nút (giống WeTransfer nhất) | 1 GB, tối đa 3 ngày | CORS: có (OPTIONS và GET trả `Access-Control-Allow-Origin: *`). Điều khoản, giới hạn: chưa |
+| **Litterbox** (`litter.catbox.moe`), đã thêm | Link tải trực tiếp, **CORS `*`**: trang nhận tự tải và giải mã, người nhận chỉ cần bấm một nút (giống WeTransfer nhất) | 1 GB, tối đa 72 giờ | Điều khoản: đã đọc. CORS: có. Upload thật: chưa |
 | **filebin.net** | 6 ngày, CORS `*` trên `filebin.net` | Tải file đi qua chuyển hướng sang kho S3: cần kiểm tra CORS ở bước đó; giới hạn dung lượng chưa rõ | CORS trang chính: có. Còn lại: chưa |
 | Pixeldrain | 10 GB | Cần API key (cần tài khoản) | Loại |
 
-Nên thêm **Litterbox** cho file ≤ 1 GB: người nhận không phải tải tay. Thêm một dịch vụ chỉ cần một biến thể mới trong `src-tauri/src/online/providers.rs` và một dòng trong `PROVIDERS` của `website/nhan/nhan.js` (đặt `direct` để trang tự tải).
+Thêm một dịch vụ khác chỉ cần một biến thể mới trong `src-tauri/src/online/providers.rs` và một dòng trong `PROVIDERS` của `website/nhan/nhan.js` (đặt `direct` để trang tự tải).
 
 ## Người nhận làm gì
 
 | Dịch vụ | Mở link bằng trình duyệt | Dán link vào app BetterDrop |
 |---|---|---|
+| Litterbox | Trang tự tải và kiểm tra khoá, người nhận chỉ bấm "Lưu file" | App tự tải về, giải mã, lưu vào thư mục nhận |
 | storage.to | Bước 1: bấm "Mở trang tải storage.to", bấm Download, được file `betterdrop.bdrop`. Bước 2: kéo file đó vào trang, bấm "Lưu file" | App mở trang tải; tải xong bấm "Chọn file đã tải…" |
 | temp.sh | Như storage.to | App tự tải về, giải mã, lưu vào thư mục nhận |
 
@@ -52,8 +55,8 @@ https://gmttuts.github.io/better-drop/nhan/#1.<dịch vụ>.<mã file>.<khoá>
 ```
 
 - `1`: phiên bản định dạng link và file. Đổi cách mã hoá/đóng gói thì tăng số này; bản cũ báo "Link được tạo bằng BetterDrop mới hơn".
-- `<dịch vụ>`: `st` (storage.to), `ts` (temp.sh).
-- `<mã file>`: mã của dịch vụ (`FQxyz1234`, `AbCdE/betterdrop.bdrop`). Được kiểm tra chặt để link giả không chèn được đường dẫn lạ.
+- `<dịch vụ>`: `lb` (Litterbox), `st` (storage.to), `ts` (temp.sh).
+- `<mã file>`: mã của dịch vụ (`x7k2p9.bdrop`, `FQxyz1234`, `AbCdE/betterdrop.bdrop`). Được kiểm tra chặt để link giả không chèn được đường dẫn lạ.
 - `<khoá>`: 32 byte ngẫu nhiên, base64url (43 ký tự). Mỗi lượt gửi một khoá mới.
 
 Phần sau `#` không bao giờ được trình duyệt gửi lên máy chủ (GitHub Pages hay dịch vụ lưu file). Trang nhận đặt `referrer` là `no-referrer`.
@@ -96,7 +99,8 @@ Dữ liệu gốc (trước khi mã hoá):
 | `providers.rs` | Từng dịch vụ: thông số (dung lượng, số ngày, tải thẳng được không), upload, download |
 | `mod.rs` | Link, lệnh `online_send`, `online_receive_link`, `online_receive_file`, lịch sử |
 
-- Upload dạng stream: storage.to đọc và mã hoá từng phần 32 MiB (giữ trong RAM để gửi lại khi lỗi), temp.sh đẩy từng 1 MiB.
+- Dịch vụ mặc định trong ô chọn: Litterbox khi chắc chắn ≤ 1 GB (chỉ chọn file), còn lại (lớn hơn, hoặc có thư mục chưa biết dung lượng) là storage.to. Người dùng đổi được; dịch vụ không đủ dung lượng bị làm mờ.
+- Upload dạng stream: storage.to đọc và mã hoá từng phần 32 MiB (giữ trong RAM để gửi lại khi lỗi), Litterbox và temp.sh đẩy từng 1 MiB.
 - Tiến trình và nút Huỷ dùng chung với lượt chuyển trong mạng LAN (mục Hoạt động).
 - Kiểm tra dung lượng trước khi đọc file, theo giới hạn của dịch vụ đã chọn.
 - storage.to: mỗi máy dùng một mã khách cố định (`online.json` trong thư mục dữ liệu), vì hạn mức tính theo mã này (đổi mã liên tục là lách giới hạn).
@@ -111,23 +115,23 @@ Dữ liệu gốc (trước khi mã hoá):
   1. Chrome/Edge trên máy tính: File System Access API (`showSaveFilePicker`). Lỗi giữa chừng thì huỷ file đang ghi.
   2. Firefox và trình duyệt khác có Service Worker: `sw.js` biến dữ liệu giải mã thành một lượt tải xuống bình thường (có báo ngược để không đẩy quá nhanh).
   3. Safari/iOS: gom vào Blob rồi tải (cảnh báo khi file > 300 MB).
-- Dịch vụ cho phép CORS (đặt `direct` trong `PROVIDERS`) thì trang tự tải, không cần bước 1. Hiện chưa dịch vụ nào trong hai dịch vụ đang dùng cho phép.
+- Dịch vụ cho phép CORS (đặt `direct` trong `PROVIDERS`, hiện là Litterbox) thì trang tự tải theo dạng stream, không cần bước 1. Tải thẳng lỗi thì vẫn còn cách tải tay ở bước 1.
 - Kiểm thử: `?sink=sw` hoặc `?sink=blob` ép dùng cách lưu dự phòng.
 
 ## Kiểm tra đã làm
 
-- `cargo test` (68 test): mã hoá/giải mã vòng tròn nhiều kích thước, cắt bớt (giữa khối, đúng ranh giới khối, bỏ khối cuối) phải báo lỗi, thêm rác vào cuối, sai khoá, sửa phần đầu file, link hỏng, đường dẫn độc hại trong manifest, file bị sửa trong lúc gửi, nhận trùng tên thư mục.
-- Test đầu-cuối với **máy chủ giả lập** storage.to và temp.sh làm đúng theo tài liệu API (`online/e2e_tests.rs`): gửi file 300 KB qua storage.to (chia 5 phần, URL phần 3–5 phải xin thêm, phần 2 lỗi 500 một lần rồi gửi lại), kiểm tra dịch vụ không thấy tên file/nội dung, nhận bằng file `.bdrop`, sai khoá báo lỗi ngay; gửi thư mục qua temp.sh, app tự tải về và giải nén đúng; file quá giới hạn bị chặn trước khi tải lên.
+- `cargo test` (68 test, thêm kiểm tra mã file Litterbox): mã hoá/giải mã vòng tròn nhiều kích thước, cắt bớt (giữa khối, đúng ranh giới khối, bỏ khối cuối) phải báo lỗi, thêm rác vào cuối, sai khoá, sửa phần đầu file, link hỏng, đường dẫn độc hại trong manifest, file bị sửa trong lúc gửi, nhận trùng tên thư mục.
+- Test đầu-cuối với **máy chủ giả lập** storage.to, temp.sh và Litterbox làm đúng theo tài liệu API (`online/e2e_tests.rs`): gửi file 300 KB qua storage.to (chia 5 phần, URL phần 3–5 phải xin thêm, phần 2 lỗi 500 một lần rồi gửi lại), kiểm tra dịch vụ không thấy tên file/nội dung, nhận bằng file `.bdrop`, sai khoá báo lỗi ngay; gửi thư mục qua temp.sh, app tự tải về và giải nén đúng; gửi file qua Litterbox (kiểm tra `reqtype`, `time=72h`), app tự tải bằng link trực tiếp; file quá giới hạn bị chặn trước khi tải lên.
 - `cargo check` cho iOS (`aarch64-apple-ios`) và Android (`aarch64-linux-android`): đạt.
 - `npx tsc --noEmit`: đạt.
-- Trang nhận (Chrome trong app Claude, `npx vite website`): file 300 MB tạo bằng code Rust giải mã ra đúng SHA-256 của file gốc, qua cả đường `showSaveFilePicker`; thư mục 21 file lưu qua Service Worker, giải nén bằng `unzip` và `ditto` khớp checksum từng file; sai khoá, file bị cắt, file không phải `.bdrop`, link hỏng đều báo đúng lỗi.
+- Trang nhận (Chrome trong app Claude, `npx vite website`): file 300 MB tạo bằng code Rust giải mã ra đúng SHA-256 của file gốc, qua cả đường `showSaveFilePicker`; thư mục 21 file lưu qua Service Worker, giải nén bằng `unzip` và `ditto` khớp checksum từng file; sai khoá, file bị cắt, file không phải `.bdrop`, link hỏng đều báo đúng lỗi. Đường tải thẳng (fetch dạng stream rồi giải mã) với file 300 MB khớp SHA-256.
 
 ## Thử thật
 
 Chưa làm vì cần người dùng cho phép tải dữ liệu thử lên dịch vụ công khai. Khi được phép:
 
-1. `npm run tauri dev`, chọn một file vài trăm MB, bấm "Gửi qua Internet", chọn storage.to, ghi lại thời gian/tốc độ. Lặp lại với một thư mục, và với temp.sh.
+1. `npm run tauri dev`, chọn một file dữ liệu ngẫu nhiên vài trăm MB, bấm "Gửi qua Internet", chọn storage.to, ghi lại thời gian/tốc độ. Lặp lại với một thư mục, với temp.sh, và với Litterbox (file gần 1 GB). Đo thêm 1 MB và 50 MB cho cả ba dịch vụ.
 2. Mở link bằng trình duyệt (`npx vite website`, đổi phần đầu link thành `http://localhost:8090/nhan/`), làm theo hai bước, so `shasum -a 256` của file tải về với file gốc.
-3. Dán link temp.sh vào "Nhận bằng link" trong app: phải tự tải và giải mã. (Cách tải của temp.sh, `POST` tới link file, lấy theo trang tải của temp.sh, chưa thử thật.)
+3. Mở link Litterbox bằng trình duyệt: trang phải tự tải, bấm "Lưu file", so checksum. Dán link temp.sh và Litterbox vào "Nhận bằng link" trong app: phải tự tải và giải mã. (Cách tải của temp.sh, `POST` tới link file, lấy theo trang tải của temp.sh, chưa thử thật.)
 4. Thử 1 GB với storage.to, rút mạng giữa chừng 10–20 giây: app phải báo "Mất kết nối, đang thử lại" rồi tiếp tục.
 5. Tạo file mẫu không cần mạng: `BDROP_SRC=<file hoặc thư mục> BDROP_OUT=<thư mục> cargo test make_sample -- --ignored --nocapture` in ra link (mã file giả) và file `betterdrop.bdrop` để thử trang nhận.
