@@ -247,7 +247,7 @@ textarea:focus, input:focus { outline: 2px solid var(--accent-soft); border-colo
 .manual:not([open]) > :not(summary) { display: none; }
 
 /* ---- Hoạt động ---- */
-.transfers { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.transfers { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
 .transfer { display: flex; align-items: center; gap: 12px; padding: 8px 4px; border-bottom: 1px solid var(--border); }
 .transfer:last-child { border-bottom: none; }
 .t-dir {
@@ -402,6 +402,9 @@ html.scanning body > :not(.scan-overlay):not(.toasts) { visibility: hidden; }
 
 /* ---- Lịch sử ---- */
 .hist-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-left: auto; }
+/* Màn hẹp: tiêu đề giữ một dòng, bộ lọc xuống dòng dưới. */
+#activity-title { white-space: nowrap; }
+@media (max-width: 520px) { .card-head:has(.hist-tools) { flex-wrap: wrap; } .hist-tools { margin-left: 0; width: 100%; } }
 .hist-tools .chips { padding-bottom: 0; margin-bottom: 0; }
 .transfers.history .transfer { cursor: pointer; }
 .transfers.history .transfer:hover { background: color-mix(in srgb, var(--accent-soft) 40%, transparent); }

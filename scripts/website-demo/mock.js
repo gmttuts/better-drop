@@ -252,6 +252,10 @@
     web_share_stop() { web = null; return null; },
     web_share_new_pin() { web.pin = String(1000 + Math.floor(Math.random() * 9000)); return webInfo(); },
     web_share_add_files({ paths }) { for (const p of paths) web.files.push({ id: "f" + web.files.length, rel_path: baseName(p), size: sizeOf(p) }); return webInfo(); },
+    web_share_remove_file({ id }) { web.files = web.files.filter((f) => f.id !== id); return webInfo(); },
+    set_background_receive({ enabled }) { me.settings.background_receive = enabled; return me; },
+    ensure_notifications: () => true,
+    get_pending_requests: () => [],
     web_share_set_files({ paths }) { web.files = paths.map((p, i) => ({ id: "f" + i, rel_path: baseName(p), size: sizeOf(p) })); return webInfo(); },
     web_share_set_text({ text }) { web.text = text || null; return webInfo(); },
 
