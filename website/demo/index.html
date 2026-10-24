@@ -206,6 +206,50 @@
       return me;
     },
 
+    // Gửi qua Internet: giả lập tải lên (không có gì rời khỏi trình duyệt).
+    online_providers: () => [
+      { id: "storage-to", name: "storage.to", max_bytes: 25e9, days: 7, app_download: false, browser_download: false },
+      { id: "temp-sh", name: "temp.sh", max_bytes: 4e9, days: 3, app_download: true, browser_download: false },
+    ],
+    online_send({ paths, provider }) {
+      const name = provider === "temp-sh" ? "temp.sh" : "storage.to";
+      const days = provider === "temp-sh" ? 3 : 7;
+      const t = { id: "t" + ++tid, direction: "send", peer_name: name, kind: "files", file_count: paths.length,
+        total_bytes: paths.reduce((s, x) => s + sizeOf(x), 0), transferred: 0, speed_bps: 0, status: "waiting", error: null, dir_path: null,
+        files: paths.map((x) => ({ name: baseName(x), path: x })) };
+      const link = `https://gmttuts.github.io/better-drop/nhan/#1.${provider === "temp-sh" ? "ts.dEmO1/betterdrop.bdrop" : "st.DEMOdemo1"}.Wb3lYv0Yx2Qd5c8m1nH4pK7rT9uE6sA0zB3gJ5kL8oM`;
+      const expires_at = now() + days * 86400;
+      live.set(t.id, t);
+      (async () => {
+        emit("transfer-update", { ...t });
+        await wait(300);
+        t.status = "transferring";
+        while (t.transferred < t.total_bytes) {
+          await wait(120);
+          if (t.status === "cancelled") return;
+          t.speed_bps = 12e6;
+          t.transferred = Math.min(t.total_bytes, t.transferred + t.speed_bps * 0.12 * (t.total_bytes > 2e7 ? 3 : 0.3) + 1);
+          emit("transfer-update", { ...t });
+        }
+        t.status = "done";
+        emit("transfer-update", { ...t });
+        live.delete(t.id);
+        emit("online-done", { transfer_id: t.id, link, provider, provider_name: name, page_url: "", expires_at, qr: QR, file_count: paths.length, name: baseName(paths[0]) });
+        const entry = { id: t.id, finished_at: now(), direction: "send", peer_name: name, peer_id: null, kind: "files", file_count: t.file_count, total_bytes: t.total_bytes,
+          status: "done", error: null, dir_path: null, files: t.files, text: null, online: { url: link, provider: name, expires_at } };
+        history = [entry, ...history];
+        emit("history-added", entry);
+      })();
+      return t.id;
+    },
+    online_receive_link: ({ link }) => {
+      if (!/\/nhan\/#1\.(st|ts)\./.test(link)) throw "Link BetterDrop không hợp lệ (thiếu hoặc sai phần sau dấu #)";
+      return { transfer_id: null, provider_name: link.includes("#1.ts.") ? "temp.sh" : "storage.to", page_url: "" };
+    },
+    online_receive_file: () => { throw "Bản dùng thử trên web không đọc được file trên máy bạn."; },
+    online_open_page: () => null,
+    online_qr: () => QR,
+
     web_share_status: () => webInfo(),
     web_share_start() { web = { pin: "4821", urls: ["http://192.168.1.12:53319"], qr_svg: QR, files: [], text: null, clients: 0 }; setTimeout(() => { if (web) { web.clients = 1; emit("web-changed", null); } }, 4000); return webInfo(); },
     web_share_stop() { web = null; return null; },
@@ -248,8 +292,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>BetterDrop (bản dùng thử)</title>
     <link rel="icon" type="image/png" href="./logo.png" />
-    <script type="module" crossorigin src="./assets/index-BTOL1F2M.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-CAMaSUCs.css">
+    <script type="module" crossorigin src="./assets/index-BCLR2U0U.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-3q4SXkgS.css">
   </head>
   <body>
     <header class="topbar">
@@ -304,6 +348,13 @@
           <div class="staged-foot" id="staged-foot" hidden>
             <span id="staged-count"></span>
             <button class="link" id="btn-clear">Xoá hết</button>
+          </div>
+          <div class="online-row">
+            <button class="btn" id="btn-online" title="Mã hoá rồi tải lên dịch vụ lưu file, tạo link gửi cho bất kỳ ai">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18a4.5 4.5 0 0 1-.5-9A6 6 0 0 1 18 9.5 4 4 0 0 1 17.5 18zM12 15V9m0 0-2.5 2.5M12 9l2.5 2.5"/></svg>
+              <span>Gửi qua Internet</span>
+            </button>
+            <button class="link small" id="btn-online-recv">Nhận bằng link</button>
           </div>
         </div>
 
@@ -389,6 +440,7 @@
       <pre class="received-text" id="txt-body"></pre>
       <div class="dialog-actions">
         <button class="btn" id="btn-text-close">Đóng</button>
+        <button class="btn" id="btn-text-receive" hidden>Tải về bằng link này</button>
         <button class="btn primary" id="btn-text-copy">Sao chép</button>
       </div>
     </dialog>
@@ -490,6 +542,73 @@
           <button class="btn" id="btn-web-stop">Tắt chia sẻ</button>
           <button class="btn primary" id="btn-web-close2">Đóng</button>
         </div>
+      </div>
+    </dialog>
+
+    <!-- Gửi qua Internet -->
+    <dialog id="dlg-online" class="dialog online-dialog">
+      <h3>Gửi qua Internet</h3>
+      <div id="online-pick">
+        <p class="muted small" id="online-summary"></p>
+        <div class="legend">Lưu ở dịch vụ</div>
+        <div class="online-providers" id="online-providers" role="radiogroup"></div>
+        <p class="muted small online-note">File được <strong>mã hoá ngay trên máy này</strong> trước khi tải lên. Dịch vụ lưu file không xem được nội dung hay tên file. Ai có link thì tải được: chỉ gửi link cho người cần nhận.</p>
+        <div class="dialog-actions">
+          <button class="btn" id="btn-online-cancel">Huỷ</button>
+          <button class="btn primary" id="btn-online-start">Tải lên và tạo link</button>
+        </div>
+      </div>
+      <div id="online-progress" hidden>
+        <p class="online-status" id="online-status">Đang mã hoá và tải lên…</p>
+        <div class="bar"><i id="online-bar"></i></div>
+        <p class="muted small" id="online-detail"></p>
+        <p class="muted small">Đóng cửa sổ này vẫn tiếp tục tải lên (xem ở mục Hoạt động).</p>
+        <div class="dialog-actions">
+          <button class="btn" id="btn-online-abort">Huỷ tải lên</button>
+          <button class="btn primary" id="btn-online-hide">Ẩn</button>
+        </div>
+      </div>
+      <div id="online-done" hidden>
+        <p class="online-ok">Đã tải lên. Gửi link này cho người nhận:</p>
+        <div class="input-row">
+          <input id="online-link" readonly spellcheck="false" />
+          <button class="btn primary" id="btn-online-copy">Sao chép</button>
+        </div>
+        <p class="muted small" id="online-expiry"></p>
+        <div class="online-done-cols">
+          <div class="qr" id="online-qr"></div>
+          <div class="online-near">
+            <div class="legend">Gửi link tới máy gần</div>
+            <div class="input-row">
+              <select id="online-peer"></select>
+              <button class="btn" id="btn-online-send-link">Gửi</button>
+            </div>
+            <p class="muted small" id="online-receive-hint"></p>
+          </div>
+        </div>
+        <div class="dialog-actions">
+          <button class="btn primary" id="btn-online-close">Đóng</button>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- Nhận bằng link BetterDrop -->
+    <dialog id="dlg-online-recv" class="dialog">
+      <h3>Nhận bằng link</h3>
+      <form id="online-recv-form" class="manual-form">
+        <input id="online-recv-link" placeholder="Dán link BetterDrop (https://gmttuts.github.io/better-drop/nhan/#…)" autocomplete="off" spellcheck="false" />
+        <button class="btn primary" type="submit" id="btn-online-recv-go">Tải về</button>
+      </form>
+      <div id="online-recv-manual" hidden>
+        <p class="muted small" id="online-recv-why"></p>
+        <ol class="online-steps">
+          <li><button class="btn small" id="btn-online-recv-page">Mở trang tải</button> và bấm tải file <span class="code">betterdrop.bdrop</span></li>
+          <li><button class="btn small" id="btn-online-recv-file">Chọn file đã tải…</button> để giải mã và lưu</li>
+        </ol>
+      </div>
+      <p class="muted small">File được giải mã ngay trên máy này và lưu vào thư mục nhận file.</p>
+      <div class="dialog-actions">
+        <button class="btn" id="btn-online-recv-close">Đóng</button>
       </div>
     </dialog>
 

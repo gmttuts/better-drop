@@ -494,13 +494,14 @@ html.scanning body > :not(.scan-overlay):not(.toasts) { visibility: hidden; }
 .online-provider { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
 .online-provider:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
 .online-provider.disabled { opacity: 0.55; cursor: not-allowed; }
-.online-provider input { margin-top: 3px; }
+.online-provider input { flex: none; width: auto; margin: 3px 0 0; }
+.online-provider > div { flex: 1; min-width: 0; }
 .online-note { margin: 12px 0 0; }
 .online-status { font-weight: 500; margin: 4px 0; }
 .online-ok { font-weight: 500; color: var(--ok); margin: 4px 0 8px; }
 .online-dialog .input-row input { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .online-done-cols { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: start; margin-top: 8px; }
-.online-done-cols .qr { margin: 0; }
+.online-done-cols .qr { margin: 0; width: 184px; }
 .online-done-cols .qr svg { width: 168px; height: 168px; }
 .online-near .legend { margin-top: 0; }
 .online-near select { flex: 1; min-width: 0; }

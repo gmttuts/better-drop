@@ -10,6 +10,7 @@ Trang giới thiệu và tải về, HTML/CSS/JS thuần, không cần build. Đ
   ```bash
   node scripts/build-website-demo.mjs
   ```
+- `nhan/`: trang nhận link "Gửi qua Internet" (`https://gmttuts.github.io/better-drop/nhan/#…`). JS thuần, giải mã bằng WebCrypto ngay trên trình duyệt, lưu thẳng xuống đĩa (`sw.js` cho trình duyệt không có File System Access). Định dạng phải khớp `src-tauri/src/online/`; xem `docs/GUI-QUA-INTERNET.md`.
 - `assets/`: icon, ảnh chia sẻ (`og.png`), mã QR ủng hộ.
 
 Xem thử trên máy:
