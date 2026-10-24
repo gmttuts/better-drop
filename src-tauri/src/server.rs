@@ -563,6 +563,7 @@ pub async fn accept_files(
             counted: Default::default(),
             interrupted: Default::default(),
             done: Default::default(),
+            made_dirs: Default::default(),
         }),
     );
     Ok(PrepareResponse { session_id, tokens })
@@ -580,13 +581,12 @@ async fn upload(
 /// Máy nhận giữ phần đã nhận bao lâu để chờ máy gửi nối lại sau khi mất kết nối.
 pub const RESUME_GRACE: Duration = Duration::from_secs(120);
 
-fn part_path(session: &InSession, file: &InFile, token: &str) -> std::io::Result<PathBuf> {
-    let dest = session.dest_path(&file.rel)?;
-    Ok(dest.with_file_name(format!(
+fn part_path(dest: &std::path::Path, token: &str) -> PathBuf {
+    dest.with_file_name(format!(
         "{}.{}.part",
         dest.file_name().unwrap_or_default().to_string_lossy(),
         &token[..8]
-    )))
+    ))
 }
 
 fn find_upload(st: &AppState, q: &UploadQuery) -> Result<(Arc<InSession>, String), (StatusCode, String)> {
@@ -615,7 +615,8 @@ async fn upload_status(State(st): St, Query(q): Query<UploadQuery>) -> Result<Js
     let received = if done {
         file.size
     } else {
-        let part = part_path(&session, file, &q.token).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let dest = session.dest_path(&file.rel).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let part = part_path(&dest, &q.token);
         tokio::fs::metadata(&part).await.map(|m| m.len()).unwrap_or(0)
     };
     Ok(Json(UploadStatus { received, done }))
@@ -643,7 +644,7 @@ pub async fn receive_upload(
     if !session.active.lock().unwrap().insert(id.clone()) {
         return Err((StatusCode::CONFLICT, "File đang được gửi".into()));
     }
-    session.interrupted.lock().unwrap().remove(&id);
+    let resumed = session.interrupted.lock().unwrap().remove(&id).is_some();
     // Bỏ khỏi `active` khi kết thúc, dù thành công hay lỗi.
     struct ActiveGuard<'a>(&'a InSession, String);
     impl Drop for ActiveGuard<'_> {
@@ -660,11 +661,16 @@ pub async fn receive_upload(
     let dest = session
         .dest_path(&file.rel)
         .map_err(|e| fail(format!("Không tạo được thư mục: {e}")))?;
-    let part = part_path(&session, file, &q.token).map_err(|e| fail(format!("Không tạo được thư mục: {e}")))?;
+    let part = part_path(&dest, &q.token);
 
     // Gửi tiếp: phần đã có phải đủ dài; cắt bỏ phần thừa (nếu có) rồi ghi nối.
+    // Gửi từ đầu (offset 0, mọi file nhỏ) thì khỏi stat: file .part sẽ được tạo mới.
     let offset = q.offset.unwrap_or(0);
-    let have = tokio::fs::metadata(&part).await.map(|m| m.len()).unwrap_or(0);
+    let have = if offset == 0 {
+        0
+    } else {
+        tokio::fs::metadata(&part).await.map(|m| m.len()).unwrap_or(0)
+    };
     if offset > have || offset > file.size {
         return Err((StatusCode::CONFLICT, format!("Máy nhận mới có {have} byte")));
     }
@@ -679,7 +685,10 @@ pub async fn receive_upload(
         }
         *c = offset;
     }
-    tracker.set_note(None);
+    // Ghi chú "mất kết nối" chỉ có khi file bị ngắt; xoá mỗi file là một sự kiện lên giao diện.
+    if resumed {
+        tracker.set_note(None);
+    }
 
     let result = write_body(&part, offset, body, file.size, tracker, &session, &id).await;
     if let Err(e) = result {
@@ -705,22 +714,39 @@ pub async fn receive_upload(
         });
     }
 
-    {
-        let _lock = st.rename_lock.lock().unwrap();
-        let final_path = unique_path(&dest);
-        std::fs::rename(&part, &final_path)
-            .map_err(|e| fail(format!("Không lưu được file: {e}")))?;
+    // Đổi tên trên luồng blocking: khoá + rename + stat ngay trên luồng async làm các
+    // luồng worker đứng chờ nhau khi nhận nhiều file nhỏ cùng lúc. Ghi sổ cũng nằm trong
+    // đó để luôn chạy trọn, kể cả khi máy gửi ngắt kết nối lúc đang chờ.
+    let (st, session) = (st.clone(), session.clone());
+    tokio::task::spawn_blocking(move || {
+        let file = &session.files[&id];
+        let tracker = &session.tracker;
+        // Rename vẫn nằm trong khoá: thử cho rename chạy song song (chỉ khoá lúc chọn tên)
+        // thì APFS tranh chấp khoá thư mục trong kernel, CPU hệ thống tăng gấp 3, chậm hơn.
+        let final_path = {
+            let _lock = st.rename_lock.lock().unwrap();
+            let final_path = unique_path(&dest);
+            if let Err(e) = std::fs::rename(&part, &final_path) {
+                let msg = format!("Không lưu được file: {e}");
+                tracker.set_status(TransferStatus::Error, Some(msg.clone()));
+                return Err((StatusCode::INTERNAL_SERVER_ERROR, msg));
+            }
+            final_path
+        };
         if let Some(saved) = &st.hooks.file_saved {
             saved(&final_path);
         }
         tracker.add_history_file(file.rel.join("/"), Some(final_path.to_string_lossy().into_owned()));
-    }
-    session.done_files.lock().unwrap().insert(id.clone());
+        session.done_files.lock().unwrap().insert(id);
 
-    let done = session.done.fetch_add(1, Ordering::SeqCst) + 1;
-    if done == session.files.len() {
-        tracker.set_status(TransferStatus::Done, None);
-    }
+        let done = session.done.fetch_add(1, Ordering::SeqCst) + 1;
+        if done == session.files.len() {
+            tracker.set_status(TransferStatus::Done, None);
+        }
+        Ok(())
+    })
+    .await
+    .unwrap_or_else(|e| Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())))?;
     Ok(StatusCode::OK)
 }
 
@@ -763,7 +789,16 @@ async fn write_body(
 ) -> Result<(), WriteError> {
     let io = |e: std::io::Error| WriteError::Io(format!("Không ghi được file: {e}"));
     let f = if offset == 0 {
-        tokio::fs::File::create(part).await.map_err(io)?
+        match tokio::fs::File::create(part).await {
+            // Thư mục đã tạo trong phiên bị xoá mất giữa chừng: tạo lại như trước.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                if let Some(dir) = part.parent() {
+                    tokio::fs::create_dir_all(dir).await.map_err(io)?;
+                }
+                tokio::fs::File::create(part).await.map_err(io)?
+            }
+            r => r.map_err(io)?,
+        }
     } else {
         let f = tokio::fs::OpenOptions::new().write(true).open(part).await.map_err(io)?;
         f.set_len(offset).await.map_err(io)?;
@@ -771,9 +806,12 @@ async fn write_body(
         tokio::io::AsyncSeekExt::seek(&mut f, std::io::SeekFrom::Start(offset)).await.map_err(io)?;
         f
     };
-    let mut w = tokio::io::BufWriter::with_capacity(1 << 20, f);
+    // Đệm 1 MB cho file lớn; file nhỏ chỉ cần đệm vừa đủ (khỏi cấp phát 1 MB mỗi file).
+    let cap = (expected - offset).clamp(8 << 10, 1 << 20) as usize;
+    let mut w = tokio::io::BufWriter::with_capacity(cap, f);
     let mut stream = body.into_data_stream();
     let mut written: u64 = offset;
+    let mut added: u64 = 0;
     let result = loop {
         // Máy gửi im lặng quá lâu (mất Wi‑Fi không báo lỗi): coi như ngắt kết nối.
         let next = tokio::time::timeout(Duration::from_secs(45), stream.next()).await;
@@ -791,8 +829,11 @@ async fn write_body(
             break Err(io(e));
         }
         tracker.add(chunk.len() as u64);
-        *session.counted.lock().unwrap().entry(id.to_string()).or_insert(0) += chunk.len() as u64;
+        added += chunk.len() as u64;
     };
+    // Cộng một lần khi xong thay vì khoá map mỗi chunk. Không ai đọc giữa chừng: lượt gửi
+    // tiếp của cùng file bị `active` chặn tới khi lượt này kết thúc.
+    *session.counted.lock().unwrap().entry(id.to_string()).or_insert(0) += added;
     // Luôn ghi phần đệm xuống đĩa, kể cả khi mất kết nối: để gửi tiếp được từ đúng chỗ.
     w.flush().await.map_err(io)?;
     result?;
