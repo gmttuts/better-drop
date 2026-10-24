@@ -202,6 +202,50 @@
       return me;
     },
 
+    // Gửi qua Internet: giả lập tải lên (không có gì rời khỏi trình duyệt).
+    online_providers: () => [
+      { id: "storage-to", name: "storage.to", max_bytes: 25e9, days: 7, app_download: false, browser_download: false },
+      { id: "temp-sh", name: "temp.sh", max_bytes: 4e9, days: 3, app_download: true, browser_download: false },
+    ],
+    online_send({ paths, provider }) {
+      const name = provider === "temp-sh" ? "temp.sh" : "storage.to";
+      const days = provider === "temp-sh" ? 3 : 7;
+      const t = { id: "t" + ++tid, direction: "send", peer_name: name, kind: "files", file_count: paths.length,
+        total_bytes: paths.reduce((s, x) => s + sizeOf(x), 0), transferred: 0, speed_bps: 0, status: "waiting", error: null, dir_path: null,
+        files: paths.map((x) => ({ name: baseName(x), path: x })) };
+      const link = `https://gmttuts.github.io/better-drop/nhan/#1.${provider === "temp-sh" ? "ts.dEmO1/betterdrop.bdrop" : "st.DEMOdemo1"}.Wb3lYv0Yx2Qd5c8m1nH4pK7rT9uE6sA0zB3gJ5kL8oM`;
+      const expires_at = now() + days * 86400;
+      live.set(t.id, t);
+      (async () => {
+        emit("transfer-update", { ...t });
+        await wait(300);
+        t.status = "transferring";
+        while (t.transferred < t.total_bytes) {
+          await wait(120);
+          if (t.status === "cancelled") return;
+          t.speed_bps = 12e6;
+          t.transferred = Math.min(t.total_bytes, t.transferred + t.speed_bps * 0.12 * (t.total_bytes > 2e7 ? 3 : 0.3) + 1);
+          emit("transfer-update", { ...t });
+        }
+        t.status = "done";
+        emit("transfer-update", { ...t });
+        live.delete(t.id);
+        emit("online-done", { transfer_id: t.id, link, provider, provider_name: name, page_url: "", expires_at, qr: QR, file_count: paths.length, name: baseName(paths[0]) });
+        const entry = { id: t.id, finished_at: now(), direction: "send", peer_name: name, peer_id: null, kind: "files", file_count: t.file_count, total_bytes: t.total_bytes,
+          status: "done", error: null, dir_path: null, files: t.files, text: null, online: { url: link, provider: name, expires_at } };
+        history = [entry, ...history];
+        emit("history-added", entry);
+      })();
+      return t.id;
+    },
+    online_receive_link: ({ link }) => {
+      if (!/\/nhan\/#1\.(st|ts)\./.test(link)) throw "Link BetterDrop không hợp lệ (thiếu hoặc sai phần sau dấu #)";
+      return { transfer_id: null, provider_name: link.includes("#1.ts.") ? "temp.sh" : "storage.to", page_url: "" };
+    },
+    online_receive_file: () => { throw "Bản dùng thử trên web không đọc được file trên máy bạn."; },
+    online_open_page: () => null,
+    online_qr: () => QR,
+
     web_share_status: () => webInfo(),
     web_share_start() { web = { pin: "4821", urls: ["http://192.168.1.12:53319"], qr_svg: QR, files: [], text: null, clients: 0 }; setTimeout(() => { if (web) { web.clients = 1; emit("web-changed", null); } }, 4000); return webInfo(); },
     web_share_stop() { web = null; return null; },

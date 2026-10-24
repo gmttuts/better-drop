@@ -519,6 +519,16 @@ async fn online_receive_file(st: AppStateRef<'_>, link: String, path: String) ->
     online::receive_file(st.inner().clone(), link, path).await
 }
 
+/// Mở trang tải của dịch vụ (chỉ trang suy ra từ link BetterDrop, không mở URL tuỳ ý).
+#[tauri::command]
+fn online_open_page(app: tauri::AppHandle, link: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let l = online::Link::parse(&link)?;
+    app.opener()
+        .open_url(l.provider.page_url(&l.id), None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn online_qr(link: String) -> Result<String, String> {
     online::qr_svg(&link)
@@ -625,6 +635,7 @@ pub fn run() {
             online_receive_link,
             online_receive_file,
             online_qr,
+            online_open_page,
         ])
         .build(tauri::generate_context!())
         .expect("không khởi động được BetterDrop")

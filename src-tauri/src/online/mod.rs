@@ -9,6 +9,8 @@ pub mod crypto;
 pub mod package;
 pub mod providers;
 pub mod zip;
+#[cfg(test)]
+mod e2e_tests;
 
 use crate::history::{HistoryEntry, HistoryFile, OnlineLink};
 use crate::models::*;
@@ -103,7 +105,14 @@ fn visitor_token(st: &AppState) -> String {
     })
 }
 
-fn new_tracker(st: &AppState, direction: Direction, provider: Provider, file_count: usize, total: u64) -> Arc<Tracker> {
+fn new_tracker(
+    st: &AppState,
+    direction: Direction,
+    provider: Provider,
+    file_count: usize,
+    total: u64,
+    dir_path: Option<String>,
+) -> Arc<Tracker> {
     let tracker = Tracker::new(
         st.emit.clone(),
         TransferUpdate {
@@ -117,7 +126,7 @@ fn new_tracker(st: &AppState, direction: Direction, provider: Provider, file_cou
             speed_bps: 0.0,
             status: TransferStatus::Waiting,
             error: None,
-            dir_path: None,
+            dir_path,
         },
     );
     // Nằm trong `outgoing` để nút Huỷ (cancel_transfer) dùng được.
@@ -172,7 +181,7 @@ pub async fn send(st: Arc<AppState>, paths: Vec<String>, provider: Provider) -> 
             info.max_bytes / 1_000_000_000
         ));
     }
-    let tracker = new_tracker(&st, Direction::Send, provider, items.len(), crypto::encrypted_len(raw, crypto::CHUNK));
+    let tracker = new_tracker(&st, Direction::Send, provider, items.len(), crypto::encrypted_len(raw, crypto::CHUNK), None);
     let id = tracker.id();
     let history_files: Vec<HistoryFile> = files
         .iter()
@@ -303,7 +312,8 @@ async fn start_receive(
     .map_err(|e| e.to_string())??;
     let dest = download_dir(&st);
     let total = cipher_len.unwrap_or_else(|| crypto::encrypted_len(manifest.size, crypto::CHUNK));
-    let tracker = new_tracker(&st, Direction::Receive, link.provider, manifest.files.len(), total);
+    let dir = Some(dest.to_string_lossy().into_owned());
+    let tracker = new_tracker(&st, Direction::Receive, link.provider, manifest.files.len(), total, dir);
     let _ = slot.set(tracker.clone());
     tracker.set_status(TransferStatus::Transferring, None);
     let id = tracker.id();
@@ -387,5 +397,40 @@ mod tests {
         assert!(Link::parse(&format!("#1.zz.FQxyz1234.{k}")).is_err());
         assert!(Link::parse("#1.st.FQxyz1234.ngắn").is_err());
         assert!(Link::parse(&format!("#1.st.../../x.{k}")).is_err());
+    }
+
+    /// Tạo file .bdrop mẫu để thử trang nhận trên website (không chạy trong `cargo test` thường):
+    /// `BDROP_SRC=<file hoặc thư mục> BDROP_OUT=<thư mục> cargo test make_sample -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn make_sample() {
+        let src = PathBuf::from(std::env::var("BDROP_SRC").expect("thiếu BDROP_SRC"));
+        let out = PathBuf::from(std::env::var("BDROP_OUT").expect("thiếu BDROP_OUT"));
+        let root = src.file_name().unwrap().to_string_lossy().into_owned();
+        let items: Vec<Item> = if src.is_dir() {
+            walkdir::WalkDir::new(&src)
+                .into_iter()
+                .filter_map(Result::ok)
+                .filter(|e| e.file_type().is_file())
+                .map(|e| {
+                    let rel = e.path().strip_prefix(&src).unwrap().to_string_lossy().replace('\\', "/");
+                    Item {
+                        source: e.path().to_string_lossy().into_owned(),
+                        path: format!("{root}/{rel}"),
+                        size: e.metadata().unwrap().len(),
+                    }
+                })
+                .collect()
+        } else {
+            vec![Item { source: src.to_string_lossy().into_owned(), path: root, size: src.metadata().unwrap().len() }]
+        };
+        let open: Opener = Arc::new(|p: &str| std::fs::File::open(p));
+        let pkg = Package::build(items, &open, &|| false).unwrap();
+        let key = crypto::random_key();
+        std::fs::create_dir_all(&out).unwrap();
+        let mut f = std::fs::File::create(out.join(providers::UPLOAD_NAME)).unwrap();
+        std::io::copy(&mut crypto::Encryptor::new(pkg.reader(open), &key), &mut f).unwrap();
+        let link = Link { provider: Provider::StorageTo, id: "SAMPLE1234".into(), key };
+        println!("LINK {}", link.to_url());
     }
 }

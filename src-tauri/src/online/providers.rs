@@ -107,6 +107,27 @@ const RETRIES: u32 = 4;
 
 pub type Source = Arc<Mutex<Box<dyn Read + Send>>>;
 
+/// Địa chỉ gốc của dịch vụ. Trong test được thay bằng máy chủ giả lập (`test_base`).
+fn base(default: &str) -> String {
+    #[cfg(test)]
+    if let Some(b) = test_base::get() {
+        return b;
+    }
+    default.to_string()
+}
+
+#[cfg(test)]
+pub mod test_base {
+    use std::sync::Mutex;
+    static BASE: Mutex<Option<String>> = Mutex::new(None);
+    pub fn set(b: Option<String>) {
+        *BASE.lock().unwrap() = b;
+    }
+    pub fn get() -> Option<String> {
+        BASE.lock().unwrap().clone()
+    }
+}
+
 pub struct Upload {
     pub client: reqwest::Client,
     /// Dữ liệu đã mã hoá.
@@ -308,7 +329,6 @@ mod storage_to {
     use super::*;
     use std::collections::HashMap;
 
-    const API: &str = "https://storage.to/api";
     /// Cỡ phần lớn nhất chấp nhận (tránh giữ quá nhiều trong RAM).
     const MAX_PART: u64 = 128 << 20;
 
@@ -387,7 +407,7 @@ mod storage_to {
     ) -> Result<(reqwest::StatusCode, T), String> {
         let mut req = u
             .client
-            .post(format!("{API}{path}"))
+            .post(format!("{}/api{path}", base("https://storage.to")))
             .header("X-Visitor-Token", &u.visitor)
             .timeout(Duration::from_secs(60))
             .json(&body);
@@ -527,7 +547,6 @@ mod temp_sh {
     //! https://temp.sh — một yêu cầu multipart `file=@…`, trả về link dạng văn bản.
     use super::*;
 
-    const URL: &str = "https://temp.sh/upload";
 
     pub async fn upload(u: &Upload) -> Result<Uploaded, String> {
         u.tracker.set_status(crate::models::TransferStatus::Transferring, None);
@@ -552,7 +571,7 @@ mod temp_sh {
             .mime_str(CONTENT_TYPE)
             .map_err(|e| e.to_string())?;
         let form = reqwest::multipart::Form::new().part("file", part);
-        let r = u.client.post(URL).multipart(form).send().await.map_err(|e| {
+        let r = u.client.post(format!("{}/upload", base("https://temp.sh"))).multipart(form).send().await.map_err(|e| {
             if u.tracker.is_cancelled() {
                 cancelled_err()
             } else {
@@ -577,7 +596,7 @@ mod temp_sh {
     }
 
     pub async fn download(client: &reqwest::Client, id: &str) -> Result<(reqwest::Response, Option<u64>), String> {
-        let url = Provider::TempSh.page_url(id);
+        let url = format!("{}/{id}", base("https://temp.sh"));
         // Trang tải của temp.sh tải file bằng POST tới chính link đó.
         let r = client.post(&url).send().await.map_err(net_err)?;
         if r.status() == reqwest::StatusCode::NOT_FOUND {

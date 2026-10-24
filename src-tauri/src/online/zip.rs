@@ -54,7 +54,7 @@ fn dos_time(secs: u64) -> (u16, u16) {
     if !(1980..=2107).contains(&y) {
         return (0, (1 << 5) | 1);
     }
-    let time = ((rem / 3600) << 11 | (rem % 3600 / 60) << 5 | (rem % 60) / 2) as u16;
+    let time = (((rem / 3600) << 11) | ((rem % 3600 / 60) << 5) | ((rem % 60) / 2)) as u16;
     let date = (((y - 1980) as u16) << 9) | ((m as u16) << 5) | d as u16;
     (time, date)
 }
