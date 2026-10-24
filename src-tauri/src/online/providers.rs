@@ -624,6 +624,10 @@ async fn fetch_file(req: reqwest::RequestBuilder, name: &str) -> Result<(reqwest
     Ok((r, len))
 }
 
+/// Đầu thông báo lỗi khi Litterbox từ chối (tường lửa của họ chặn một số mạng); app tự chuyển
+/// sang storage.to khi gặp lỗi này.
+pub const LB_REFUSED: &str = "Litterbox từ chối tải lên";
+
 mod litterbox {
     //! https://litterbox.catbox.moe/tools.php — một yêu cầu multipart (`reqtype=fileupload`,
     //! `time=72h`, `fileToUpload`), trả về link tải trực tiếp dạng văn bản. Link tải có CORS `*`
@@ -643,7 +647,7 @@ mod litterbox {
             return Err(if status.as_u16() == 413 {
                 "Litterbox: file quá lớn (tối đa 1 GB)".into()
             } else {
-                format!("Litterbox trả lỗi HTTP {}", status.as_u16())
+                format!("{LB_REFUSED} (HTTP {})", status.as_u16())
             });
         }
         let id = text

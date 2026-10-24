@@ -368,6 +368,8 @@ const RULES: [RegExp, (...m: string[]) => string][] = [
   [/^storage\.to: đã dùng hết hạn mức hôm nay(.*)$/, (_, e) => `storage.to: today's upload quota is used up${e}`],
   [/^File không còn trên (.+) \(đã hết hạn hoặc bị xoá\)$/, (_, p) => `The file is no longer on ${p} (expired or deleted)`],
   [/^(.+) trả về trang web thay vì file$/, (_, p) => `${p} returned a web page instead of the file`],
+  [/^Litterbox từ chối tải lên \(HTTP (\d+)\)\. Đang chuyển sang (.+)…$/, (_, c, p) => `Litterbox refused the upload (HTTP ${c}). Switching to ${p}…`],
+  [/^Litterbox từ chối tải lên \(HTTP (\d+)\)$/, (_, c) => `Litterbox refused the upload (HTTP ${c})`],
   [/^(.+) trả lỗi HTTP (\d+)$/, (_, p, c) => `${p} returned HTTP ${c}`],
   [/^Dịch vụ từ chối \(HTTP (\d+)\)$/, (_, c) => `The file host refused (HTTP ${c})`],
   [/^(.+) trả về kết quả lạ: (.*)$/, (_, p, r) => `${p} returned something unexpected: ${r}`],

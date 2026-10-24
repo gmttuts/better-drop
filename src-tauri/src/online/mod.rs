@@ -140,7 +140,8 @@ fn record(st: &AppState, tracker: &Tracker, files: Vec<HistoryFile>, online: Opt
         id: u.id,
         finished_at: crate::history::now_secs(),
         direction: u.direction,
-        peer_name: u.peer_name,
+        // Gửi: dịch vụ thật sự đã lưu (có thể đã chuyển từ Litterbox sang storage.to).
+        peer_name: online.as_ref().map(|o| o.provider.clone()).unwrap_or(u.peer_name),
         peer_id: None,
         kind: u.kind,
         file_count: u.file_count,
@@ -196,7 +197,7 @@ pub async fn send(st: Arc<AppState>, paths: Vec<String>, provider: Provider) -> 
                 tracker.set_status(TransferStatus::Done, None);
                 let link = OnlineLink {
                     url: sent.link.clone(),
-                    provider: provider.info().name.to_string(),
+                    provider: sent.provider_name.clone(),
                     expires_at: sent.expires_at,
                 };
                 st.emit("online-done", &sent);
@@ -226,21 +227,32 @@ async fn run_send(st: &Arc<AppState>, tracker: &Arc<Tracker>, items: Vec<Item>, 
         .await
         .map_err(|e| e.to_string())??;
     tracker.set_note(None);
-    let key = crypto::random_key();
     let len = crypto::encrypted_len(pkg.plain_len, crypto::CHUNK);
     if len > info.max_bytes {
         return Err(format!("Quá giới hạn của {}: tối đa {} GB", info.name, info.max_bytes / 1_000_000_000));
     }
-    let source: providers::Source =
-        Arc::new(Mutex::new(Box::new(crypto::Encryptor::new(pkg.reader(open), &key)) as Box<dyn Read + Send>));
-    let upload = Upload {
-        client: providers::internet_client()?,
-        source,
-        len,
-        tracker: tracker.clone(),
-        visitor: visitor_token(st),
+    let client = providers::internet_client()?;
+    // Mỗi lần thử dùng khoá mới, đọc lại từ đầu (không bao giờ mã hoá lại bằng khoá cũ).
+    let attempt = |provider: Provider| {
+        let key = crypto::random_key();
+        let source: providers::Source =
+            Arc::new(Mutex::new(Box::new(crypto::Encryptor::new(pkg.reader(open.clone()), &key)) as Box<dyn Read + Send>));
+        let upload = Upload { client: client.clone(), source, len, tracker: tracker.clone(), visitor: visitor_token(st) };
+        async move { providers::upload(provider, &upload).await.map(|up| (up, key)) }
     };
-    let up = providers::upload(provider, &upload).await?;
+    let (provider, (up, key)) = match attempt(provider).await {
+        // Litterbox chặn một số mạng (tường lửa của họ trả 403/500). Tự chuyển sang storage.to.
+        Err(e) if provider == Provider::Litterbox && e.starts_with(providers::LB_REFUSED) && !tracker.is_cancelled() => {
+            let fallback = Provider::StorageTo;
+            tracker.sub(tracker.snapshot().transferred);
+            tracker.set_note(Some(format!("{e}. Đang chuyển sang {}…", fallback.info().name)));
+            let r = attempt(fallback).await?;
+            tracker.set_note(None);
+            (fallback, r)
+        }
+        r => (provider, r?),
+    };
+    let info = provider.info();
     let link = Link { provider, id: up.id.clone(), key }.to_url();
     Ok(Sent {
         transfer_id: tracker.id(),

@@ -6,7 +6,28 @@ Gửi file cho người ở xa, kiểu WeTransfer: app mã hoá file ngay trên 
 
 Ngày kiểm tra: 24/10/2026. Nguồn: tài liệu và điều khoản trên trang của từng dịch vụ, cộng các yêu cầu HTTP chỉ đọc (OPTIONS/GET tới link giả) để xem CORS.
 
-**Chưa thử upload thật (1 MB, 50 MB, 1 GB) và chưa đo tốc độ.** Người dùng đã đồng ý (qua phiên điều phối) cho upload dữ liệu ngẫu nhiên, nhưng bộ lọc an toàn của phiên làm việc vẫn chặn lệnh upload. Một lần thử 1 MB lên Litterbox lọt qua nhưng Litterbox trả lỗi HTTP 500 (không có gì được lưu); các lần sau bị chặn. Các cột "Giới hạn" và "Giữ file" dưới đây lấy từ tài liệu chính thức, chưa xác nhận bằng upload thật. Cách thử khi được phép: xem mục [Thử thật](#thử-thật).
+Người dùng đồng ý cho upload dữ liệu ngẫu nhiên tự tạo để thử. Phép thử dùng chính code của app (test `live_services` trong `src-tauri/src/online/e2e_tests.rs`, chỉ chạy tay): tạo file ngẫu nhiên, mã hoá + tải lên, rồi (nếu dịch vụ cho) tải về bằng app, giải mã, so SHA-256 với file gốc. Mạng: Internet gia đình ở Việt Nam, ngày 24/10/2026.
+
+### Kết quả upload thật
+
+| Dịch vụ | Cỡ | Tải lên | Tốc độ lên | Tải về bằng app | Checksum |
+|---|---|---|---|---|---|
+| storage.to | 1 MB | 4,3 s | 0,2 MB/s (chủ yếu là 3 lần gọi API) | (không cho app tải) | khớp qua trang nhận, xem dưới |
+| storage.to | 50 MB | 3,9 s | 12,9 MB/s | — | **khớp** (tải tay ở trang storage.to rồi giải mã trên trang nhận) |
+| storage.to | 1 GB | 81,0 s | 12,4 MB/s | — | chưa tải về (giống 50 MB) |
+| temp.sh | 1 MB | 3,1 s | 0,3 MB/s | 2,8 s | **khớp** |
+| temp.sh | 50 MB | 8,2 s | 6,1 MB/s | 6,7 s | **khớp** |
+| temp.sh | 1 GB | 77,6 s | 12,9 MB/s | 79,1 s | **khớp** |
+| Litterbox | 1 MB | **bị từ chối** | — | — | — |
+
+Xác nhận thêm:
+
+- **Litterbox chặn mạng thử nghiệm.** Ngay lần gửi đầu tiên (1 MB, trước khi có lần thử lại nào), API trả HTTP 500 qua tường lửa BunkerWeb của họ; các lần sau trả 403, rồi cả trang chủ `litterbox.catbox.moe` cũng 403 với IP này suốt hơn 20 phút ("Your Client Forbidden… try again in a few minutes"). Trang tải `litter.catbox.moe` vẫn trả lời bình thường (404 cho mã không có, kèm CORS `*`). Vì vậy chưa đo được tốc độ, giới hạn 1 GB và 72 giờ của Litterbox. Người dùng khác ở cùng nhà mạng có thể gặp đúng lỗi này, nên app **tự chuyển sang storage.to** khi Litterbox từ chối (hiện ghi chú "Litterbox từ chối tải lên (HTTP 403). Đang chuyển sang storage.to…", tạo khoá mới, đọc lại file từ đầu). Đã thử thật: gửi 1 MB qua Litterbox, nhận về link storage.to.
+- **storage.to**: trang file hiện "xoá sau 6 ngày 23 giờ" ngay sau khi tải lên, `expires_at` đúng 7 ngày (app đặt `expiry_days: 7`). Giới hạn thật là **25 GiB** (26 843 545 600 byte): khai báo hơn 1 byte bị từ chối "File too large. Maximum size is 25 GB" ngay ở bước khởi tạo (đã huỷ, không tải dữ liệu). Phần 32 MiB (800 phần cho 25 GiB). App giữ mức 25 GB (thập phân) cho chắc. Nút Download trên trang tải từ `storage.to/<mã>/download` (cần qua trang, có kiểm tra Cloudflare).
+- **temp.sh**: trang file ghi "Expire Time" đúng 3 ngày sau khi tải lên. Tải bằng `POST` tới link file trả thẳng file (app dùng cách này). Giới hạn 4 GB chưa thử (cần tải lên hơn 4 GB).
+- **CORS**, thử bằng `fetch` thật từ trang nhận: `POST https://temp.sh/<mã>/betterdrop.bdrop` và `GET https://storage.to/<mã>/download` đều bị trình duyệt chặn ("Failed to fetch"). Đúng như bảng dưới: người nhận dùng trình duyệt phải tải tay.
+
+Các cột "theo tài liệu" bên dưới lấy từ trang của dịch vụ; phần đã kiểm chứng ghi ở trên.
 
 | | Litterbox | storage.to | Gofile | temp.sh |
 |---|---|---|---|---|
@@ -16,8 +37,8 @@ Ngày kiểm tra: 24/10/2026. Nguồn: tài liệu và điều khoản trên tra
 | Giữ file (theo tài liệu) | 1, 12, 24 hoặc 72 giờ. App đặt **72 giờ** | 3 ngày mặc định, đặt 1–7 ngày bằng `expiry_days`. App đặt **7 ngày** | **Không cam kết**: "does not guarantee any specific retention duration… may delete inactive content at any time" | 3 ngày |
 | Link tải trực tiếp, CORS cho `https://gmttuts.github.io` | **Có**: link `https://litter.catbox.moe/<mã>` trả thẳng file, CORS `*`. Đã thử: trang nhận gọi thật tới một mã không tồn tại và đọc được 404 (báo "link đã hết hạn") | **Không.** Tài liệu cho AI (`/llms.txt`) ghi rõ không có link tải trực tiếp, người nhận phải bấm tải ở trang `storage.to/<mã>`. Trang file nằm sau Cloudflare: `GET /r/<mã>` và `/c/<mã>.json` từ curl trả 403 | Chỉ Premium | **Không** có header `Access-Control-Allow-Origin` (OPTIONS trả 200 nhưng không có CORS) |
 | Upload chia phần / tiếp tục khi rớt mạng | Không: một yêu cầu `multipart/form-data` | **Có**: file > 50 MB tự chia phần (32 MiB/phần, URL ký sẵn lên Cloudflare R2), xin lại URL từng phần qua `/upload/parts`. App gửi lại đúng phần bị lỗi, tối đa 4 lần | Không có trong tài liệu | Không: một yêu cầu `multipart/form-data`, rớt mạng thì gửi lại từ đầu |
-| Thử upload 50 MB / 1 GB, tốc độ | Chưa (1 MB thử một lần: HTTP 500 từ Litterbox, các lần sau bị bộ lọc chặn) | Chưa (bộ lọc chặn) | Không làm (đã loại) | Chưa (bộ lọc chặn) |
-| Kết luận | **Dùng, mặc định khi ≤ 1 GB.** Người nhận mở link là tải và giải mã ngay trong trình duyệt; app cũng tự tải | **Dùng**, mặc định khi > 1 GB hoặc gửi thư mục. Người nhận tải file `.bdrop` từ trang storage.to rồi mở trên trang nhận/app | **Dừng**, xem dưới | **Dùng**. App tự tải về được; trình duyệt phải tải tay rồi mở trên trang nhận |
+| Thử upload 1 MB / 50 MB / 1 GB | **Bị tường lửa chặn** từ mạng thử nghiệm (500/403); app tự chuyển sang storage.to | Đạt, ~12,5 MB/s | Không làm (đã loại) | Đạt, ~12,9 MB/s (1 GB) |
+| Kết luận | **Dùng, mặc định khi ≤ 1 GB**, tự chuyển sang storage.to nếu bị từ chối. Người nhận mở link là tải và giải mã ngay trong trình duyệt; app cũng tự tải | **Dùng**, mặc định khi > 1 GB hoặc gửi thư mục. Người nhận tải file `.bdrop` từ trang storage.to rồi mở trên trang nhận/app | **Dừng**, xem dưới | **Dùng**. App tự tải về được; trình duyệt phải tải tay rồi mở trên trang nhận |
 
 ### Vì sao dừng Gofile
 
@@ -128,10 +149,20 @@ Dữ liệu gốc (trước khi mã hoá):
 
 ## Thử thật
 
-Chưa làm vì cần người dùng cho phép tải dữ liệu thử lên dịch vụ công khai. Khi được phép:
+Đã làm (xem [Kết quả upload thật](#kết-quả-upload-thật)). Chạy lại:
 
-1. `npm run tauri dev`, chọn một file dữ liệu ngẫu nhiên vài trăm MB, bấm "Gửi qua Internet", chọn storage.to, ghi lại thời gian/tốc độ. Lặp lại với một thư mục, với temp.sh, và với Litterbox (file gần 1 GB). Đo thêm 1 MB và 50 MB cho cả ba dịch vụ.
-2. Mở link bằng trình duyệt (`npx vite website`, đổi phần đầu link thành `http://localhost:8090/nhan/`), làm theo hai bước, so `shasum -a 256` của file tải về với file gốc.
-3. Mở link Litterbox bằng trình duyệt: trang phải tự tải, bấm "Lưu file", so checksum. Dán link temp.sh và Litterbox vào "Nhận bằng link" trong app: phải tự tải và giải mã. (Cách tải của temp.sh, `POST` tới link file, lấy theo trang tải của temp.sh, chưa thử thật.)
-4. Thử 1 GB với storage.to, rút mạng giữa chừng 10–20 giây: app phải báo "Mất kết nối, đang thử lại" rồi tiếp tục.
-5. Tạo file mẫu không cần mạng: `BDROP_SRC=<file hoặc thư mục> BDROP_OUT=<thư mục> cargo test make_sample -- --ignored --nocapture` in ra link (mã file giả) và file `betterdrop.bdrop` để thử trang nhận.
+```bash
+cd src-tauri
+BDROP_LIVE=lb,st,ts BDROP_SIZES=1000000,50000000,1000000000 cargo test live_services -- --ignored --nocapture
+```
+
+Mỗi lượt in một dòng `RESULT dịch-vụ cỡ giây-tải-lên MB/s giây-tải-về checksum … link`. Chỉ tải lên dữ liệu ngẫu nhiên tự tạo. Với storage.to (app không tự tải được), mở link in ra, bấm tải ở trang storage.to rồi kéo file vào trang nhận.
+
+Còn chưa làm:
+
+- Đo Litterbox từ một mạng khác (mạng thử nghiệm bị tường lửa của Litterbox chặn).
+- Thử giới hạn 4 GB của temp.sh (phải tải lên hơn 4 GB).
+- Rút mạng giữa chừng khi gửi 1 GB qua storage.to để xem app gửi lại phần lỗi trên mạng thật (đã thử bằng máy chủ giả lập).
+- Bấm thử trong cửa sổ app thật (`npm run tauri dev`): công cụ hiện có không điều khiển được cửa sổ app, nên luồng giao diện đã thử trên bản demo website (cùng giao diện) còn phần gửi/nhận đã thử bằng chính code Rust của app.
+
+Tạo file mẫu không cần mạng: `BDROP_SRC=<file hoặc thư mục> BDROP_OUT=<thư mục> cargo test make_sample -- --ignored --nocapture` in ra link (mã file giả) và file `betterdrop.bdrop` để thử trang nhận.

@@ -26,6 +26,8 @@ struct Mock {
     /// Lần PUT phần 2 đầu tiên trả lỗi 500 (thử gửi lại).
     fail_once: bool,
     visitor: Option<String>,
+    /// Litterbox trả 403 (như tường lửa của họ) cho lần tải lên tiếp theo.
+    lb_refuse: bool,
     expiry_days: Option<u64>,
 }
 
@@ -128,7 +130,10 @@ async fn temp_upload(State(m): State<Shared>, headers: axum::http::HeaderMap, bo
     "https://temp.sh/TsAbC/betterdrop.bdrop\n".into()
 }
 
-async fn litter_upload(State(m): State<Shared>, headers: axum::http::HeaderMap, body: Bytes) -> String {
+async fn litter_upload(State(m): State<Shared>, headers: axum::http::HeaderMap, body: Bytes) -> (StatusCode, String) {
+    if std::mem::take(&mut m.lock().unwrap().lb_refuse) {
+        return (StatusCode::FORBIDDEN, "<title>403 | Forbidden</title>".into());
+    }
     let ct = headers["content-type"].to_str().unwrap();
     let boundary = ct.split("boundary=").nth(1).unwrap();
     let text = String::from_utf8_lossy(&body);
@@ -140,7 +145,7 @@ async fn litter_upload(State(m): State<Shared>, headers: axum::http::HeaderMap, 
     let tail = format!("\r\n--{boundary}--\r\n");
     let data = body[start..body.len() - tail.len()].to_vec();
     m.lock().unwrap().files.insert("lbX7k2p9.bdrop".into(), data);
-    "https://litter.catbox.moe/lbX7k2p9.bdrop".into()
+    (StatusCode::OK, "https://litter.catbox.moe/lbX7k2p9.bdrop".into())
 }
 
 async fn litter_download(State(m): State<Shared>, AxPath(id): AxPath<String>) -> (StatusCode, Vec<u8>) {
@@ -204,6 +209,10 @@ fn node() -> Node {
 
 /// Chờ một event cụ thể (bỏ qua các event khác).
 async fn wait_for(n: &mut Node, name: &str) -> Value {
+    wait_for_secs(n, name, 60).await
+}
+
+async fn wait_for_secs(n: &mut Node, name: &str, secs: u64) -> Value {
     let fut = async {
         while let Some((e, v)) = n.events.recv().await {
             if e == name {
@@ -215,7 +224,7 @@ async fn wait_for(n: &mut Node, name: &str) -> Value {
         }
         panic!("hết event");
     };
-    tokio::time::timeout(std::time::Duration::from_secs(60), fut).await.expect("quá lâu")
+    tokio::time::timeout(std::time::Duration::from_secs(secs), fut).await.expect("quá lâu")
 }
 
 fn write(p: &Path, bytes: &[u8]) {
@@ -320,6 +329,16 @@ async fn send_and_receive_through_mock_services() {
     assert_eq!(hist["status"], "done", "{hist}");
     assert_eq!(std::fs::read(dl.join("phim.mp4")).unwrap(), big);
 
+    // Litterbox từ chối (tường lửa chặn mạng này): tự chuyển sang storage.to.
+    mock.lock().unwrap().lb_refuse = true;
+    send(a.st.clone(), vec![path.clone()], Provider::Litterbox).await.unwrap();
+    let done = wait_for(&mut a, "online-done").await;
+    assert_eq!(done["provider_name"], "storage.to");
+    assert!(done["link"].as_str().unwrap().contains("#1.st."));
+    let hist = wait_for(&mut a, "history-added").await;
+    assert_eq!(hist["peer_name"], "storage.to");
+    assert_eq!(hist["online"]["provider"], "storage.to");
+
     // Quá giới hạn dịch vụ: báo lỗi ngay, không tải lên.
     let huge = src.path().join("huge.bin");
     std::fs::File::create(&huge).unwrap().set_len(5_000_000_000).unwrap();
@@ -327,4 +346,73 @@ async fn send_and_receive_through_mock_services() {
     assert!(err.contains("Quá giới hạn của temp.sh"), "{err}");
 
     test_base::set(None);
+}
+
+/// Thử thật với dịch vụ trên Internet, dữ liệu ngẫu nhiên tự tạo. Chỉ chạy tay:
+/// `BDROP_LIVE=lb,st,ts BDROP_SIZES=1000000,50000000 cargo test live_services -- --ignored --nocapture`
+/// In ra mỗi dòng `RESULT dịch-vụ cỡ giây-tải-lên MB/s giây-tải-về checksum link`.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn live_services() {
+    use ring::rand::SecureRandom;
+    use sha2::{Digest, Sha256};
+    use std::io::Write;
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let list = std::env::var("BDROP_LIVE").expect("thiếu BDROP_LIVE");
+    let sizes: Vec<u64> = std::env::var("BDROP_SIZES").expect("thiếu BDROP_SIZES").split(',').map(|x| x.parse().unwrap()).collect();
+    let src = tempfile::tempdir().unwrap();
+    for code in list.split(',') {
+        let p = Provider::from_code(code).expect("mã dịch vụ");
+        for &size in &sizes {
+            // File ngẫu nhiên tự tạo (không phải file của người dùng).
+            let path = src.path().join(format!("ngau-nhien-{size}.bin"));
+            let mut f = std::fs::File::create(&path).unwrap();
+            let mut h = Sha256::new();
+            let mut buf = vec![0u8; 1 << 20];
+            let mut left = size;
+            while left > 0 {
+                let n = left.min(buf.len() as u64) as usize;
+                ring::rand::SystemRandom::new().fill(&mut buf[..n]).unwrap();
+                f.write_all(&buf[..n]).unwrap();
+                h.update(&buf[..n]);
+                left -= n as u64;
+            }
+            drop(f);
+            let want = hex::encode(h.finalize());
+            let mut a = node();
+            let t0 = std::time::Instant::now();
+            send(a.st.clone(), vec![path.to_string_lossy().into_owned()], p).await.unwrap();
+            let done = wait_for_secs(&mut a, "online-done", 3 * 3600).await;
+            let up = t0.elapsed().as_secs_f64();
+            let link = done["link"].as_str().unwrap().to_string();
+            let mut down = String::from("-");
+            let mut check = String::from("tải tay");
+            // Litterbox có thể tự chuyển sang storage.to: dùng dịch vụ thật sự đã lưu.
+            let used = Link::parse(&link).unwrap().provider;
+            if used.info().app_download {
+                let mut b = node();
+                let t1 = std::time::Instant::now();
+                receive_link(b.st.clone(), link.clone()).await.unwrap();
+                let hist = wait_for_secs(&mut b, "history-added", 3 * 3600).await;
+                assert_eq!(hist["status"], "done", "{hist}");
+                down = format!("{:.1}", t1.elapsed().as_secs_f64());
+                let got = hist["files"][0]["path"].as_str().unwrap().to_string();
+                let got = hex::encode(Sha256::digest(std::fs::read(&got).unwrap()));
+                check = if got == want { "khớp".into() } else { format!("SAI {got}") };
+            }
+            println!(
+                "RESULT {} {} {:.1} {:.1} {} {} sha={} hết-hạn={} {}",
+                if used == p { p.info().name.to_string() } else { format!("{}→{}", p.info().name, used.info().name) },
+                size,
+                up,
+                size as f64 / up / 1e6,
+                down,
+                check,
+                &want[..16],
+                done["expires_at"],
+                link
+            );
+            let _ = std::fs::remove_file(&path);
+        }
+    }
 }
