@@ -173,6 +173,7 @@ fn node() -> Node {
         receive_enabled: true,
         hide_dock: false,
         language: "vi".into(),
+        background_receive: true,
     };
     let st = Arc::new(AppState::new(emit, dir.path().join("data"), ident, 0, settings));
     Node { st, events: rx, _dir: dir }
