@@ -4,6 +4,7 @@ mod history;
 mod discovery;
 mod identity;
 mod models;
+mod online;
 mod paths;
 mod platform;
 mod server;
@@ -492,6 +493,37 @@ async fn resend_history(st: AppStateRef<'_>, id: String, peer_id: String) -> Res
     Ok(())
 }
 
+// ---- Gửi qua Internet ----
+
+#[tauri::command]
+fn online_providers() -> Vec<online::providers::ProviderInfo> {
+    online::providers()
+}
+
+#[tauri::command]
+async fn online_send(
+    st: AppStateRef<'_>,
+    paths: Vec<String>,
+    provider: online::providers::Provider,
+) -> Result<String, String> {
+    online::send(st.inner().clone(), paths, provider).await
+}
+
+#[tauri::command]
+async fn online_receive_link(st: AppStateRef<'_>, link: String) -> Result<online::ReceiveStart, String> {
+    online::receive_link(st.inner().clone(), link).await
+}
+
+#[tauri::command]
+async fn online_receive_file(st: AppStateRef<'_>, link: String, path: String) -> Result<String, String> {
+    online::receive_file(st.inner().clone(), link, path).await
+}
+
+#[tauri::command]
+fn online_qr(link: String) -> Result<String, String> {
+    online::qr_svg(&link)
+}
+
 #[tauri::command]
 fn open_folder(app: tauri::AppHandle, path: String) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
@@ -588,6 +620,11 @@ pub fn run() {
             clear_history,
             reveal_path,
             resend_history,
+            online_providers,
+            online_send,
+            online_receive_link,
+            online_receive_file,
+            online_qr,
         ])
         .build(tauri::generate_context!())
         .expect("không khởi động được BetterDrop")

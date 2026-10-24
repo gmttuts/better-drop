@@ -45,6 +45,20 @@ pub struct HistoryEntry {
     pub files: Vec<HistoryFile>,
     #[serde(default)]
     pub text: Option<String>,
+    /// Lượt gửi/nhận qua Internet: link để chép lại.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub online: Option<OnlineLink>,
+}
+
+/// Link "Gửi qua Internet" lưu trong lịch sử.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OnlineLink {
+    pub url: String,
+    /// Tên dịch vụ lưu file (vd "storage.to").
+    pub provider: String,
+    /// Hết hạn lúc (giây kể từ 1970); 0 nếu không biết.
+    #[serde(default)]
+    pub expires_at: u64,
 }
 
 /// Ghi một lượt vào lịch sử (dùng trong Tracker).
@@ -174,6 +188,7 @@ mod tests {
             dir_path: None,
             files: vec![HistoryFile { name: "a.txt".into(), path: Some("/x/a.txt".into()) }],
             text: None,
+            online: None,
         }
     }
 
