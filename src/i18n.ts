@@ -129,6 +129,12 @@ const EXACT: Record<string, string> = {
   "Cho phép nhận file": "Allow receiving files",
   "Mở BetterDrop khi khởi động máy": "Open BetterDrop at login",
   "Ẩn biểu tượng trên Dock": "Hide the Dock icon",
+  "Nhận file khi chạy nền": "Receive in the background",
+  "BetterDrop giữ một thông báo thường trực để Android không tắt app. Vuốt app khỏi danh sách ứng dụng gần đây sẽ thoát hẳn.":
+    "BetterDrop keeps a persistent notification so Android doesn't close it. Swiping it away from recent apps quits it.",
+  "Hãy mở BetterDrop khi muốn nhận file.": "Keep BetterDrop open when you want to receive.",
+  "Chưa được phép hiện thông báo: khi BetterDrop ở nền bạn sẽ không thấy máy khác gửi tới.":
+    "Notifications are off: while BetterDrop is in the background you won't see incoming files.",
   "Chạy nền": "Runs in the background",
   "Địa chỉ của máy này (để nhập ở máy kia nếu không tự thấy):": "This device's address (type it on the other device if it doesn't show up):",
   "Địa chỉ khác": "Other addresses",

@@ -56,4 +56,24 @@ impl<R: Runtime> BetterdropMobile<R> {
   pub fn scan_file(&self, _path: &str) -> crate::Result<()> {
     Ok(())
   }
+
+  pub fn start_background(&self, _notice: &BackgroundNotice<'_>, _on_stop: impl Fn() + Send + Sync + 'static) -> crate::Result<()> {
+    Ok(())
+  }
+
+  pub fn stop_background(&self) -> crate::Result<()> {
+    Ok(())
+  }
+
+  pub fn keep_awake(&self, _on: bool) -> crate::Result<()> {
+    Ok(())
+  }
+
+  pub fn request_notifications(&self) -> crate::Result<bool> {
+    Ok(true)
+  }
+
+  pub fn watch_lifecycle(&self, _f: impl Fn(bool) + Send + Sync + 'static) -> crate::Result<()> {
+    Ok(())
+  }
 }

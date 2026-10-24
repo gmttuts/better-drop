@@ -9,4 +9,15 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Android 9 trở xuống cần quyền này để ghi vào thư mục Download. -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <!-- Nhận file khi chạy nền (BetterDropService). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <application>
+        <service
+            android:name="com.plugin.betterdrop_mobile.BetterDropService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+    </application>
 </manifest>

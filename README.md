@@ -57,6 +57,9 @@ npm run tauri build
 ## Điện thoại
 
 **Android**: tải `BetterDrop-android.apk` từ trang Releases (hoặc Artifacts của lần chạy Build), mở trên điện thoại và cho phép "Cài ứng dụng không rõ nguồn gốc". File nhận được nằm ở `Download/BetterDrop` (xem bằng app Files).
+- **Nhận file khi chạy nền** (Cài đặt › Chạy nền, mặc định bật): bấm Home hay tắt màn hình thì máy khác vẫn thấy điện thoại và gửi được. BetterDrop hiện thông báo thường trực "BetterDrop đang sẵn sàng nhận file" (nút **Tắt** để tắt chế độ này) và giữ Wi‑Fi/mDNS hoạt động (Foreground Service loại `connectedDevice`).
+- Có máy gửi tới khi app ở nền: hiện thông báo, chạm vào để mở app và bấm Chấp nhận/Từ chối (trong 60 giây). Máy tin cậy thì nhận luôn, xong sẽ có thông báo. Android 13+ hỏi quyền hiện thông báo khi mở app lần đầu; từ chối thì vẫn nhận được nhưng không thấy báo.
+- Vuốt BetterDrop khỏi danh sách ứng dụng gần đây là thoát hẳn (như "Thoát" trên máy tính). Một số hãng (Xiaomi, Oppo…) còn tự tắt app chạy nền: cho BetterDrop "Không hạn chế pin" nếu bị tắt.
 
 **iPhone/iPad**: cần build bằng Xcode trên máy Mac.
 1. Một lần duy nhất: `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`.

@@ -195,6 +195,10 @@ pub struct Settings {
     /// từ trước (file cài đặt chưa có trường này) giữ tiếng Việt như trước khi có tiếng Anh.
     #[serde(default = "default_language")]
     pub language: String,
+    /// Android: vẫn thấy trong mạng và nhận file khi app ở nền hoặc màn hình tắt
+    /// (dịch vụ chạy nền kèm thông báo thường trực). Máy tính luôn chạy nền nên bỏ qua.
+    #[serde(default = "default_true")]
+    pub background_receive: bool,
 }
 
 fn default_language() -> String {

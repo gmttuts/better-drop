@@ -62,3 +62,35 @@ pub(crate) struct StartBonjourArgs<'a> {
   pub port: u16,
   pub version: &'a str,
 }
+
+#[cfg(mobile)]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BackgroundArgs<'a> {
+  pub title: &'a str,
+  pub text: &'a str,
+  pub stop_label: &'a str,
+  pub channel_name: &'a str,
+  pub on_stop: tauri::ipc::Channel<serde_json::Value>,
+}
+
+#[cfg(mobile)]
+#[derive(Serialize)]
+pub(crate) struct ChannelArgs {
+  pub channel: tauri::ipc::Channel<serde_json::Value>,
+}
+
+#[cfg(mobile)]
+#[derive(Debug, Serialize)]
+pub(crate) struct OnArgs {
+  pub on: bool,
+}
+
+/// Chữ trên thông báo thường trực khi nhận file ở nền (Android).
+pub struct BackgroundNotice<'a> {
+  pub title: &'a str,
+  pub text: &'a str,
+  pub stop_label: &'a str,
+  /// Tên kênh thông báo trong Cài đặt của Android.
+  pub channel_name: &'a str,
+}

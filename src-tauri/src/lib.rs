@@ -56,6 +56,7 @@ fn change_settings(app: &tauri::AppHandle, f: impl FnOnce(&mut Settings)) -> Res
         s.clone()
     };
     identity::save_settings(&st.data_dir, &new).map_err(|e| e.to_string())?;
+    platform::settings_changed(app);
     let info = self_info(app);
     let _ = app.emit("settings-changed", &info);
     Ok(info)
@@ -111,6 +112,30 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
 fn set_hide_dock(app: tauri::AppHandle, hide: bool) -> Result<SelfInfo, String> {
     platform::apply_dock(&app, hide);
     change_settings(&app, |s| s.hide_dock = hide)
+}
+
+/// Android: bật/tắt "Nhận file khi chạy nền". Bật thì xin luôn quyền hiện thông báo
+/// (Android 13+) để báo khi có máy gửi tới lúc app ở nền.
+#[tauri::command]
+async fn set_background_receive(app: tauri::AppHandle, enabled: bool) -> Result<SelfInfo, String> {
+    if enabled {
+        ensure_notifications(app.clone()).await;
+    }
+    change_settings(&app, |s| s.background_receive = enabled)
+}
+
+/// Android 13+: xin quyền hiện thông báo. Trả về đã được phép hay chưa.
+#[tauri::command]
+async fn ensure_notifications(app: tauri::AppHandle) -> bool {
+    tauri::async_runtime::spawn_blocking(move || platform::request_notifications(&app))
+        .await
+        .unwrap_or(false)
+}
+
+/// Yêu cầu nhận đang chờ trả lời (giao diện vừa nạp lại khi app đang chạy nền).
+#[tauri::command]
+fn get_pending_requests() -> Vec<serde_json::Value> {
+    platform::pending_requests()
 }
 
 /// Xin quyền mạng cục bộ (Android 17+). Được cấp thì dựng lại phần tìm máy ngay.
@@ -558,6 +583,9 @@ pub fn run() {
             install_update,
             take_shared_items,
             ensure_local_network,
+            set_background_receive,
+            ensure_notifications,
+            get_pending_requests,
             get_peers,
             update_settings,
             add_manual_peer,

@@ -31,6 +31,7 @@ async fn node(name: &str) -> Node {
         receive_enabled: true,
         hide_dock: false,
         language: "vi".into(),
+        background_receive: true,
     };
     let st = Arc::new(AppState::new(emit, dir.path().join("data"), ident, port, settings));
     let s2 = st.clone();
@@ -628,6 +629,7 @@ fn old_saved_files_still_load() {
     assert_eq!(s.device_id, "d");
     assert!(s.receive_enabled, "mặc định bật nhận file");
     assert_eq!(s.language, "vi", "máy đã cài từ trước giữ tiếng Việt");
+    assert!(s.background_receive, "Android: mặc định nhận file khi chạy nền");
 
     std::fs::write(
         dir.path().join("devices.json"),

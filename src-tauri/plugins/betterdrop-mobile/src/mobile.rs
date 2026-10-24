@@ -103,4 +103,71 @@ impl<R: Runtime> BetterdropMobile<R> {
       .map(|_| ())
       .map_err(Into::into)
   }
+
+  /// Android: bật dịch vụ chạy nền (thông báo thường trực, giữ khoá Wi‑Fi). Gọi lại để đổi chữ.
+  /// `on_stop` chạy khi người dùng bấm "Tắt" trên thông báo (trên luồng giao diện của Android).
+  pub fn start_background(&self, notice: &BackgroundNotice<'_>, on_stop: impl Fn() + Send + Sync + 'static) -> crate::Result<()> {
+    let on_stop = tauri::ipc::Channel::new(move |_| {
+      on_stop();
+      Ok(())
+    });
+    self
+      .0
+      .run_mobile_plugin::<serde_json::Value>(
+        "startBackground",
+        BackgroundArgs {
+          title: notice.title,
+          text: notice.text,
+          stop_label: notice.stop_label,
+          channel_name: notice.channel_name,
+          on_stop,
+        },
+      )
+      .map(|_| ())
+      .map_err(Into::into)
+  }
+
+  /// Android: tắt dịch vụ chạy nền.
+  pub fn stop_background(&self) -> crate::Result<()> {
+    self
+      .0
+      .run_mobile_plugin::<serde_json::Value>("stopBackground", ())
+      .map(|_| ())
+      .map_err(Into::into)
+  }
+
+  /// Android: giữ CPU chạy (đang nhận file lúc màn hình tắt).
+  pub fn keep_awake(&self, on: bool) -> crate::Result<()> {
+    self
+      .0
+      .run_mobile_plugin::<serde_json::Value>("keepAwake", OnArgs { on })
+      .map(|_| ())
+      .map_err(Into::into)
+  }
+
+  /// Android 13+: xin quyền hiện thông báo. Chờ người dùng trả lời.
+  pub fn request_notifications(&self) -> crate::Result<bool> {
+    self
+      .0
+      .run_mobile_plugin::<GrantedResponse>("requestNotifications", ())
+      .map(|r| r.granted)
+      .map_err(Into::into)
+  }
+
+  /// Android: gọi `f(true/false)` mỗi khi app hiện lên / bị che khuất khỏi màn hình.
+  pub fn watch_lifecycle(&self, f: impl Fn(bool) + Send + Sync + 'static) -> crate::Result<()> {
+    let channel = tauri::ipc::Channel::new(move |body| {
+      if let tauri::ipc::InvokeResponseBody::Json(json) = body {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&json) {
+          f(v["foreground"].as_bool().unwrap_or(true));
+        }
+      }
+      Ok(())
+    });
+    self
+      .0
+      .run_mobile_plugin::<serde_json::Value>("watchLifecycle", ChannelArgs { channel })
+      .map(|_| ())
+      .map_err(Into::into)
+  }
 }

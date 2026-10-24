@@ -121,6 +121,7 @@ pub fn load_settings(dir: &Path, defaults: Defaults) -> Settings {
         receive_enabled: true,
         hide_dock: false,
         language: "auto".into(),
+        background_receive: true,
     };
     let _ = save_settings(dir, &s);
     s

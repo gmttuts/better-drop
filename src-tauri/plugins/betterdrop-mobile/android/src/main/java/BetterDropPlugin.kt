@@ -17,6 +17,8 @@ import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.Permission
 import app.tauri.annotation.PermissionCallback
 import app.tauri.annotation.TauriPlugin
+import androidx.appcompat.app.AppCompatActivity
+import app.tauri.plugin.Channel
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
@@ -32,7 +34,27 @@ class PathArgs {
     lateinit var path: String
 }
 
+@InvokeArg
+class BackgroundArgs {
+    lateinit var title: String
+    lateinit var text: String
+    lateinit var stopLabel: String
+    lateinit var channelName: String
+    var onStop: Channel? = null
+}
+
+@InvokeArg
+class ChannelArgs {
+    var channel: Channel? = null
+}
+
+@InvokeArg
+class OnArgs {
+    var on: Boolean = false
+}
+
 private const val LOCAL_NETWORK = "localNetwork"
+private const val NOTIFICATIONS = "notifications"
 
 /**
  * Android 17 (API 37) chặn app kết nối tới máy trong mạng LAN và nhận gói mDNS
@@ -40,7 +62,10 @@ private const val LOCAL_NETWORK = "localNetwork"
  * (nhóm "Thiết bị lân cận"). Thiếu quyền này thì kết nối chỉ treo tới hết giờ.
  */
 @TauriPlugin(
-    permissions = [Permission(strings = ["android.permission.ACCESS_LOCAL_NETWORK"], alias = LOCAL_NETWORK)]
+    permissions = [
+        Permission(strings = ["android.permission.ACCESS_LOCAL_NETWORK"], alias = LOCAL_NETWORK),
+        Permission(strings = ["android.permission.POST_NOTIFICATIONS"], alias = NOTIFICATIONS),
+    ]
 )
 class BetterDropPlugin(private val activity: Activity) : Plugin(activity) {
     private var multicastLock: WifiManager.MulticastLock? = null
@@ -56,6 +81,77 @@ class BetterDropPlugin(private val activity: Activity) : Plugin(activity) {
 
     override fun onNewIntent(intent: Intent) {
         handleShare(intent)
+    }
+
+    // ---- Chạy nền ----
+
+    companion object {
+        /** Báo phần Rust app đang hiện trên màn hình hay không (xem watchLifecycle). */
+        @Volatile private var lifecycle: Channel? = null
+        /** Lần bật chạy nền gần nhất bị Android từ chối (app không ở màn hình): thử lại khi mở app. */
+        @Volatile private var pendingStart: BackgroundArgs? = null
+    }
+
+    override fun onResume(activity: AppCompatActivity) {
+        lifecycle?.send(JSObject().put("foreground", true))
+        pendingStart?.let { startService(it) }
+    }
+
+    override fun onStop(activity: AppCompatActivity) {
+        lifecycle?.send(JSObject().put("foreground", false))
+    }
+
+    @Command
+    fun watchLifecycle(invoke: Invoke) {
+        lifecycle = invoke.parseArgs(ChannelArgs::class.java).channel
+        invoke.resolve()
+    }
+
+    private fun startService(args: BackgroundArgs) {
+        val onStop = args.onStop
+        BetterDropService.onUserStop = { onStop?.send(JSObject()) }
+        pendingStart = try {
+            BetterDropService.start(activity.applicationContext, args.title, args.text, args.stopLabel, args.channelName)
+            null
+        } catch (e: Exception) {
+            args
+        }
+    }
+
+    /** Bật dịch vụ chạy nền (gọi lại để đổi chữ trên thông báo). `onStop`: người dùng bấm "Tắt". */
+    @Command
+    fun startBackground(invoke: Invoke) {
+        startService(invoke.parseArgs(BackgroundArgs::class.java))
+        invoke.resolve()
+    }
+
+    @Command
+    fun stopBackground(invoke: Invoke) {
+        pendingStart = null
+        BetterDropService.stop(activity.applicationContext)
+        invoke.resolve()
+    }
+
+    /** Giữ CPU chạy trong lúc nhận file khi màn hình tắt. */
+    @Command
+    fun keepAwake(invoke: Invoke) {
+        BetterDropService.keepAwake(activity.applicationContext, invoke.parseArgs(OnArgs::class.java).on)
+        invoke.resolve()
+    }
+
+    /** Android 13+: xin quyền hiện thông báo. Trả về {granted}. */
+    @Command
+    fun requestNotifications(invoke: Invoke) {
+        if (Build.VERSION.SDK_INT < 33 || getPermissionState(NOTIFICATIONS) == PermissionState.GRANTED) {
+            invoke.resolve(JSObject().put("granted", true))
+            return
+        }
+        requestPermissionForAlias(NOTIFICATIONS, invoke, "notificationsCallback")
+    }
+
+    @PermissionCallback
+    fun notificationsCallback(invoke: Invoke) {
+        invoke.resolve(JSObject().put("granted", getPermissionState(NOTIFICATIONS) == PermissionState.GRANTED))
     }
 
     private fun handleShare(intent: Intent?) {

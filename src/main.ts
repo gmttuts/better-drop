@@ -30,6 +30,7 @@ interface Settings {
   receive_enabled: boolean;
   hide_dock: boolean;
   language?: string;
+  background_receive?: boolean;
 }
 interface SelfInfo {
   info: DeviceInfo;
@@ -173,6 +174,7 @@ function renderMe() {
   $<HTMLInputElement>("set-receive").checked = me.settings.receive_enabled;
   $<HTMLInputElement>("set-autostart").checked = me.autostart;
   $<HTMLInputElement>("set-dock").checked = me.settings.hide_dock;
+  $<HTMLInputElement>("set-background").checked = me.settings.background_receive !== false;
 }
 
 /// Các ô tích ở mục "Chạy nền" có hiệu lực ngay, không cần bấm Lưu.
@@ -892,6 +894,12 @@ const requestQueue: IncomingRequest[] = [];
 let currentRequest: IncomingRequest | null = null;
 let requestTimer: number | undefined;
 
+function queueRequest(r: IncomingRequest) {
+  if (currentRequest?.request_id === r.request_id || requestQueue.some((q) => q.request_id === r.request_id)) return;
+  requestQueue.push(r);
+  if (!currentRequest) showNextRequest();
+}
+
 function showNextRequest() {
   const dlg = $<HTMLDialogElement>("dlg-request");
   currentRequest = requestQueue.shift() ?? null;
@@ -1009,9 +1017,15 @@ function openSettings() {
   $("set-code").textContent = `${shortCode(me.info.fp)} · BetterDrop v${me.info.version ?? "?"}`;
   const isMac = me.info.os === "mac";
   $("row-dock").hidden = !isMac;
+  const android = me.info.os === "android";
   $("row-autostart").hidden = me.mobile;
+  $("row-background").hidden = !android;
   $("btn-choose-dir").hidden = me.mobile;
-  $("bg-hint").textContent = me.mobile
+  $("bg-hint").textContent = android
+    ? me.settings.background_receive !== false
+      ? "BetterDrop giữ một thông báo thường trực để Android không tắt app. Vuốt app khỏi danh sách ứng dụng gần đây sẽ thoát hẳn."
+      : "Hãy mở BetterDrop khi muốn nhận file."
+    : me.mobile
     ? "Trên điện thoại, hãy mở BetterDrop khi muốn nhận file."
     : `Khi đóng cửa sổ, BetterDrop vẫn chạy nền và nhận file. Mở lại hoặc thoát hẳn từ biểu tượng trên ${
         isMac ? "thanh menu" : "khay hệ thống (góc dưới bên phải)"
@@ -1358,6 +1372,7 @@ async function init() {
   bindToggle("set-receive", "set_receive_enabled", "enabled");
   bindToggle("set-autostart", "set_autostart", "enabled");
   bindToggle("set-dock", "set_hide_dock", "hide");
+  bindToggle("set-background", "set_background_receive", "enabled");
   $("paused-chip").addEventListener("click", async () => {
     try {
       me = await invoke<SelfInfo>("set_receive_enabled", { enabled: true });
@@ -1410,10 +1425,7 @@ async function init() {
   await listen<{ name: string; sender_name: string }>("group-received", (e) =>
     toast(`Đã thêm nhóm “${e.payload.name}” từ ${e.payload.sender_name}`),
   );
-  await listen<IncomingRequest>("incoming-request", (e) => {
-    requestQueue.push(e.payload);
-    if (!currentRequest) showNextRequest();
-  });
+  await listen<IncomingRequest>("incoming-request", (e) => queueRequest(e.payload));
   await listen<{ request_id: string }>("request-closed", (e) => {
     const id = e.payload.request_id;
     const i = requestQueue.findIndex((r) => r.request_id === id);
@@ -1434,13 +1446,21 @@ async function init() {
   renderMe();
   if (me.mobile) {
     // Android 17+ chặn kết nối trong mạng LAN tới khi người dùng cho phép "Thiết bị lân cận".
-    invoke<boolean>("ensure_local_network").then((ok) => {
-      if (!ok)
-        toast(
-          "BetterDrop cần quyền “Thiết bị lân cận” để tìm và kết nối máy trong mạng Wi‑Fi. Vào Cài đặt › Ứng dụng › BetterDrop › Quyền để bật.",
-          "error",
-        );
-    });
+    invoke<boolean>("ensure_local_network")
+      .then((ok) => {
+        if (!ok)
+          toast(
+            "BetterDrop cần quyền “Thiết bị lân cận” để tìm và kết nối máy trong mạng Wi‑Fi. Vào Cài đặt › Ứng dụng › BetterDrop › Quyền để bật.",
+            "error",
+          );
+      })
+      // Android 13+: nhận file khi chạy nền cần quyền hiện thông báo (hỏi sau quyền trên, không chồng hộp thoại).
+      .then(() => (me?.info.os === "android" && me.settings.background_receive !== false ? invoke<boolean>("ensure_notifications") : true))
+      .then((ok) => {
+        if (!ok) toast("Chưa được phép hiện thông báo: khi BetterDrop ở nền bạn sẽ không thấy máy khác gửi tới.", "error");
+      });
+    // Giao diện vừa nạp lại trong lúc app chạy nền: hiện lại yêu cầu đang chờ.
+    for (const r of await invoke<IncomingRequest[]>("get_pending_requests")) queueRequest(r);
   }
   peers = await invoke<Peer[]>("get_peers");
   applyDevices(await invoke("get_devices"));
