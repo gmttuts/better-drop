@@ -1423,3 +1423,30 @@ async fn bench_200_files_5mb() {
     bench_send("200 file 5 MB", paths.clone(), None).await;
     bench_send("200 file 5 MB", paths, Some(BENCH_RTT)).await;
 }
+
+/// Menu khay "Gửi clipboard/file tới" đọc lại payload của event `peers-changed`:
+/// phải giải mã được và chỉ liệt kê máy đang bật.
+#[cfg(desktop)]
+#[tokio::test]
+async fn tray_menu_lists_online_peers_from_event() {
+    let mut a = node("A").await;
+    let b = node("Máy B").await;
+    let c = node("Máy C").await;
+    a.st.remember_peer(as_peer(&b));
+    a.st.peers.lock().unwrap().insert(
+        "off".into(),
+        Peer { online: false, ..as_peer(&c) },
+    );
+    a.st.emit_peers();
+
+    let mut last = None;
+    while let Ok((event, payload)) = a.events.try_recv() {
+        if event == "peers-changed" {
+            last = Some(payload);
+        }
+    }
+    let peers: Vec<Peer> = serde_json::from_value(last.expect("không có peers-changed")).unwrap();
+    assert_eq!(peers.len(), 2);
+    let shown = crate::tray::tray_peers(&peers);
+    assert_eq!(shown, vec![(b.st.device_info().id, "Máy B".to_string())]);
+}
