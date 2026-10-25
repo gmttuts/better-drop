@@ -374,6 +374,21 @@
             <option value="en">English</option>
           </select>
         </label>
+        <label>Giới hạn tốc độ gửi
+          <div class="input-row limit-row">
+            <select id="set-limit">
+              <option value="0">Không giới hạn</option>
+              <option value="1">1 MB/s</option>
+              <option value="5">5 MB/s</option>
+              <option value="10">10 MB/s</option>
+              <option value="50">50 MB/s</option>
+              <option value="custom">Tự nhập…</option>
+            </select>
+            <input id="set-limit-custom" type="number" min="0.1" step="0.1" inputmode="decimal" hidden />
+            <span class="muted unit" id="set-limit-unit" hidden>MB/s</span>
+          </div>
+          <span class="muted small">Áp dụng ngay cho mọi lượt đang gửi, vd khi dùng mạng di động làm điểm phát Wi‑Fi.</span>
+        </label>
         <fieldset class="toggles">
           <legend>Chạy nền</legend>
           <label class="check"><input type="checkbox" id="set-receive" /> Cho phép nhận file</label>

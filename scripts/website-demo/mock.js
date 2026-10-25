@@ -9,7 +9,7 @@
   // ---- Fake state ----
   const me = {
     info: { id: "me", name: "MacBook của bạn", os: "mac", fp: "520d9a1b", port: 53318, version: "0.3.3" },
-    settings: { device_id: "me", name: "MacBook của bạn", download_dir: "~/Downloads/BetterDrop", receive_enabled: true, hide_dock: false,
+    settings: { device_id: "me", name: "MacBook của bạn", download_dir: "~/Downloads/BetterDrop", receive_enabled: true, hide_dock: false, send_limit: 0,
       hotkeys: { enabled: true, send_clipboard: "CmdOrCtrl+Shift+D", open_app: "CmdOrCtrl+Shift+B" },
       language: new URLSearchParams(location.search).get("lang") === "en" ? "en" : "vi" },
     addrs: ["192.168.1.12:53318"],
@@ -112,8 +112,12 @@
     while (t.transferred < t.total_bytes) {
       await wait(step);
       if (t.status === "cancelled") return;
-      t.transferred = Math.min(t.total_bytes, t.transferred + speed * (step / 1000) * (t.total_bytes > 2e7 ? 1 : 0.2) + 1);
-      t.speed_bps = speed;
+      if (t.status === "paused") continue;
+      // Sending is capped by Settings › upload speed limit, like the real app.
+      const limit = t.direction === "send" && me.settings.send_limit > 0 ? me.settings.send_limit : Infinity;
+      const s = Math.min(speed, limit);
+      t.transferred = Math.min(t.total_bytes, t.transferred + s * (step / 1000) * (t.total_bytes > 2e7 ? 1 : 0.2) + 1);
+      t.speed_bps = s;
       emit("transfer-update", { ...t });
     }
     t.status = "done";
@@ -165,6 +169,15 @@
       setTimeout(scheduleIncoming, 1500);
       return null;
     },
+    pause_transfer({ id }) {
+      const t = live.get(id);
+      if (t && t.status === "transferring") { t.status = "paused"; t.speed_bps = 0; emit("transfer-update", { ...t }); }
+    },
+    resume_transfer({ id }) {
+      const t = live.get(id);
+      if (t && t.status === "paused") { t.status = "transferring"; emit("transfer-update", { ...t }); }
+    },
+    set_send_limit({ bytesPerSec }) { me.settings.send_limit = bytesPerSec; return me; },
     cancel_transfer({ id }) {
       const t = live.get(id);
       if (t) { t.status = "cancelled"; emit("transfer-update", { ...t }); live.delete(id); }

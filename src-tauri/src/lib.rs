@@ -522,6 +522,23 @@ fn cancel_transfer(st: AppStateRef, id: String) {
     transfer::cancel(&st, &id);
 }
 
+#[tauri::command]
+async fn pause_transfer(st: AppStateRef<'_>, id: String) -> Result<(), String> {
+    transfer::set_paused(&st, &id, true).await
+}
+
+#[tauri::command]
+async fn resume_transfer(st: AppStateRef<'_>, id: String) -> Result<(), String> {
+    transfer::set_paused(&st, &id, false).await
+}
+
+/// Giới hạn tốc độ gửi (byte/giây, 0 = không giới hạn); có hiệu lực ngay với mọi lượt đang gửi.
+#[tauri::command]
+fn set_send_limit(app: tauri::AppHandle, bytes_per_sec: u64) -> Result<SelfInfo, String> {
+    app.state::<Arc<AppState>>().send_limit.set(bytes_per_sec);
+    change_settings(&app, |s| s.send_limit = bytes_per_sec)
+}
+
 // ---- Lịch sử ----
 
 #[tauri::command]
@@ -743,6 +760,9 @@ pub fn run() {
             untrust_device,
             share_group,
             cancel_transfer,
+            pause_transfer,
+            resume_transfer,
+            set_send_limit,
             open_folder,
             get_history,
             delete_history_item,

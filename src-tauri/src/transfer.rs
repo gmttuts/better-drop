@@ -277,67 +277,180 @@ pub async fn send_files(
     let client = peer_client(st, peer)?;
     let thumbs = make_thumbs(st, &files).await;
     tracker.set_history_thumbs(thumbs.iter().map(|(_, name, jpeg)| (name.clone(), jpeg.clone())).collect());
-    let req = PrepareRequest {
-        sender: st.device_info(),
-        kind: TransferKind::Files,
-        files: files.iter().map(|f| f.meta.clone()).collect(),
-        text: None,
-        group: None,
-        thumbs: thumbs
-            .iter()
-            .map(|(id, _, jpeg)| Thumb { file: id.clone(), jpeg: base64::engine::general_purpose::STANDARD.encode(jpeg) })
-            .collect(),
-    };
-    let (addr, resp) = send_prepare(&client, peer, &req).await?;
-    if tracker.is_cancelled() {
-        return Ok(());
-    }
-    match resp.status() {
-        StatusCode::OK => {}
-        StatusCode::FORBIDDEN => {
-            tracker.set_status(TransferStatus::Rejected, Some("Máy nhận đã từ chối".into()));
+    let mut thumbs: Vec<Thumb> = thumbs
+        .iter()
+        .map(|(id, _, jpeg)| Thumb { file: id.clone(), jpeg: base64::engine::general_purpose::STANDARD.encode(jpeg) })
+        .collect();
+    let mut files = files;
+    // Thường chỉ chạy một vòng. Vòng sau chỉ khi máy nhận đã bỏ phiên trong lúc tạm dừng
+    // (máy nhận bản cũ chỉ chờ `RESUME_GRACE`): xin phiên mới cho các file chưa xong.
+    loop {
+        let req = PrepareRequest {
+            sender: st.device_info(),
+            kind: TransferKind::Files,
+            files: files.iter().map(|f| f.meta.clone()).collect(),
+            text: None,
+            group: None,
+            thumbs: std::mem::take(&mut thumbs),
+        };
+        let (addr, resp) = send_prepare(&client, peer, &req).await?;
+        if tracker.is_cancelled() {
             return Ok(());
         }
-        StatusCode::SERVICE_UNAVAILABLE => {
-            tracker.set_status(TransferStatus::Rejected, Some(RECEIVE_OFF.into()));
-            return Ok(());
-        }
-        s => return Err(format!("Máy nhận trả lỗi {s}")),
-    }
-    let prep: PrepareResponse = resp.json().await.map_err(|e| e.to_string())?;
-    tracker.set_status(TransferStatus::Transferring, None);
-
-    let slots = tokio::sync::Semaphore::new(UPLOAD_SLOTS as usize);
-    let result = futures_util::stream::iter(files.into_iter().map(Ok))
-        .try_for_each_concurrent(UPLOAD_SLOTS as usize, |f| {
-            let (slots, client, addr, prep) = (&slots, &client, &addr, &prep);
-            async move {
-                let cost = if f.meta.size >= LARGE_FILE { LARGE_COST } else { 1 };
-                let _slot = slots.acquire_many(cost).await.map_err(|e| e.to_string())?;
-                upload_one(st, client, addr, prep, f, tracker).await
+        match resp.status() {
+            StatusCode::OK => {}
+            StatusCode::FORBIDDEN => {
+                tracker.set_status(TransferStatus::Rejected, Some("Máy nhận đã từ chối".into()));
+                return Ok(());
             }
-        })
-        .await;
-
-    match result {
-        Ok(()) => {
-            tracker.set_status(TransferStatus::Done, None);
+            StatusCode::SERVICE_UNAVAILABLE => {
+                tracker.set_status(TransferStatus::Rejected, Some(RECEIVE_OFF.into()));
+                return Ok(());
+            }
+            s => return Err(format!("Máy nhận trả lỗi {s}")),
         }
-        Err(e) => {
-            if tracker.is_cancelled() {
-                // Báo máy nhận để nó dọn file dở dang.
-                let _ = client
-                    .post(api_url(&addr, "cancel"))
-                    .query(&[("session", &prep.session_id)])
-                    .timeout(Duration::from_secs(5))
-                    .send()
-                    .await;
-            } else {
+        let prep: PrepareResponse = resp.json().await.map_err(|e| e.to_string())?;
+        tracker.set_note(None);
+        tracker.set_status(TransferStatus::Transferring, None);
+        tracker.set_pause_hook(Some(pause_hook(client.clone(), addr.clone(), prep.session_id.clone(), tracker)));
+
+        let round = Round { start_gen: tracker.pause_gen(), check: Default::default(), lost: Default::default() };
+        let slots = tokio::sync::Semaphore::new(UPLOAD_SLOTS as usize);
+        let result = futures_util::stream::iter(files.iter().map(Ok))
+            .try_for_each_concurrent(UPLOAD_SLOTS as usize, |f| {
+                let (slots, client, addr, prep, round) = (&slots, &client, &addr, &prep, &round);
+                async move {
+                    let cost = if f.meta.size >= LARGE_FILE { LARGE_COST } else { 1 };
+                    let _slot = slots.acquire_many(cost).await.map_err(|e| e.to_string())?;
+                    if upload_one(st, client, addr, prep, round, f, tracker).await? == Sent::Lost {
+                        round.lost.lock().unwrap().insert(f.meta.id.clone());
+                    }
+                    Ok(())
+                }
+            })
+            .await;
+        tracker.set_pause_hook(None);
+
+        match result {
+            Ok(()) => {
+                let lost = std::mem::take(&mut *round.lost.lock().unwrap());
+                if lost.is_empty() {
+                    tracker.set_status(TransferStatus::Done, None);
+                    return Ok(());
+                }
+                files.retain(|f| lost.contains(&f.meta.id));
+                tracker.set_status(TransferStatus::Waiting, None);
+                tracker.set_note(Some(format!(
+                    "Máy nhận đã bỏ phiên vì tạm dừng quá lâu — đang xin gửi lại {} file chưa xong…",
+                    files.len()
+                )));
+            }
+            Err(e) => {
+                if tracker.is_cancelled() {
+                    // Báo máy nhận để nó dọn file dở dang.
+                    let _ = client
+                        .post(api_url(&addr, "cancel"))
+                        .query(&[("session", &prep.session_id)])
+                        .timeout(Duration::from_secs(5))
+                        .send()
+                        .await;
+                    return Ok(());
+                }
                 return Err(e);
             }
         }
     }
+}
+
+/// Báo máy nhận khi tạm dừng/tiếp tục. Máy nhận bản cũ không hiểu (404): nhắc người dùng
+/// rằng tạm dừng quá lâu thì file đang dở phải gửi lại từ đầu.
+fn pause_hook(client: reqwest::Client, addr: String, session: String, tracker: &Arc<Tracker>) -> crate::state::PauseHook {
+    let tracker = Arc::downgrade(tracker);
+    Arc::new(move |paused| {
+        let (client, addr, session, tracker) = (client.clone(), addr.clone(), session.clone(), tracker.clone());
+        Box::pin(async move {
+            let resp = client
+                .post(api_url(&addr, "pause"))
+                .query(&[("session", session.as_str()), ("paused", if paused { "true" } else { "false" })])
+                .timeout(Duration::from_secs(3))
+                .send()
+                .await;
+            if let (Ok(r), Some(t)) = (resp, tracker.upgrade()) {
+                if paused && r.status() == StatusCode::NOT_FOUND {
+                    let mins = crate::server::RESUME_GRACE.as_secs() / 60;
+                    t.set_note(Some(format!(
+                        "Máy nhận dùng bản cũ: tạm dừng quá {mins} phút thì file đang gửi dở sẽ phải gửi lại từ đầu"
+                    )));
+                }
+            }
+        })
+    })
+}
+
+/// Tạm dừng / tiếp tục một lượt gửi.
+pub async fn set_paused(st: &AppState, id: &str, paused: bool) -> Result<(), String> {
+    let t = st.outgoing.lock().unwrap().get(id).cloned().ok_or("Không tìm thấy lượt gửi")?;
+    if paused {
+        // Ngắt các kết nối đang gửi trước, rồi mới báo máy nhận.
+        if t.pause() {
+            if let Some(hook) = t.pause_hook() {
+                hook(true).await;
+            }
+        }
+    } else if t.status() == TransferStatus::Paused {
+        // Báo máy nhận trước để nó hiện "Đang chuyển" khi dữ liệu tới.
+        if let Some(hook) = t.pause_hook() {
+            hook(false).await;
+        }
+        t.set_note(None);
+        t.resume();
+    }
     Ok(())
+}
+
+/// Một vòng gửi (một phiên ở máy nhận).
+struct Round {
+    /// `Tracker::pause_gen` lúc bắt đầu vòng.
+    start_gen: u64,
+    /// Lần tạm dừng gần nhất đã kiểm tra phiên, và kết quả.
+    check: tokio::sync::Mutex<(u64, Session)>,
+    /// File chưa gửi xong khi phiên ở máy nhận đã mất.
+    lost: Mutex<std::collections::HashSet<String>>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+enum Session {
+    #[default]
+    Alive,
+    Lost,
+    Cancelled,
+}
+
+impl Round {
+    /// Sau khi tạm dừng: hỏi máy nhận (một lần cho mỗi lần tạm dừng) phiên còn không.
+    async fn check_session(
+        &self,
+        generation: u64,
+        client: &reqwest::Client,
+        addr: &str,
+        prep: &PrepareResponse,
+        f: &LocalFile,
+        token: &str,
+    ) -> Session {
+        let mut check = self.check.lock().await;
+        if check.0 >= generation || check.1 != Session::Alive {
+            return check.1;
+        }
+        let state = match upload_status(client, addr, prep, f, token).await {
+            Ok(Some(_)) => Session::Alive,
+            Ok(None) => Session::Lost,
+            Err(StatusError::Cancelled) => Session::Cancelled,
+            // Chưa kết nối được: để vòng thử lại xử lý như mất mạng.
+            Err(StatusError::Network) => Session::Alive,
+        };
+        *check = (generation, state);
+        state
+    }
 }
 
 /// Tạo ảnh thu nhỏ cho vài file ảnh/video đầu, trong luồng riêng, chờ tối đa
@@ -399,8 +512,17 @@ const STALL: Duration = Duration::from_secs(30);
 enum UploadError {
     /// Lỗi mạng: thử lại được.
     Network(String),
+    /// Người dùng bấm tạm dừng: kết nối đã được ngắt.
+    Paused,
     /// Lỗi khác (máy nhận từ chối, huỷ, lỗi đĩa…): dừng.
     Fatal(String),
+}
+
+#[derive(PartialEq, Eq)]
+enum Sent {
+    Done,
+    /// Máy nhận đã bỏ phiên (tạm dừng quá lâu): cần xin phiên mới để gửi lại file này.
+    Lost,
 }
 
 async fn upload_one(
@@ -408,9 +530,11 @@ async fn upload_one(
     client: &reqwest::Client,
     addr: &str,
     prep: &PrepareResponse,
-    f: LocalFile,
+    round: &Round,
+    f: &LocalFile,
     tracker: &Arc<Tracker>,
-) -> Result<(), String> {
+) -> Result<Sent, String> {
+    use std::sync::atomic::Ordering::SeqCst;
     let token = prep
         .tokens
         .get(&f.meta.id)
@@ -420,8 +544,69 @@ async fn upload_one(
     let counted = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let mut offset = 0u64;
     let mut attempt = 0usize;
+    let mut generation = round.start_gen;
+    // Cần hỏi máy nhận đã có bao nhiêu byte trước khi gửi tiếp.
+    let mut ask_offset = false;
     loop {
-        match upload_from(st, client, addr, prep, &f, &token, offset, tracker, &counted).await {
+        if tracker.is_paused() {
+            tracker.wait_resumed().await;
+        }
+        if tracker.is_cancelled() {
+            return Err("Đã huỷ".into());
+        }
+        if tracker.status().is_final() {
+            return Err(tracker.snapshot().error.unwrap_or_else(|| "Đã dừng".into()));
+        }
+        if tracker.pause_gen() != generation {
+            generation = tracker.pause_gen();
+            match round.check_session(generation, client, addr, prep, f, &token).await {
+                Session::Alive => ask_offset |= counted.load(SeqCst) > 0,
+                Session::Lost => {
+                    tracker.sub(counted.swap(0, SeqCst));
+                    return Ok(Sent::Lost);
+                }
+                Session::Cancelled => {
+                    tracker.set_status(TransferStatus::Cancelled, Some("Máy nhận đã huỷ".into()));
+                    return Err("Máy nhận đã huỷ".into());
+                }
+            }
+        }
+        if ask_offset {
+            // Hỏi máy nhận đã có bao nhiêu byte để gửi tiếp từ đó.
+            match upload_status(client, addr, prep, f, &token).await {
+                Ok(Some(status)) => {
+                    if status.done {
+                        tracker.set_note(None);
+                        let c = counted.swap(f.meta.size, SeqCst);
+                        tracker.add(f.meta.size.saturating_sub(c));
+                        return Ok(Sent::Done);
+                    }
+                    offset = status.received.min(f.meta.size);
+                    let c = counted.swap(offset, SeqCst);
+                    if c > offset {
+                        tracker.sub(c - offset);
+                    } else {
+                        tracker.add(offset - c);
+                    }
+                }
+                // Máy nhận bản cũ (chưa hỗ trợ gửi tiếp) hoặc phiên đã hết hạn.
+                Ok(None) => return Err("Máy nhận đã bỏ phiên gửi".into()),
+                Err(StatusError::Cancelled) => {
+                    tracker.set_status(TransferStatus::Cancelled, Some("Máy nhận đã huỷ".into()));
+                    return Err("Máy nhận đã huỷ".into());
+                }
+                // Vẫn chưa kết nối lại được: thử lần sau.
+                Err(StatusError::Network) => {
+                    let Some(delay) = RETRY_DELAYS.get(attempt) else {
+                        return Err("Mất kết nối với máy nhận".into());
+                    };
+                    attempt += 1;
+                    tokio::time::sleep(Duration::from_secs(*delay)).await;
+                    continue;
+                }
+            }
+        }
+        match upload_from(st, client, addr, prep, f, &token, offset, tracker, &counted).await {
             Ok(()) => {
                 // Chỉ xoá ghi chú khi file này đã phải thử lại: mỗi lần đổi ghi chú là
                 // một lần báo lên giao diện, gọi cho từng file thì hàng nghìn file nhỏ
@@ -429,9 +614,11 @@ async fn upload_one(
                 if attempt > 0 {
                     tracker.set_note(None);
                 }
-                return Ok(());
+                return Ok(Sent::Done);
             }
             Err(UploadError::Fatal(e)) => return Err(e),
+            // Đầu vòng lặp sẽ chờ tiếp tục rồi kiểm tra phiên và hỏi offset.
+            Err(UploadError::Paused) => ask_offset = true,
             Err(UploadError::Network(e)) => {
                 if tracker.is_cancelled() {
                     return Err(e);
@@ -441,57 +628,63 @@ async fn upload_one(
                 };
                 attempt += 1;
                 tracker.set_note(Some(format!("Mất kết nối, đang thử lại (lần {attempt})…")));
-                tokio::time::sleep(Duration::from_secs(*delay)).await;
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(*delay)) => {}
+                    // Đang chờ thử lại mà bấm tạm dừng: thôi chờ, đầu vòng lặp lo phần còn lại.
+                    _ = tracker.wait_paused() => {}
+                }
                 if tracker.is_cancelled() {
                     return Err(e);
                 }
-                // Hỏi máy nhận đã có bao nhiêu byte để gửi tiếp từ đó.
-                match upload_status(client, addr, prep, &f, &token).await {
-                    Ok(Some(status)) => {
-                        if status.done {
-                            tracker.set_note(None);
-                            let c = counted.swap(f.meta.size, std::sync::atomic::Ordering::SeqCst);
-                            tracker.add(f.meta.size.saturating_sub(c));
-                            return Ok(());
-                        }
-                        offset = status.received.min(f.meta.size);
-                        let c = counted.swap(offset, std::sync::atomic::Ordering::SeqCst);
-                        if c > offset {
-                            tracker.sub(c - offset);
-                        } else {
-                            tracker.add(offset - c);
-                        }
-                    }
-                    // Máy nhận bản cũ (chưa hỗ trợ gửi tiếp) hoặc phiên đã hết hạn.
-                    Ok(None) => return Err(e),
-                    // Vẫn chưa kết nối lại được: thử lần sau.
-                    Err(_) => continue,
-                }
+                ask_offset = true;
             }
         }
     }
 }
 
+enum StatusError {
+    /// Chưa kết nối được.
+    Network,
+    /// Máy nhận đã huỷ lượt này.
+    Cancelled,
+}
+
 /// Hỏi máy nhận tiến độ của một file. Ok(None): máy nhận không hỗ trợ gửi tiếp
-/// (bản cũ) hoặc phiên đã kết thúc. Err: chưa kết nối được.
+/// (bản cũ) hoặc phiên đã kết thúc.
 async fn upload_status(
     client: &reqwest::Client,
     addr: &str,
     prep: &PrepareResponse,
     f: &LocalFile,
     token: &str,
-) -> Result<Option<crate::models::UploadStatus>, ()> {
+) -> Result<Option<crate::models::UploadStatus>, StatusError> {
     let resp = client
         .get(api_url(addr, "upload-status"))
         .query(&[("session", prep.session_id.as_str()), ("file", f.meta.id.as_str()), ("token", token)])
         .timeout(Duration::from_secs(8))
         .send()
         .await
-        .map_err(|_| ())?;
+        .map_err(|_| StatusError::Network)?;
+    if resp.status() == StatusCode::GONE {
+        // Chỉ bản mới phân biệt "đã huỷ" với "hết hạn"; bản cũ luôn trả "Phiên nhận đã kết thúc".
+        let msg = resp.text().await.unwrap_or_default();
+        return if msg == "Máy nhận đã huỷ" { Err(StatusError::Cancelled) } else { Ok(None) };
+    }
     if !resp.status().is_success() {
         return Ok(None);
     }
-    resp.json().await.map(Some).map_err(|_| ())
+    resp.json().await.map(Some).map_err(|_| StatusError::Network)
+}
+
+/// Kích thước mỗi lần đọc file để gửi. Khi giới hạn tốc độ thấp, đọc từng phần nhỏ để
+/// dữ liệu đi đều (không im lặng nhiều giây giữa hai phần, tránh bị coi là mất kết nối).
+fn read_chunk(limit: u64) -> usize {
+    const MAX: usize = 256 * 1024;
+    if limit == 0 {
+        MAX
+    } else {
+        ((limit / 16) as usize).clamp(16 * 1024, MAX)
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -520,16 +713,24 @@ async fn upload_from(
     let c = counted.clone();
     let last_progress = Arc::new(Mutex::new(std::time::Instant::now()));
     let lp = last_progress.clone();
-    let stream = ReaderStream::with_capacity(file, 256 * 1024).map(move |chunk| {
-        if t.is_cancelled() {
-            return Err(std::io::Error::other("cancelled"));
+    let limiter = st.send_limit.clone();
+    let stream = ReaderStream::with_capacity(file, read_chunk(limiter.limit())).then(move |chunk| {
+        let (t, c, lp, limiter) = (t.clone(), c.clone(), lp.clone(), limiter.clone());
+        async move {
+            if let Ok(b) = &chunk {
+                // Chờ tới lượt theo giới hạn tốc độ (không giới hạn thì đi ngay).
+                limiter.take(b.len() as u64).await;
+            }
+            if t.is_cancelled() {
+                return Err(std::io::Error::other("cancelled"));
+            }
+            if let Ok(b) = &chunk {
+                t.add(b.len() as u64);
+                c.fetch_add(b.len() as u64, SeqCst);
+                *lp.lock().unwrap() = std::time::Instant::now();
+            }
+            chunk
         }
-        if let Ok(b) = &chunk {
-            t.add(b.len() as u64);
-            c.fetch_add(b.len() as u64, SeqCst);
-            *lp.lock().unwrap() = std::time::Instant::now();
-        }
-        chunk
     });
     let mut query = vec![
         ("session", prep.session_id.clone()),
@@ -555,9 +756,12 @@ async fn upload_from(
             }
         }
     };
+    // Tạm dừng: bỏ request (đóng kết nối). Máy nhận giữ phần đã nhận, tiếp tục thì gửi
+    // tiếp từ đó như khi rớt mạng.
     let resp = tokio::select! {
         r = send => r.map_err(|e| UploadError::Network(describe_error(&e)))?,
         _ = watchdog => return Err(UploadError::Network("Không gửi được dữ liệu trong 30 giây".into())),
+        _ = tracker.wait_paused() => return Err(UploadError::Paused),
     };
     match resp.status() {
         s if s.is_success() => Ok(()),
@@ -570,6 +774,61 @@ async fn upload_from(
         s => {
             let msg = resp.text().await.unwrap_or_default();
             Err(UploadError::Fatal(if msg.is_empty() { format!("Máy nhận trả lỗi {s}") } else { msg }))
+        }
+    }
+}
+
+/// Giới hạn tốc độ gửi dùng chung cho mọi lượt gửi (0 = không giới hạn).
+///
+/// Mỗi phần dữ liệu "đặt chỗ" một khoảng thời gian trên đường truyền chung: phần sau bắt
+/// đầu khi phần trước đã đi hết theo tốc độ cho phép. Không tích luỹ lượt khi rảnh, nên
+/// không có đợt bùng nổ sau khi nghỉ. Đổi mức thì các phần đang chờ đặt chỗ lại ngay.
+#[derive(Clone)]
+pub struct SendLimiter(Arc<LimiterInner>);
+
+struct LimiterInner {
+    rate: std::sync::atomic::AtomicU64,
+    next_free: Mutex<tokio::time::Instant>,
+    changed: tokio::sync::Notify,
+}
+
+impl SendLimiter {
+    pub fn new(bytes_per_sec: u64) -> Self {
+        SendLimiter(Arc::new(LimiterInner {
+            rate: bytes_per_sec.into(),
+            next_free: Mutex::new(tokio::time::Instant::now()),
+            changed: tokio::sync::Notify::new(),
+        }))
+    }
+
+    pub fn limit(&self) -> u64 {
+        self.0.rate.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn set(&self, bytes_per_sec: u64) {
+        self.0.rate.store(bytes_per_sec, std::sync::atomic::Ordering::Relaxed);
+        *self.0.next_free.lock().unwrap() = tokio::time::Instant::now();
+        self.0.changed.notify_waiters();
+    }
+
+    /// Chờ tới lượt gửi `n` byte.
+    pub async fn take(&self, n: u64) {
+        loop {
+            let rate = self.limit();
+            if rate == 0 || n == 0 {
+                return;
+            }
+            let changed = self.0.changed.notified();
+            let start = {
+                let mut next = self.0.next_free.lock().unwrap();
+                let start = (*next).max(tokio::time::Instant::now());
+                *next = start + Duration::from_secs_f64(n as f64 / rate as f64);
+                start
+            };
+            tokio::select! {
+                _ = tokio::time::sleep_until(start) => return,
+                _ = changed => continue,
+            }
         }
     }
 }

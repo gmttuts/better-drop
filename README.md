@@ -10,6 +10,8 @@ Chuyển file, thư mục và văn bản giữa Mac ⇄ Windows ⇄ Linux ⇄ An
 - **Chia sẻ qua trình duyệt** (nút 🌐 Trình duyệt): thiết bị không cài BetterDrop mở `http://<ip-máy-tính>:53319` (hoặc quét QR), nhập mã PIN, rồi gửi file/văn bản lên hoặc tải những gì máy tính chia sẻ. Chỉ trong mạng LAN, mặc định tắt.
 - Dữ liệu đi qua HTTPS (TLS). Mỗi máy có chứng chỉ riêng, và bên gửi chỉ chấp nhận đúng chứng chỉ đã quảng bá. Mã 4 ký tự (vd `520D`) dùng để so với máy kia.
 - **Gửi tiếp khi rớt mạng**: mất Wi‑Fi giữa chừng thì tự gửi tiếp từ chỗ đang dở (chờ tối đa 2 phút), không gửi lại từ đầu.
+- **Tạm dừng / Tiếp tục**: nút ⏸/▶ cạnh nút Huỷ của lượt đang gửi. Tạm dừng thì ngắt kết nối nhưng máy nhận giữ phần đã nhận (hiện "Đã tạm dừng"); tiếp tục thì gửi tiếp từ chỗ đang dở, bao lâu cũng được (máy nhận giữ tối đa 24 giờ). Máy nhận dùng bản cũ (trước 0.3.7) chỉ chờ 2 phút: tạm dừng lâu hơn thì khi tiếp tục, app xin phiên mới và gửi lại các file chưa xong (file đang dở gửi lại từ đầu, file đã xong không gửi lại, máy nhận phải bấm Chấp nhận lại nếu chưa tin cậy). App báo điều này ngay khi bấm tạm dừng.
+- **Giới hạn tốc độ gửi**: Cài đặt › "Giới hạn tốc độ gửi" (Không giới hạn / 1 / 5 / 10 / 50 MB/s hoặc tự nhập). Một giới hạn chung cho mọi lượt đang gửi, đổi là có hiệu lực ngay. Có cả trên điện thoại, tiện khi dùng mạng di động làm điểm phát Wi‑Fi.
 - **Nhóm máy**: chia sẻ một nhóm cho máy khác bằng nút "Gửi nhóm".
 - **Chia sẻ từ app khác**: Android "Chia sẻ → BetterDrop", Mac "Mở bằng"/kéo vào Dock, Windows chuột phải › "Gửi bằng BetterDrop" (hoặc "Send to › BetterDrop"), iPhone/iPad "Chia sẻ → BetterDrop" (ảnh, video, file trong app Tệp, link và văn bản từ Safari…) hoặc "Mở bằng". File/văn bản được đưa sẵn vào danh sách gửi.
 - **Menu chuột phải trên Windows**: chọn file/thư mục (một hay nhiều) › chuột phải › **Gửi bằng BetterDrop** › tên máy để gửi luôn, hoặc "Chọn máy khác…" để mở app với các mục đó trong danh sách gửi. Chi tiết ở mục [Menu chuột phải trên Windows](#menu-chuột-phải-trên-windows).
@@ -117,6 +119,7 @@ Mọi phiên bản BetterDrop gửi nhận được với nhau. Giao thức `/ap
 - Chỉ **thêm** trường mới, kèm `#[serde(default)]`. Không đổi tên, không xoá, không đổi kiểu trường cũ. Bản cũ tự bỏ qua trường lạ.
 - Không đổi đường dẫn API cũ. Nếu buộc phải thay đổi không tương thích, làm API mới (`/api/v2/...`) và giữ `/api/v1` song song.
 - Test `new_version_reads_old_wire_format`, `old_version_can_read_new_wire_format`, `old_client_can_send_to_new_version` và `old_saved_files_still_load` (trong `src-tauri/src/tests.rs`) dùng đúng dữ liệu của v0.1.0. CI chạy chúng ở mọi lần đẩy code.
+- Tạm dừng (từ 0.3.7) dùng đường dẫn mới `POST /api/v1/pause?session=…&paused=true|false`. Bản cũ trả 404: máy gửi biết máy nhận chỉ chờ nối lại 2 phút, nên khi phiên cũ đã mất thì `prepare` lại và gửi lại file chưa xong.
 - Từ v0.3.2, mỗi máy báo phiên bản (`version` trong `/api/v1/info`, khoá `v` trong mDNS). Danh sách máy hiện phiên bản và đánh dấu máy dùng bản cũ hơn.
 
 Lưu ý: tương thích giao thức không giúp được khi hệ điều hành chặn kết nối. Ví dụ Android 17 cần BetterDrop **v0.2.2 trở lên** trên chính điện thoại đó, vì từ bản này app mới xin quyền "Thiết bị lân cận".
