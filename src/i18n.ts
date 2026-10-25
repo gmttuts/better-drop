@@ -153,6 +153,19 @@ const EXACT: Record<string, string> = {
   "Đang chờ máy nhận chấp nhận…": "Waiting for the other device to accept…",
   "Đang gửi…": "Sending…",
   "Đang chuyển": "Transferring",
+  "Đã tạm dừng": "Paused",
+  "Tạm dừng": "Pause",
+  "Tiếp tục": "Resume",
+  "Giới hạn tốc độ gửi": "Upload speed limit",
+  "Không giới hạn": "Unlimited",
+  "Tự nhập…": "Custom…",
+  "Áp dụng ngay cho mọi lượt đang gửi, vd khi dùng mạng di động làm điểm phát Wi‑Fi.":
+    "Applies right away to every transfer being sent, e.g. when sharing mobile data as a Wi‑Fi hotspot.",
+  "Đã bỏ giới hạn tốc độ gửi": "Upload speed limit removed",
+  "Nhập tốc độ từ 0,1 MB/s trở lên": "Enter a speed of 0.1 MB/s or more",
+  "Máy gửi tạm dừng quá lâu": "The sender stayed paused for too long",
+  "Máy nhận đã bỏ phiên gửi": "The receiver dropped the transfer",
+  "Không tìm thấy lượt gửi": "Transfer not found",
   "Hoàn tất": "Done",
   "Bị từ chối": "Declined",
   "Đã huỷ": "Cancelled",
@@ -436,6 +449,12 @@ const RULES: [RegExp, (...m: string[]) => string][] = [
   [/^Dịch vụ từ chối \(HTTP (\d+)\)$/, (_, c) => `The file host refused (HTTP ${c})`],
   [/^(.+) trả về kết quả lạ: (.*)$/, (_, p, r) => `${p} returned something unexpected: ${r}`],
   [/^File (.+) đã bị sửa trong lúc gửi\. Hãy gửi lại$/, (_, f) => `${f} changed while sending. Please send again`],
+  [/^Đã tạm dừng · (.+)$/, (_, d) => `Paused · ${inner(d)}`],
+  [/^Máy nhận dùng bản cũ: tạm dừng quá (\d+) phút thì file đang gửi dở sẽ phải gửi lại từ đầu$/, (_, n) =>
+    `The receiver runs an older version: if paused for over ${n} minutes, the file in progress must be sent again from the start`],
+  [/^Máy nhận đã bỏ phiên vì tạm dừng quá lâu — đang xin gửi lại (\d+) file chưa xong…$/, (_, n) =>
+    `The receiver dropped the transfer after a long pause; asking to send the ${files(n)} left again…`],
+  [/^Giới hạn tốc độ gửi: (.+)$/, (_, v) => `Upload speed limit: ${v}`],
   // Chung chung nhất: để cuối cùng.
   [/^Đã có BetterDrop v(.+) \(máy này đang dùng v(.+)\)\.$/, (_, a, b) => `BetterDrop v${a} is available (this device has v${b}).`],
   [/^Có bản mới v(.+)$/, (_, v) => `Update available: v${v}`],

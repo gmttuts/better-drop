@@ -123,6 +123,7 @@ pub fn load_settings(dir: &Path, defaults: Defaults) -> Settings {
         language: "auto".into(),
         background_receive: true,
         hotkeys: Default::default(),
+        send_limit: 0,
     };
     let _ = save_settings(dir, &s);
     s

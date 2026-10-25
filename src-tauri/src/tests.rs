@@ -35,6 +35,7 @@ async fn node(name: &str) -> Node {
         language: "vi".into(),
         background_receive: true,
         hotkeys: Default::default(),
+        send_limit: 0,
     };
     let mut st = AppState::new(emit, dir.path().join("data"), ident, port, settings);
     let clip: Arc<std::sync::Mutex<Option<String>>> = Arc::default();
@@ -2168,4 +2169,276 @@ async fn clipboard_sync_does_not_loop() {
     a.st.devices.lock().unwrap().clipboard.enabled = false;
     assert_eq!(observe(&a.st, Some("mới nữa")), None);
     let _ = drain(&mut b);
+}
+
+// ---- Tạm dừng / tiếp tục và giới hạn tốc độ ----
+
+const MIB: u64 = 1024 * 1024;
+
+/// Bên nhận bấm Chấp nhận mọi yêu cầu (kể cả yêu cầu xin lại phiên sau khi tạm dừng).
+fn accept_all(mut n: Node) -> (Arc<AppState>, PathBuf, tokio::task::JoinHandle<Node>) {
+    let st = n.st.clone();
+    let dir = PathBuf::from(st.settings.read().unwrap().download_dir.clone());
+    let h = tokio::spawn(async move {
+        while let Some((ev, v)) = n.events.recv().await {
+            if ev == "incoming-request" {
+                let id = v["request_id"].as_str().unwrap().to_string();
+                if let Some(p) = n.st.pending.lock().unwrap().remove(&id) {
+                    let _ = p.tx.send(true);
+                }
+            }
+        }
+        n
+    });
+    (st, dir, h)
+}
+
+/// Gửi trong nền một lượt có id "t" (đăng ký trong `outgoing` để tạm dừng/huỷ theo id).
+fn send_in_background(
+    a: &Node,
+    peer: Peer,
+    paths: Vec<String>,
+) -> (Arc<Tracker>, tokio::task::JoinHandle<Result<(), String>>) {
+    let files = transfer::collect_files(&a.st, &paths).unwrap();
+    let tracker = sender_tracker(&a.st);
+    a.st.outgoing.lock().unwrap().insert("t".into(), tracker.clone());
+    let (st, t) = (a.st.clone(), tracker.clone());
+    let h = tokio::spawn(async move { transfer::send_files(&st, &peer, files, &t).await });
+    (tracker, h)
+}
+
+async fn until(what: &str, mut f: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !f() {
+        assert!(std::time::Instant::now() < deadline, "quá lâu: {what}");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+}
+
+fn incoming_status(st: &AppState) -> Option<TransferStatus> {
+    st.incoming.lock().unwrap().values().next().map(|s| s.tracker.status())
+}
+
+fn part_files(dir: &Path) -> Vec<PathBuf> {
+    walkdir::WalkDir::new(dir)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".part"))
+        .map(|e| e.into_path())
+        .collect()
+}
+
+fn pattern(len: usize, m: u32) -> Vec<u8> {
+    (0..len as u32).map(|i| (i % m) as u8).collect()
+}
+
+/// Gửi chậm (giới hạn tốc độ) để kịp tạm dừng giữa chừng, rồi tạm dừng tới khi đã đi được `at` byte.
+async fn pause_at(a: &Node, tracker: &Tracker, at: u64) {
+    until("gửi được một phần", || tracker.snapshot().transferred >= at).await;
+    transfer::set_paused(&a.st, "t", true).await.unwrap();
+    assert_eq!(tracker.status(), TransferStatus::Paused);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pause_and_resume_sends_exact_bytes() {
+    let a = node("Mac").await;
+    let b = node("Windows").await;
+    let peer_b = as_peer(&b);
+    let (b_st, b_dir, _w) = accept_all(b);
+    let src = tempfile::tempdir().unwrap();
+    let data = pattern(12 * MIB as usize, 251);
+    write(&src.path().join("lớn.bin"), &data);
+    write(&src.path().join("nhỏ.txt"), b"xin chao");
+
+    a.st.send_limit.set(8 * MIB);
+    let (tracker, h) = send_in_background(&a, peer_b, vec![
+        src.path().join("lớn.bin").to_string_lossy().into_owned(),
+        src.path().join("nhỏ.txt").to_string_lossy().into_owned(),
+    ]);
+    pause_at(&a, &tracker, 3 * MIB).await;
+    // Bên nhận thấy "Đã tạm dừng" chứ không phải mất kết nối.
+    until("bên nhận thấy tạm dừng", || incoming_status(&b_st) == Some(TransferStatus::Paused)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let paused_at = tracker.snapshot().transferred;
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    let snap = tracker.snapshot();
+    assert_eq!(snap.transferred, paused_at, "đang tạm dừng thì không gửi thêm");
+    assert_eq!(snap.speed_bps, 0.0, "đang tạm dừng thì tốc độ là 0");
+    assert!(paused_at < data.len() as u64);
+    let note = b_st.incoming.lock().unwrap().values().next().unwrap().tracker.snapshot().error;
+    assert!(note.is_none());
+
+    a.st.send_limit.set(0);
+    transfer::set_paused(&a.st, "t", false).await.unwrap();
+    h.await.unwrap().unwrap();
+    assert_eq!(tracker.status(), TransferStatus::Done);
+    assert_eq!(tracker.snapshot().transferred, data.len() as u64 + 8, "tiến trình không bị cộng hai lần");
+    until("bên nhận xong", || incoming_status(&b_st) == Some(TransferStatus::Done)).await;
+    assert_eq!(std::fs::read(b_dir.join("lớn.bin")).unwrap(), data, "đúng từng byte sau khi tiếp tục");
+    assert_eq!(std::fs::read(b_dir.join("nhỏ.txt")).unwrap(), b"xin chao");
+    assert!(part_files(&b_dir).is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pause_longer_than_resume_grace_still_finishes() {
+    let a = node("Mac").await;
+    let b = node("Windows").await;
+    b.st.resume_grace_ms.store(400, std::sync::atomic::Ordering::Relaxed);
+    let peer_b = as_peer(&b);
+    let (b_st, b_dir, _w) = accept_all(b);
+    let src = tempfile::tempdir().unwrap();
+    let data = pattern(10 * MIB as usize, 241);
+    write(&src.path().join("phim.mp4"), &data);
+
+    a.st.send_limit.set(8 * MIB);
+    let (tracker, h) =
+        send_in_background(&a, peer_b, vec![src.path().join("phim.mp4").to_string_lossy().into_owned()]);
+    pause_at(&a, &tracker, 2 * MIB).await;
+    // Lâu gấp nhiều lần thời gian chờ nối lại: máy nhận bản mới vẫn giữ phiên.
+    tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
+    assert_eq!(incoming_status(&b_st), Some(TransferStatus::Paused));
+    assert_eq!(part_files(&b_dir).len(), 1, "phần đã nhận vẫn được giữ");
+
+    a.st.send_limit.set(0);
+    transfer::set_paused(&a.st, "t", false).await.unwrap();
+    h.await.unwrap().unwrap();
+    assert_eq!(tracker.status(), TransferStatus::Done);
+    assert_eq!(tracker.snapshot().transferred, data.len() as u64);
+    until("bên nhận xong", || incoming_status(&b_st) == Some(TransferStatus::Done)).await;
+    assert_eq!(std::fs::read(b_dir.join("phim.mp4")).unwrap(), data);
+    assert_eq!(b_st.incoming.lock().unwrap().len(), 1, "không phải xin phiên mới");
+}
+
+/// Máy nhận bản cũ không biết tạm dừng: quá `RESUME_GRACE` thì nó bỏ phiên. Tiếp tục thì
+/// xin phiên mới và gửi lại file đang dở; file đã xong không gửi lại.
+#[tokio::test(flavor = "multi_thread")]
+async fn pause_too_long_on_old_receiver_resends_unfinished_files() {
+    let a = node("Mac").await;
+    let b = node("Windows").await;
+    b.st.resume_grace_ms.store(400, std::sync::atomic::Ordering::Relaxed);
+    b.st.legacy_no_pause.store(true, std::sync::atomic::Ordering::Relaxed);
+    let peer_b = as_peer(&b);
+    let (b_st, b_dir, _w) = accept_all(b);
+    let src = tempfile::tempdir().unwrap();
+    let data = pattern(10 * MIB as usize, 239);
+    write(&src.path().join("phim.mp4"), &data);
+    write(&src.path().join("ghi chú.txt"), b"da xong");
+
+    a.st.send_limit.set(8 * MIB);
+    let (tracker, h) = send_in_background(&a, peer_b, vec![
+        src.path().join("phim.mp4").to_string_lossy().into_owned(),
+        src.path().join("ghi chú.txt").to_string_lossy().into_owned(),
+    ]);
+    pause_at(&a, &tracker, 2 * MIB).await;
+    until("máy nhận bản cũ bỏ phiên", || incoming_status(&b_st) == Some(TransferStatus::Error)).await;
+    until("đã xoá phần dở", || part_files(&b_dir).is_empty()).await;
+    assert_eq!(std::fs::read(b_dir.join("ghi chú.txt")).unwrap(), b"da xong");
+
+    a.st.send_limit.set(0);
+    transfer::set_paused(&a.st, "t", false).await.unwrap();
+    h.await.unwrap().unwrap();
+    assert_eq!(tracker.status(), TransferStatus::Done);
+    assert_eq!(tracker.snapshot().transferred, data.len() as u64 + 7, "phần gửi dở không bị tính hai lần");
+    assert_eq!(b_st.incoming.lock().unwrap().len(), 2, "đã xin phiên mới");
+    assert_eq!(std::fs::read(b_dir.join("phim.mp4")).unwrap(), data);
+    let names: Vec<String> = std::fs::read_dir(&b_dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names.len(), 2, "file đã xong không bị gửi lại: {names:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn old_receiver_pause_warns_sender() {
+    let mut a = node("Mac").await;
+    let b = node("Windows").await;
+    b.st.legacy_no_pause.store(true, std::sync::atomic::Ordering::Relaxed);
+    let peer_b = as_peer(&b);
+    let (_b_st, _b_dir, _w) = accept_all(b);
+    let src = tempfile::tempdir().unwrap();
+    write(&src.path().join("a.bin"), &pattern(4 * MIB as usize, 13));
+    a.st.send_limit.set(2 * MIB);
+    let (tracker, h) = send_in_background(&a, peer_b, vec![src.path().join("a.bin").to_string_lossy().into_owned()]);
+    pause_at(&a, &tracker, MIB / 2).await;
+    let warned = std::iter::from_fn(|| a.events.try_recv().ok())
+        .any(|(e, v)| e == "transfer-update" && v["note"].as_str().is_some_and(|n| n.contains("bản cũ")));
+    assert!(warned, "phải báo người dùng máy nhận là bản cũ");
+    transfer::cancel(&a.st, "t");
+    let _ = h.await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cancel_while_paused_cleans_up_receiver() {
+    let a = node("Mac").await;
+    let b = node("Windows").await;
+    let peer_b = as_peer(&b);
+    let (b_st, b_dir, _w) = accept_all(b);
+    let src = tempfile::tempdir().unwrap();
+    write(&src.path().join("lớn.bin"), &pattern(8 * MIB as usize, 7));
+
+    a.st.send_limit.set(4 * MIB);
+    let (tracker, h) =
+        send_in_background(&a, peer_b, vec![src.path().join("lớn.bin").to_string_lossy().into_owned()]);
+    pause_at(&a, &tracker, MIB).await;
+    until("bên nhận giữ phần đã nhận", || part_files(&b_dir).len() == 1).await;
+
+    transfer::cancel(&a.st, "t");
+    h.await.unwrap().unwrap();
+    assert_eq!(tracker.status(), TransferStatus::Cancelled);
+    until("bên nhận huỷ", || incoming_status(&b_st) == Some(TransferStatus::Cancelled)).await;
+    until("bên nhận xoá .part", || part_files(&b_dir).is_empty()).await;
+    assert!(!b_dir.join("lớn.bin").exists());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn send_limit_caps_speed() {
+    let a = node("Mac").await;
+    let b = node("Windows").await;
+    let peer_b = as_peer(&b);
+    let (_b_st, b_dir, _w) = accept_all(b);
+    let src = tempfile::tempdir().unwrap();
+    let data = pattern(10 * MIB as usize, 199);
+    write(&src.path().join("a.bin"), &data);
+
+    a.st.send_limit.set(2 * MIB);
+    let started = std::time::Instant::now();
+    let (tracker, h) = send_in_background(&a, peer_b, vec![src.path().join("a.bin").to_string_lossy().into_owned()]);
+    // Tốc độ hiển thị đúng với giới hạn.
+    tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+    let speed = tracker.snapshot().speed_bps / MIB as f64;
+    assert!((1.6..2.4).contains(&speed), "tốc độ hiển thị {speed:.2} MB/s");
+    h.await.unwrap().unwrap();
+    let secs = started.elapsed().as_secs_f64();
+    assert!((4.3..6.5).contains(&secs), "10 MB ở 2 MB/s mất {secs:.2} s");
+    assert_eq!(std::fs::read(b_dir.join("a.bin")).unwrap(), data);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn send_limit_change_takes_effect_immediately() {
+    let a = node("Mac").await;
+    let b = node("Windows").await;
+    let peer_b = as_peer(&b);
+    let (_b_st, b_dir, _w) = accept_all(b);
+    let src = tempfile::tempdir().unwrap();
+    let data = pattern(20 * MIB as usize, 197);
+    write(&src.path().join("a.bin"), &data);
+
+    // Rất chậm: không đổi thì mất hàng phút.
+    a.st.send_limit.set(MIB / 4);
+    let started = std::time::Instant::now();
+    let (_tracker, h) = send_in_background(&a, peer_b, vec![src.path().join("a.bin").to_string_lossy().into_owned()]);
+    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+    a.st.send_limit.set(0);
+    h.await.unwrap().unwrap();
+    assert!(started.elapsed() < std::time::Duration::from_secs(5), "bỏ giới hạn có hiệu lực ngay");
+    assert_eq!(std::fs::read(b_dir.join("a.bin")).unwrap(), data);
+}
+
+#[test]
+fn send_limit_setting_defaults_to_unlimited() {
+    let old = r#"{"device_id":"x","name":"Mac","download_dir":"/tmp","receive_enabled":true,"hide_dock":false}"#;
+    let s: Settings = serde_json::from_str(old).unwrap();
+    assert_eq!(s.send_limit, 0);
+    let q: PauseQuery = serde_json::from_str(r#"{"session":"s"}"#).unwrap();
+    assert!(!q.paused);
 }

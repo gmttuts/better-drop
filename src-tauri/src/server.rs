@@ -45,6 +45,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/v1/upload", post(upload).layer(DefaultBodyLimit::disable()))
         .route("/api/v1/cancel", post(cancel))
         .route("/api/v1/upload-status", get(upload_status))
+        .route("/api/v1/pause", post(pause))
         .with_state(state)
 }
 
@@ -646,6 +647,8 @@ async fn upload(
 /// Nhận dữ liệu một file của phiên đã được chấp nhận (dùng chung cho app và trang web).
 /// Máy nhận giữ phần đã nhận bao lâu để chờ máy gửi nối lại sau khi mất kết nối.
 pub const RESUME_GRACE: Duration = Duration::from_secs(120);
+/// Máy gửi đã báo tạm dừng: giữ phiên và phần đã nhận tối đa chừng này.
+pub const PAUSE_HOLD: Duration = Duration::from_secs(24 * 3600);
 
 fn part_path(dest: &std::path::Path, token: &str) -> PathBuf {
     dest.with_file_name(format!(
@@ -674,7 +677,12 @@ fn find_upload(st: &AppState, q: &UploadQuery) -> Result<(Arc<InSession>, String
 async fn upload_status(State(st): St, Query(q): Query<UploadQuery>) -> Result<Json<UploadStatus>, (StatusCode, String)> {
     let (session, id) = find_upload(&st, &q)?;
     if session.tracker.status().is_final() && !session.done_files.lock().unwrap().contains(&id) {
-        return Err((StatusCode::GONE, "Phiên nhận đã kết thúc".into()));
+        let msg = if session.tracker.is_cancelled() { "Máy nhận đã huỷ" } else { "Phiên nhận đã kết thúc" };
+        return Err((StatusCode::GONE, msg.into()));
+    }
+    // Máy gửi hỏi tiến độ sau khi tạm dừng tức là đã tiếp tục (phòng khi lệnh tiếp tục bị lạc).
+    if session.tracker.status() == TransferStatus::Paused {
+        session.tracker.set_status(TransferStatus::Transferring, None);
     }
     let done = session.done_files.lock().unwrap().contains(&id);
     let file = &session.files[&id];
@@ -817,25 +825,80 @@ pub async fn receive_upload(
 }
 
 /// Giữ phần đã nhận và chờ máy gửi nối lại; quá RESUME_GRACE thì báo lỗi và xoá.
+/// Máy gửi đang tạm dừng thì giữ tới khi tiếp tục (giới hạn bởi `PAUSE_HOLD`, xem `pause`).
+/// Lượt nhận bị huỷ hoặc kết thúc trong lúc chờ thì xoá phần đã nhận ngay.
 fn wait_for_resume(st: Arc<AppState>, session: Arc<InSession>, id: String, part: PathBuf) {
     let at = Instant::now();
     session.interrupted.lock().unwrap().insert(id.clone(), at);
-    session
-        .tracker
-        .set_note(Some("Mất kết nối, đang chờ máy gửi nối lại…".into()));
-    let _ = st;
+    if session.tracker.status() != TransferStatus::Paused {
+        session
+            .tracker
+            .set_note(Some("Mất kết nối, đang chờ máy gửi nối lại…".into()));
+    }
     tokio::spawn(async move {
-        tokio::time::sleep(RESUME_GRACE).await;
-        let still_waiting = session.interrupted.lock().unwrap().get(&id) == Some(&at);
-        if still_waiting && !session.active.lock().unwrap().contains(&id) {
-            session.interrupted.lock().unwrap().remove(&id);
-            let _ = tokio::fs::remove_file(&part).await;
-            session.tracker.set_note(None);
-            session
-                .tracker
-                .set_status(TransferStatus::Error, Some("Mất kết nối với máy gửi".into()));
+        loop {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            let still_waiting = session.interrupted.lock().unwrap().get(&id) == Some(&at);
+            if !still_waiting || session.active.lock().unwrap().contains(&id) {
+                return;
+            }
+            let tracker = &session.tracker;
+            let status = tracker.status();
+            if status.is_final() {
+                session.interrupted.lock().unwrap().remove(&id);
+                let _ = tokio::fs::remove_file(&part).await;
+                return;
+            }
+            if status == TransferStatus::Paused {
+                continue;
+            }
+            let grace = Duration::from_millis(st.resume_grace_ms.load(Ordering::Relaxed));
+            let since = tracker.resumed_at().map_or(at, |r| r.max(at));
+            if since.elapsed() >= grace {
+                session.interrupted.lock().unwrap().remove(&id);
+                let _ = tokio::fs::remove_file(&part).await;
+                tracker.set_note(None);
+                tracker.set_status(TransferStatus::Error, Some("Mất kết nối với máy gửi".into()));
+                return;
+            }
         }
     });
+}
+
+/// Máy gửi tạm dừng / tiếp tục. Không biết phiên thì trả 410 (404 là máy nhận bản cũ,
+/// chưa có đường dẫn này).
+async fn pause(State(st): St, Query(q): Query<PauseQuery>) -> StatusCode {
+    #[cfg(test)]
+    if st.legacy_no_pause.load(Ordering::Relaxed) {
+        return StatusCode::NOT_FOUND;
+    }
+    let Some(session) = st.incoming.lock().unwrap().get(&q.session).cloned() else {
+        return StatusCode::GONE;
+    };
+    let tracker = session.tracker.clone();
+    if !q.paused {
+        if tracker.status() == TransferStatus::Paused {
+            tracker.set_status(TransferStatus::Transferring, None);
+        }
+        return StatusCode::OK;
+    }
+    if tracker.status() == TransferStatus::Paused {
+        return StatusCode::OK;
+    }
+    if !tracker.set_status(TransferStatus::Paused, None) {
+        return StatusCode::GONE;
+    }
+    tracker.set_note(None);
+    // Máy gửi biến mất khi đang tạm dừng: đừng giữ phiên (và các file .part) mãi.
+    let generation = tracker.pause_gen();
+    let hold = Duration::from_millis(st.pause_hold_ms.load(Ordering::Relaxed));
+    tokio::spawn(async move {
+        tokio::time::sleep(hold).await;
+        if tracker.status() == TransferStatus::Paused && tracker.pause_gen() == generation {
+            tracker.set_status(TransferStatus::Error, Some("Máy gửi tạm dừng quá lâu".into()));
+        }
+    });
+    StatusCode::OK
 }
 
 enum WriteError {

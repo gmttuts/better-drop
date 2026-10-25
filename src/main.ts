@@ -32,6 +32,8 @@ interface Settings {
   language?: string;
   background_receive?: boolean;
   hotkeys?: Hotkeys;
+  /** Giới hạn tốc độ gửi, byte/giây (0 = không giới hạn). */
+  send_limit?: number;
 }
 interface Hotkeys {
   enabled: boolean;
@@ -51,7 +53,7 @@ interface StagedItem {
   is_dir: boolean;
   size: number | null;
 }
-type Status = "waiting" | "transferring" | "done" | "rejected" | "cancelled" | "error";
+type Status = "waiting" | "transferring" | "paused" | "done" | "rejected" | "cancelled" | "error";
 interface TransferUpdate {
   id: string;
   direction: "send" | "receive";
@@ -195,6 +197,59 @@ function renderMe() {
   $<HTMLInputElement>("set-background").checked = me.settings.background_receive !== false;
   $("clip-mobile-hint").hidden = !me.mobile;
   renderHotkeys();
+  renderSendLimit();
+}
+
+// ---- Giới hạn tốc độ gửi ----
+
+const MIB = 1024 * 1024;
+const LIMIT_PRESETS = ["0", "1", "5", "10", "50"];
+
+function renderSendLimit() {
+  if (!me) return;
+  const mb = (me.settings.send_limit ?? 0) / MIB;
+  const preset = LIMIT_PRESETS.includes(String(mb));
+  $<HTMLSelectElement>("set-limit").value = preset ? String(mb) : "custom";
+  showCustomLimit(!preset);
+  if (!preset) $<HTMLInputElement>("set-limit-custom").value = String(Math.round(mb * 100) / 100);
+}
+
+function showCustomLimit(show: boolean) {
+  $("set-limit-custom").hidden = !show;
+  $("set-limit-unit").hidden = !show;
+}
+
+/// Có hiệu lực ngay (kể cả với lượt đang gửi), không cần bấm Lưu.
+async function applySendLimit(mb: number) {
+  try {
+    me = await invoke<SelfInfo>("set_send_limit", { bytesPerSec: Math.round(mb * MIB) });
+    toast(mb > 0 ? `Giới hạn tốc độ gửi: ${formatBytes(mb * MIB)}/s` : "Đã bỏ giới hạn tốc độ gửi");
+  } catch (e) {
+    toast(errorText(e), "error");
+    renderSendLimit();
+  }
+}
+
+function bindSendLimit() {
+  const select = $<HTMLSelectElement>("set-limit");
+  const custom = $<HTMLInputElement>("set-limit-custom");
+  select.addEventListener("change", () => {
+    if (select.value === "custom") {
+      showCustomLimit(true);
+      custom.focus();
+      return;
+    }
+    showCustomLimit(false);
+    void applySendLimit(Number(select.value));
+  });
+  custom.addEventListener("change", () => {
+    const mb = Number(custom.value.replace(",", "."));
+    if (!(mb >= 0.1)) {
+      toast("Nhập tốc độ từ 0,1 MB/s trở lên", "error");
+      return;
+    }
+    void applySendLimit(mb);
+  });
 }
 
 /// Các ô tích ở mục "Chạy nền" có hiệu lực ngay, không cần bấm Lưu.
@@ -873,6 +928,7 @@ function renderHidden() {
 const STATUS_TEXT: Record<Status, string> = {
   waiting: "Đang chờ máy nhận chấp nhận…",
   transferring: "Đang chuyển",
+  paused: "Đã tạm dừng",
   done: "Hoàn tất",
   rejected: "Bị từ chối",
   cancelled: "Đã huỷ",
@@ -887,13 +943,15 @@ function progressOf(t: TransferUpdate): number {
 }
 
 function detailOf(t: TransferUpdate): string {
-  if (t.status === "transferring" && t.note) return t.note;
+  if ((t.status === "transferring" || t.status === "waiting") && t.note) return t.note;
+  const amount = `${progressOf(t).toFixed(0)}% · ${formatBytes(t.transferred)} / ${formatBytes(t.total_bytes)}`;
   if (t.status === "transferring") {
-    const pct = progressOf(t);
-    let d = `${pct.toFixed(0)}% · ${formatBytes(t.transferred)} / ${formatBytes(t.total_bytes)}`;
+    let d = amount;
     if (t.speed_bps > 0) d += ` · ${formatBytes(t.speed_bps)}/s`;
     return d;
   }
+  // Đang tạm dừng: không hiện tốc độ cũ.
+  if (t.status === "paused") return t.note ? `Đã tạm dừng · ${t.note}` : `Đã tạm dừng · ${amount}`;
   if (t.status === "done" && t.direction === "receive" && t.dir_path && me?.mobile) return `Đã lưu vào ${t.dir_path}`;
   return t.error && t.status !== "done" ? t.error : STATUS_TEXT[t.status];
 }
@@ -920,7 +978,20 @@ function renderTransfer(t: TransferUpdate): HTMLLIElement {
   const who = t.direction === "send" ? `Tới ${t.peer_name}` : `Từ ${t.peer_name}`;
   const what = t.kind === "text" ? "Văn bản" : `${t.file_count} file · ${formatBytes(t.total_bytes)}`;
   const actions = el("div", { className: "t-actions" });
-  if (t.status === "waiting" || t.status === "transferring") {
+  if (t.direction === "send" && t.kind === "files" && (t.status === "transferring" || t.status === "paused")) {
+    const paused = t.status === "paused";
+    const label = paused ? "Tiếp tục" : "Tạm dừng";
+    const p = el("button", { className: "btn small", textContent: paused ? "▶" : "⏸", title: label });
+    p.setAttribute("aria-label", label);
+    p.addEventListener("click", () => {
+      p.disabled = true;
+      invoke(paused ? "resume_transfer" : "pause_transfer", { id: t.id })
+        .catch((e) => toast(errorText(e), "error"))
+        .finally(() => (p.disabled = false));
+    });
+    actions.append(p);
+  }
+  if (t.status === "waiting" || t.status === "transferring" || t.status === "paused") {
     const b = el("button", { className: "btn small", textContent: "Huỷ" });
     b.addEventListener("click", () => invoke("cancel_transfer", { id: t.id }));
     actions.append(b);
@@ -933,7 +1004,7 @@ function renderTransfer(t: TransferUpdate): HTMLLIElement {
     actions.append(b);
   }
 
-  const showBar = t.kind === "files" && (t.status === "transferring" || t.status === "done");
+  const showBar = t.kind === "files" && (t.status === "transferring" || t.status === "paused" || t.status === "done");
   return el(
     "li",
     { className: `transfer ${t.status}` },
@@ -2071,6 +2142,7 @@ async function init() {
   bindToggle("set-dock", "set_hide_dock", "hide");
   bindToggle("set-background", "set_background_receive", "enabled");
   bindHotkeys();
+  bindSendLimit();
   $("paused-chip").addEventListener("click", async () => {
     try {
       me = await invoke<SelfInfo>("set_receive_enabled", { enabled: true });

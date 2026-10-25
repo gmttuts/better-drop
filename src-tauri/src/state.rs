@@ -4,7 +4,7 @@ use crate::devices::DeviceBook;
 use crate::history::{History, HistoryEntry, HistoryFile, HistoryThumb, Recorder};
 use crate::identity::{self, Identity};
 use crate::models::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -77,6 +77,15 @@ pub struct AppState {
     pub media_thumb: Option<crate::thumbs::MediaThumbFn>,
     /// Đồng bộ clipboard: lần đọc/ghi gần nhất (chống gửi trùng, chống vòng lặp).
     pub clip: Mutex<crate::clipboard_sync::ClipState>,
+    /// Giới hạn tốc độ gửi, dùng chung cho mọi lượt gửi đang chạy.
+    pub send_limit: crate::transfer::SendLimiter,
+    /// Máy nhận giữ phần đã nhận bao lâu để chờ máy gửi nối lại (ms; rút ngắn được trong test).
+    pub resume_grace_ms: AtomicU64,
+    /// Máy gửi tạm dừng: máy nhận giữ phiên tối đa chừng này (ms).
+    pub pause_hold_ms: AtomicU64,
+    /// Test: giả làm máy nhận bản cũ, chưa có `/api/v1/pause`.
+    #[cfg(test)]
+    pub legacy_no_pause: AtomicBool,
 }
 
 /// Sổ thiết bị gửi lên giao diện (`get_devices`, event `devices-changed`).
@@ -104,6 +113,7 @@ impl AppState {
     pub fn new(emit: EmitFn, data_dir: PathBuf, identity: Identity, port: u16, settings: Settings) -> Self {
         let devices = DeviceBook::load(&data_dir);
         let data_dir_for_history = data_dir.clone();
+        let settings_limit = settings.send_limit;
         // Máy đã lưu được nạp lại, coi là đang tắt cho tới khi kiểm tra kết nối được.
         let peers = devices
             .known
@@ -130,6 +140,11 @@ impl AppState {
             shared: Mutex::default(),
             media_thumb: None,
             clip: Mutex::default(),
+            send_limit: crate::transfer::SendLimiter::new(settings_limit),
+            resume_grace_ms: AtomicU64::new(crate::server::RESUME_GRACE.as_millis() as u64),
+            pause_hold_ms: AtomicU64::new(crate::server::PAUSE_HOLD.as_millis() as u64),
+            #[cfg(test)]
+            legacy_no_pause: AtomicBool::new(false),
         }
     }
 
@@ -287,7 +302,20 @@ pub struct Tracker {
     history: Mutex<HistoryExtras>,
     /// Ghi chú tạm thời khi đang chuyển (vd "Mất kết nối, đang thử lại…").
     note: Mutex<Option<String>>,
+    /// true khi đang tạm dừng; các file đang gửi chờ trên kênh này. Huỷ cũng đánh thức.
+    paused: tokio::sync::watch::Sender<bool>,
+    /// Số lần đã tạm dừng: máy gửi dựa vào đó để biết cần kiểm tra lại phiên ở máy nhận.
+    pause_gen: AtomicU64,
+    /// Lần tiếp tục gần nhất (máy nhận tính thời gian chờ nối lại từ đây).
+    resumed_at: Mutex<Option<Instant>>,
+    /// Mẫu (thời điểm, số byte) để tính tốc độ trong vài giây gần nhất.
+    samples: Mutex<VecDeque<(Instant, u64)>>,
+    /// Máy gửi: báo máy nhận khi tạm dừng/tiếp tục.
+    pause_hook: Mutex<Option<PauseHook>>,
 }
+
+/// Báo máy nhận đã tạm dừng (true) hoặc tiếp tục (false).
+pub type PauseHook = Arc<dyn Fn(bool) -> futures_util::future::BoxFuture<'static, ()> + Send + Sync>;
 
 /// Thông tin thêm chỉ dùng cho lịch sử.
 #[derive(Default)]
@@ -299,6 +327,9 @@ struct HistoryExtras {
 }
 
 const EMIT_INTERVAL: Duration = Duration::from_millis(150);
+/// Tốc độ hiển thị là tốc độ trung bình trong chừng này thời gian gần nhất, để đổi giới
+/// hạn tốc độ hay tiếp tục sau khi tạm dừng thì con số theo kịp ngay.
+const SPEED_WINDOW: Duration = Duration::from_secs(3);
 
 impl Tracker {
     pub fn new(emit: EmitFn, update: TransferUpdate) -> Arc<Self> {
@@ -313,6 +344,11 @@ impl Tracker {
             recorder: Mutex::new(None),
             history: Mutex::new(HistoryExtras::default()),
             note: Mutex::new(None),
+            paused: tokio::sync::watch::channel(false).0,
+            pause_gen: AtomicU64::new(0),
+            resumed_at: Mutex::new(None),
+            samples: Mutex::default(),
+            pause_hook: Mutex::new(None),
         });
         t.emit_now();
         t
@@ -371,13 +407,45 @@ impl Tracker {
     pub fn snapshot(&self) -> TransferUpdate {
         let mut u = self.update.lock().unwrap().clone();
         u.transferred = self.transferred.load(Ordering::Relaxed);
-        if let Some(start) = *self.started.lock().unwrap() {
-            let secs = start.elapsed().as_secs_f64();
-            if secs > 0.0 {
-                u.speed_bps = u.transferred as f64 / secs;
-            }
+        if u.status == TransferStatus::Transferring {
+            u.speed_bps = self.speed(u.transferred);
         }
         u
+    }
+
+    /// Tốc độ trong khoảng `SPEED_WINDOW` gần nhất (mới bắt đầu thì tính từ lúc bắt đầu).
+    fn speed(&self, now_bytes: u64) -> f64 {
+        let now = Instant::now();
+        let mut samples = self.samples.lock().unwrap();
+        if samples.is_empty() {
+            // Mẫu đầu: lúc bắt đầu chuyển (hoặc lúc tiếp tục), khi chưa có byte nào mới.
+            let start = (*self.resumed_at.lock().unwrap()).or(*self.started.lock().unwrap());
+            if let Some(start) = start {
+                samples.push_back((start, self.base_bytes(now_bytes)));
+            }
+        }
+        if samples.back().is_none_or(|(t, _)| now.duration_since(*t) >= Duration::from_millis(100)) {
+            samples.push_back((now, now_bytes));
+        }
+        // Giữ đúng một mẫu cũ hơn cửa sổ làm mốc.
+        while samples.len() > 2 && now.duration_since(samples[1].0) >= SPEED_WINDOW {
+            samples.pop_front();
+        }
+        let (t0, b0) = samples[0];
+        let secs = now.duration_since(t0).as_secs_f64();
+        if secs < 0.2 {
+            return 0.0;
+        }
+        now_bytes.saturating_sub(b0) as f64 / secs
+    }
+
+    /// Số byte lúc bắt đầu đo tốc độ: lúc tiếp tục thì là số byte hiện có.
+    fn base_bytes(&self, now_bytes: u64) -> u64 {
+        if self.resumed_at.lock().unwrap().is_some() {
+            now_bytes
+        } else {
+            0
+        }
     }
 
     pub fn emit_now(&self) {
@@ -435,20 +503,32 @@ impl Tracker {
 
     /// Đổi trạng thái; bỏ qua nếu lượt chuyển đã kết thúc. Trả về true nếu đã đổi.
     pub fn set_status(&self, status: TransferStatus, error: Option<String>) -> bool {
-        {
+        let was_paused = {
             let mut u = self.update.lock().unwrap();
             if u.status.is_final() {
                 return false;
             }
+            let was_paused = u.status == TransferStatus::Paused;
             u.status = status;
             u.error = error;
-        }
+            if status == TransferStatus::Paused && !was_paused {
+                // Tăng ngay trong khoá: ai thấy trạng thái Paused cũng thấy lượt tạm dừng mới.
+                self.pause_gen.fetch_add(1, Ordering::SeqCst);
+            }
+            was_paused
+        };
         if status == TransferStatus::Transferring {
             self.started.lock().unwrap().get_or_insert_with(Instant::now);
+        }
+        if was_paused && status != TransferStatus::Paused {
+            *self.resumed_at.lock().unwrap() = Some(Instant::now());
+            self.samples.lock().unwrap().clear();
         }
         if status == TransferStatus::Cancelled {
             self.cancelled.store(true, Ordering::SeqCst);
         }
+        // Đánh thức các file đang chờ tiếp tục (kể cả khi huỷ / kết thúc).
+        self.paused.send_replace(status == TransferStatus::Paused);
         self.emit_now();
         if status.is_final() {
             self.record();
@@ -458,6 +538,48 @@ impl Tracker {
 
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::SeqCst)
+    }
+
+    /// Tạm dừng (chỉ khi đang chuyển). Trả về true nếu đã đổi.
+    pub fn pause(&self) -> bool {
+        self.status() == TransferStatus::Transferring && self.set_status(TransferStatus::Paused, None)
+    }
+
+    /// Tiếp tục sau khi tạm dừng. Trả về true nếu đã đổi.
+    pub fn resume(&self) -> bool {
+        self.status() == TransferStatus::Paused && self.set_status(TransferStatus::Transferring, None)
+    }
+
+    pub fn is_paused(&self) -> bool {
+        *self.paused.borrow()
+    }
+
+    pub fn pause_gen(&self) -> u64 {
+        self.pause_gen.load(Ordering::SeqCst)
+    }
+
+    pub fn resumed_at(&self) -> Option<Instant> {
+        *self.resumed_at.lock().unwrap()
+    }
+
+    /// Xong khi bị tạm dừng (dùng để ngắt kết nối đang gửi).
+    pub async fn wait_paused(&self) {
+        let mut rx = self.paused.subscribe();
+        let _ = rx.wait_for(|p| *p).await;
+    }
+
+    /// Chờ tới khi không còn tạm dừng (tiếp tục, huỷ hoặc kết thúc).
+    pub async fn wait_resumed(&self) {
+        let mut rx = self.paused.subscribe();
+        let _ = rx.wait_for(|p| !*p).await;
+    }
+
+    pub fn set_pause_hook(&self, hook: Option<PauseHook>) {
+        *self.pause_hook.lock().unwrap() = hook;
+    }
+
+    pub fn pause_hook(&self) -> Option<PauseHook> {
+        self.pause_hook.lock().unwrap().clone()
     }
 }
 

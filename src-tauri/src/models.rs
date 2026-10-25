@@ -143,6 +143,16 @@ pub struct SessionQuery {
     pub session: String,
 }
 
+/// `/api/v1/pause` (từ 0.3.7): máy gửi tạm dừng/tiếp tục. Máy nhận giữ phiên và phần đã
+/// nhận trong lúc tạm dừng thay vì chỉ chờ `RESUME_GRACE`. Bản cũ không có đường dẫn này
+/// (trả 404): máy gửi biết là tạm dừng quá lâu sẽ phải gửi lại file đang dở.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PauseQuery {
+    pub session: String,
+    #[serde(default)]
+    pub paused: bool,
+}
+
 /// Yêu cầu nhận file đang chờ người dùng bấm Chấp nhận / Từ chối.
 #[derive(Debug, Clone, Serialize)]
 pub struct IncomingRequest {
@@ -184,6 +194,8 @@ pub enum Direction {
 pub enum TransferStatus {
     Waiting,
     Transferring,
+    /// Máy gửi tạm dừng (chỉ hiện trên giao diện, không gửi qua mạng và không ghi lịch sử).
+    Paused,
     Done,
     Rejected,
     Cancelled,
@@ -192,7 +204,7 @@ pub enum TransferStatus {
 
 impl TransferStatus {
     pub fn is_final(self) -> bool {
-        !matches!(self, TransferStatus::Waiting | TransferStatus::Transferring)
+        !matches!(self, TransferStatus::Waiting | TransferStatus::Transferring | TransferStatus::Paused)
     }
 }
 
@@ -235,6 +247,9 @@ pub struct Settings {
     /// Phím tắt toàn cục (chỉ máy tính). Thêm sau: file cài đặt cũ không có thì dùng mặc định (bật).
     #[serde(default)]
     pub hotkeys: Hotkeys,
+    /// Giới hạn tốc độ gửi (byte/giây), dùng chung cho mọi lượt gửi. 0 = không giới hạn.
+    #[serde(default)]
+    pub send_limit: u64,
 }
 
 /// Phím tắt toàn cục, dạng chữ như "CmdOrCtrl+Shift+D" (CmdOrCtrl = ⌘ trên Mac, Ctrl trên Windows/Linux).
