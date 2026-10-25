@@ -34,11 +34,35 @@
   let trusted = [{ id: "p2", name: "Pixel 9 của Tuyến", os: "android", fp: "c41e02b7" }];
   const devices = () => ({ groups, hidden, trusted });
 
+  // ---- Sample thumbnails: tiny hand-drawn SVG "photos" (no real images) ----
+  function sampleThumb(hue, sun, hills) {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120"><defs><linearGradient id="s" x1="0" y1="0" x2="0" y2="1">` +
+      `<stop offset="0" stop-color="hsl(${hue},70%,62%)"/><stop offset="1" stop-color="hsl(${(hue + 40) % 360},80%,85%)"/></linearGradient></defs>` +
+      `<rect width="160" height="120" fill="url(#s)"/><circle cx="${sun}" cy="38" r="16" fill="hsl(${(hue + 180) % 360},90%,75%)"/>` +
+      `<path d="M0 ${hills} L40 70 L75 ${hills - 8} L115 62 L160 ${hills} V120 H0Z" fill="hsl(${(hue + 120) % 360},35%,38%)"/>` +
+      `<path d="M0 104 Q50 88 90 100 T160 96 V120 H0Z" fill="hsl(${(hue + 100) % 360},40%,28%)"/></svg>`;
+    return "data:image/svg+xml;utf8," + encodeURIComponent(svg);
+  }
+  const THUMBS = {
+    "Ảnh chứng từ.jpg": sampleThumb(40, 120, 92),
+    "IMG_2041.jpg": sampleThumb(200, 40, 86),
+    "IMG_2042.jpg": sampleThumb(260, 110, 80),
+    "IMG_2043.jpg": sampleThumb(10, 70, 90),
+    "IMG_2044.jpg": sampleThumb(150, 130, 84),
+    "IMG_2047.MOV": sampleThumb(300, 50, 88),
+  };
+  const isMedia = (n) => /\.(jpe?g|png|heic|mp4|mov)$/i.test(n);
+  const thumbsOf = (names) => names.filter((n) => THUMBS[n]).map((name) => ({ name }));
+
   // ---- History (finished transfers), newest first ----
   const now = () => Math.floor(Date.now() / 1000);
   let history = [
+    { id: "h0", finished_at: now() - 600, direction: "receive", peer_name: "iPad của Dương Vũ", peer_id: "p3", kind: "files", file_count: 7, total_bytes: 31457280, status: "done", error: null,
+      dir_path: "~/Downloads/BetterDrop", files: ["IMG_2041.jpg", "IMG_2042.jpg", "IMG_2043.jpg", "IMG_2044.jpg", "IMG_2045.jpg", "IMG_2046.jpg", "IMG_2047.MOV"].map((n) => ({ name: n, path: "~/Downloads/BetterDrop/" + n })),
+      text: null, thumbs: thumbsOf(["IMG_2041.jpg", "IMG_2042.jpg", "IMG_2043.jpg", "IMG_2044.jpg", "IMG_2047.MOV"]) },
     { id: "h1", finished_at: now() - 1500, direction: "receive", peer_name: "Pixel 9 của Tuyến", peer_id: "p2", kind: "files", file_count: 2, total_bytes: 6291456, status: "done", error: null,
-      dir_path: "~/Downloads/BetterDrop", files: [{ name: "Ảnh chứng từ.jpg", path: "~/Downloads/BetterDrop/Ảnh chứng từ.jpg" }, { name: "Hoá đơn VAT.pdf", path: "~/Downloads/BetterDrop/Hoá đơn VAT.pdf" }], text: null },
+      dir_path: "~/Downloads/BetterDrop", files: [{ name: "Ảnh chứng từ.jpg", path: "~/Downloads/BetterDrop/Ảnh chứng từ.jpg" }, { name: "Hoá đơn VAT.pdf", path: "~/Downloads/BetterDrop/Hoá đơn VAT.pdf" }], text: null,
+      thumbs: thumbsOf(["Ảnh chứng từ.jpg"]) },
     { id: "h2", finished_at: now() - 3 * 3600, direction: "send", peer_name: "Laptop Phạm Bá Cháy", peer_id: "p1", kind: "text", file_count: 0, total_bytes: 40, status: "done", error: null,
       dir_path: null, files: [], text: "https://gmttuts.github.io/better-drop/" },
     { id: "h3", finished_at: now() - 26 * 3600, direction: "send", peer_name: "iPad của Dương Vũ", peer_id: "p3", kind: "files", file_count: 1, total_bytes: 482133, status: "rejected", error: "Máy nhận đã từ chối",
@@ -46,7 +70,8 @@
   ];
   function finishToHistory(t, files) {
     const entry = { id: t.id, finished_at: now(), direction: t.direction, peer_name: t.peer_name, peer_id: t.peer_id || null, kind: t.kind, file_count: t.file_count,
-      total_bytes: t.total_bytes, status: t.status, error: t.error, dir_path: t.dir_path, files: files || [], text: t.text || null };
+      total_bytes: t.total_bytes, status: t.status, error: t.error, dir_path: t.dir_path, files: files || [], text: t.text || null,
+      thumbs: thumbsOf((files || []).map((f) => f.name)) };
     history = [entry, ...history];
     emit("history-added", entry);
   }
@@ -101,15 +126,20 @@
     finishToHistory(t, t.files);
   }
 
+  const INCOMING = ["Bảng lương tháng 10.xlsx", "Ảnh chứng từ.jpg", "IMG_2041.jpg", "IMG_2042.jpg", "IMG_2047.MOV", "IMG_2043.jpg",
+    "IMG_2044.jpg", "IMG_2045.HEIC", "IMG_2046.jpg"];
   // After the visitor's first send finishes, someone sends something back so they can try "Accept".
   let demoIncomingDone = false;
   function scheduleIncoming() {
     if (demoIncomingDone) return;
     demoIncomingDone = true;
     setTimeout(() => {
+      const media = INCOMING.filter(isMedia);
       emit("incoming-request", {
-        request_id: "r1", sender_name: "Laptop Phạm Bá Cháy", sender_os: "windows", file_count: 3, total_bytes: 5300000,
-        preview: ["Bảng lương tháng 10.xlsx", "Hoá đơn VAT.pdf", "Ảnh chứng từ.jpg"], timeout_secs: 60, can_trust: true,
+        request_id: "r1", sender_name: "Laptop Phạm Bá Cháy", sender_os: "windows", file_count: INCOMING.length, total_bytes: 18300000,
+        preview: INCOMING.slice(0, 5), timeout_secs: 60, can_trust: true,
+        media: media.slice(0, 6).map((name) => ({ name, video: /\.(mp4|mov)$/i.test(name), thumb: THUMBS[name] })),
+        media_more: Math.max(0, media.length - 6),
       });
     }, 2500);
   }
@@ -148,8 +178,8 @@
         trusted = [...trusted, { id: "p1", name: "Laptop Phạm Bá Cháy", os: "windows", fp: "7f3ca1e0" }];
         setTimeout(() => emit("devices-changed", devices()), 0);
       }
-      const names = ["Bảng lương tháng 10.xlsx", "Hoá đơn VAT.pdf", "Ảnh chứng từ.jpg"];
-      if (accept) runTransfer({ id: "t" + ++tid, direction: "receive", peer_name: "Laptop Phạm Bá Cháy", peer_id: "p1", kind: "files", file_count: 3, total_bytes: 5300000,
+      const names = INCOMING;
+      if (accept) runTransfer({ id: "t" + ++tid, direction: "receive", peer_name: "Laptop Phạm Bá Cháy", peer_id: "p1", kind: "files", file_count: names.length, total_bytes: 18300000,
         transferred: 0, speed_bps: 0, status: "waiting", error: null, dir_path: "~/Downloads/BetterDrop",
         files: names.map((n) => ({ name: n, path: "~/Downloads/BetterDrop/" + n })) }, 300);
     },
@@ -161,6 +191,8 @@
     get_history: () => history,
     delete_history_item({ id }) { history = history.filter((h) => h.id !== id); return null; },
     clear_history() { history = []; return null; },
+    history_thumbs: ({ id }) => (history.find((h) => h.id === id)?.thumbs || []).map((t) => THUMBS[t.name] || ""),
+    open_file: () => { throw "Đây là bản dùng thử trên web, không có file thật để mở."; },
     reveal_path: () => { throw "Đây là bản dùng thử trên web, không có file thật để mở."; },
     async resend_history({ id, peerId }) {
       const h = history.find((x) => x.id === id);
@@ -297,8 +329,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>BetterDrop (bản dùng thử)</title>
     <link rel="icon" type="image/png" href="./logo.png" />
-    <script type="module" crossorigin src="./assets/index-CF0pKeFC.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-DiNENgM6.css">
+    <script type="module" crossorigin src="./assets/index-C7PPLGyT.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-D29KcBG1.css">
   </head>
   <body>
     <header class="topbar">
@@ -427,6 +459,7 @@
     <dialog id="dlg-request" class="dialog">
       <h3 id="req-title"><span id="req-sender"></span> muốn gửi cho bạn</h3>
       <p class="req-summary" id="req-summary"></p>
+      <div class="req-media" id="req-media" hidden></div>
       <ul class="req-preview" id="req-preview"></ul>
       <div class="countdown"><i id="req-bar"></i></div>
       <label class="check trust-check" id="req-trust-row" hidden>
@@ -436,6 +469,15 @@
       <div class="dialog-actions">
         <button class="btn" id="btn-reject">Từ chối</button>
         <button class="btn primary" id="btn-accept">Chấp nhận</button>
+      </div>
+    </dialog>
+
+    <!-- Xem lớn ảnh thu nhỏ trong Lịch sử (điện thoại) -->
+    <dialog id="dlg-thumb" class="dialog thumb-dialog">
+      <img id="thumb-img" alt="" />
+      <p class="muted small thumb-name" id="thumb-name"></p>
+      <div class="dialog-actions">
+        <button class="btn" id="btn-thumb-close">Đóng</button>
       </div>
     </dialog>
 

@@ -388,6 +388,7 @@ const RULES: [RegExp, (...m: string[]) => string][] = [
   [/^Không kiểm tra được bản mới: không kết nối được Internet$/, () => "Couldn't check for updates: no Internet connection"],
   [/^Không kiểm tra được bản mới: (.+)$/, (_, e) => `Couldn't check for updates: ${e}`],
   [/^Không cài được bản mới: (.+)$/, (_, e) => `Couldn't install the update: ${e}`],
+  [/^Bấm để mở: (.+)$/, (_, f) => `Click to open ${f}`],
   [/^Máy (.+)$/, (_, ip) => `Device ${ip}`],
 ];
 /** Dịch phần trạng thái/lỗi đứng trước thời gian trong dòng lịch sử. */

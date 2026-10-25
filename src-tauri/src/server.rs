@@ -329,7 +329,16 @@ async fn prepare(
     }
     let _slot = pending_slot(&st, remote.ip())?;
     let trust = trust_of(&st, &req.sender, client_fp.as_deref());
-    let resp = accept_files(&st, &req.sender.name, Some(&req.sender.id), &req.sender.os, &req.files, trust).await?;
+    let resp = accept_files_with_thumbs(
+        &st,
+        &req.sender.name,
+        Some(&req.sender.id),
+        &req.sender.os,
+        &req.files,
+        &req.thumbs,
+        trust,
+    )
+    .await?;
     remember_sender(&st, &req.sender, remote);
     Ok(Json(resp))
 }
@@ -440,6 +449,8 @@ async fn receive_group(st: &Arc<AppState>, sender: &DeviceInfo, group: SharedGro
         timeout_secs: ACCEPT_TIMEOUT.as_secs(),
         can_trust: false,
         group_name: Some(group.name.clone()),
+        media: Vec::new(),
+        media_more: 0,
     };
     if !ask_user(st, request, None).await {
         return Err(StatusCode::FORBIDDEN);
@@ -482,6 +493,19 @@ pub async fn accept_files(
     req_files: &[FileMeta],
     trust: Trust,
 ) -> Result<PrepareResponse, StatusCode> {
+    accept_files_with_thumbs(st, sender_name, sender_id, sender_os, req_files, &[], trust).await
+}
+
+/// Như `accept_files`, kèm ảnh thu nhỏ máy gửi khai (chỉ giữ ảnh hợp lệ, xem `thumbs::accept`).
+pub async fn accept_files_with_thumbs(
+    st: &Arc<AppState>,
+    sender_name: &str,
+    sender_id: Option<&str>,
+    sender_os: &str,
+    req_files: &[FileMeta],
+    thumbs: &[Thumb],
+    trust: Trust,
+) -> Result<PrepareResponse, StatusCode> {
     if req_files.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -491,6 +515,9 @@ pub async fn accept_files(
         .iter()
         .try_fold(0u64, |acc, f| acc.checked_add(f.size))
         .ok_or(StatusCode::BAD_REQUEST)?;
+    let thumbs = crate::thumbs::accept(req_files, thumbs);
+    // Tên đúng như sẽ lưu (đã làm sạch), không phải tên máy gửi khai.
+    let clean = |f: &FileMeta| sanitize_rel_path(&f.rel_path).join("/");
 
     if trust.auto {
         // Máy tin cậy: nhận luôn, chỉ báo cho người dùng biết.
@@ -500,6 +527,20 @@ pub async fn accept_files(
         );
     } else {
         let can_trust = trust.candidate.is_some();
+        let media_files: Vec<(usize, &FileMeta)> = req_files
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| crate::thumbs::media_kind(&f.rel_path).is_some())
+            .collect();
+        let media = media_files
+            .iter()
+            .take(crate::thumbs::MAX_THUMBS)
+            .map(|(i, f)| MediaPreview {
+                name: clean(f),
+                video: crate::thumbs::media_kind(&f.rel_path) == Some(crate::thumbs::Media::Video),
+                thumb: thumbs.iter().find(|(t, _)| t == i).map(|(_, jpeg)| crate::thumbs::data_url(jpeg)),
+            })
+            .collect();
         let request = IncomingRequest {
             request_id: uuid::Uuid::new_v4().to_string(),
             sender_name: sender_name.to_string(),
@@ -507,10 +548,12 @@ pub async fn accept_files(
             file_count: req_files.len(),
             total_bytes,
             // Hiện đúng tên sẽ được lưu (đã làm sạch), không phải tên máy gửi khai.
-            preview: req_files.iter().take(5).map(|f| sanitize_rel_path(&f.rel_path).join("/")).collect(),
+            preview: req_files.iter().take(5).map(clean).collect(),
             timeout_secs: ACCEPT_TIMEOUT.as_secs(),
             can_trust,
             group_name: None,
+            media,
+            media_more: media_files.len().saturating_sub(crate::thumbs::MAX_THUMBS),
         };
         if !ask_user(st, request, trust.candidate).await {
             return Err(StatusCode::FORBIDDEN);
@@ -550,6 +593,7 @@ pub async fn accept_files(
         },
     );
     tracker.record_to(st.recorder(), sender_id.map(str::to_string));
+    tracker.set_history_thumbs(thumbs.into_iter().map(|(i, jpeg)| (clean(&req_files[i]), jpeg)).collect());
     tracker.set_status(TransferStatus::Transferring, None);
     st.incoming.lock().unwrap().insert(
         session_id.clone(),

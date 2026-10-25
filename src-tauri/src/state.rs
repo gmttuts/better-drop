@@ -1,7 +1,7 @@
 //! Trạng thái dùng chung của app và bộ theo dõi tiến trình chuyển file.
 
 use crate::devices::DeviceBook;
-use crate::history::{History, HistoryEntry, HistoryFile, Recorder};
+use crate::history::{History, HistoryEntry, HistoryFile, HistoryThumb, Recorder};
 use crate::identity::{self, Identity};
 use crate::models::*;
 use std::collections::{HashMap, HashSet};
@@ -71,6 +71,8 @@ pub struct AppState {
     pub history: Arc<Mutex<History>>,
     /// File/văn bản được chia sẻ vào từ app khác, chờ giao diện lấy ra.
     pub shared: Mutex<SharedItems>,
+    /// Điện thoại: lấy ảnh thu nhỏ (khung hình video, HEIC) bằng thư viện của hệ thống.
+    pub media_thumb: Option<crate::thumbs::MediaThumbFn>,
 }
 
 /// Mục được chia sẻ vào BetterDrop từ app khác (Mở bằng, Send to, menu Chia sẻ…).
@@ -111,6 +113,7 @@ impl AppState {
             web: Mutex::new(None),
             history: Arc::new(Mutex::new(History::load(&data_dir_for_history))),
             shared: Mutex::default(),
+            media_thumb: None,
         }
     }
 
@@ -268,6 +271,7 @@ struct HistoryExtras {
     peer_id: Option<String>,
     files: Vec<HistoryFile>,
     text: Option<String>,
+    thumbs: Vec<HistoryThumb>,
 }
 
 const EMIT_INTERVAL: Duration = Duration::from_millis(150);
@@ -303,6 +307,11 @@ impl Tracker {
         }
     }
 
+    /// Ảnh thu nhỏ (tên file, JPEG) để hiện trong lịch sử.
+    pub fn set_history_thumbs(&self, thumbs: Vec<(String, Vec<u8>)>) {
+        self.history.lock().unwrap().thumbs = thumbs.into_iter().map(|(name, jpeg)| HistoryThumb { name, jpeg }).collect();
+    }
+
     pub fn set_history_text(&self, text: &str) {
         self.history.lock().unwrap().text = Some(crate::history::clip_text(text));
     }
@@ -327,6 +336,7 @@ impl Tracker {
             files: extras.files,
             text: extras.text,
             online: None,
+            thumbs: extras.thumbs,
         });
     }
 

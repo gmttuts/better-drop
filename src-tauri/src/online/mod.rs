@@ -151,6 +151,7 @@ fn record(st: &AppState, tracker: &Tracker, files: Vec<HistoryFile>, online: Opt
         files,
         text: None,
         online,
+        thumbs: vec![],
     });
 }
 

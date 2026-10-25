@@ -49,6 +49,9 @@ crc32fast = "1"
 bytes = "1"
 # Chứng chỉ gốc để gọi dịch vụ trên Internet (GitHub API, dịch vụ lưu file).
 webpki-roots = "1"
+# Ảnh thu nhỏ gửi kèm yêu cầu nhận (xem trước ảnh). HEIC không giải mã được: bỏ qua
+# (điện thoại dùng thư viện của hệ thống qua plugin).
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
 
 # Chỉ có trên máy tính: tự mở cùng máy, chỉ chạy một bản.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
@@ -63,6 +66,14 @@ tauri-plugin-betterdrop-mobile = { path = "plugins/betterdrop-mobile" }
 
 [dev-dependencies]
 tempfile = "3"
+
+# Giải mã ảnh ở bản debug chậm hàng chục lần, vượt giới hạn thời gian tạo ảnh thu nhỏ.
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.zune-jpeg]
+opt-level = 3
+[profile.dev.package.image-webp]
+opt-level = 3
 
 # Bản phát hành nhỏ gọn hơn (đặc biệt quan trọng với APK Android chứa 4 kiến trúc CPU).
 [profile.release]

@@ -34,6 +34,18 @@ pub(crate) struct UriArgs<'a> {
 }
 
 #[derive(Debug, Serialize)]
+pub(crate) struct ThumbArgs<'a> {
+  pub uri: &'a str,
+  pub video: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct ThumbResponse {
+  /// JPEG, base64.
+  pub data: String,
+}
+
+#[derive(Debug, Serialize)]
 pub(crate) struct PathArgs<'a> {
   pub path: &'a str,
 }

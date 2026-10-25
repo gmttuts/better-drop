@@ -73,6 +73,16 @@ interface IncomingRequest {
   can_trust?: boolean;
   /** Yêu cầu chia sẻ nhóm: tên nhóm (file_count = số máy, preview = tên máy). */
   group_name?: string;
+  /** Vài ảnh/video đầu để xem trước (máy gửi bản cũ không gửi ảnh thu nhỏ). */
+  media?: MediaPreview[];
+  /** Số ảnh/video còn lại. */
+  media_more?: number;
+}
+interface MediaPreview {
+  name: string;
+  video: boolean;
+  /** data:image/jpeg;base64,… */
+  thumb?: string;
 }
 interface IncomingText {
   sender_name: string;
@@ -766,6 +776,8 @@ interface HistoryEntry {
   files: HistoryFile[];
   text: string | null;
   online?: OnlineLink | null;
+  /** File có ảnh thu nhỏ (ảnh lấy bằng lệnh history_thumbs). */
+  thumbs?: { name: string }[];
 }
 interface OnlineLink {
   url: string;
@@ -856,6 +868,7 @@ function renderHistoryEntry(h: HistoryEntry): HTMLLIElement {
   del.addEventListener("click", async () => {
     await invoke("delete_history_item", { id: h.id });
     history = history.filter((x) => x.id !== h.id);
+    thumbCache.delete(h.id);
     renderHistory();
   });
   stop(del);
@@ -867,6 +880,7 @@ function renderHistoryEntry(h: HistoryEntry): HTMLLIElement {
     el("div", { className: "t-title" }, el("strong", { textContent: who }), ` · ${what}`),
     el("div", { className: "muted small t-detail", textContent: `${status} · ${whenText(h.finished_at)}` }),
   );
+  if (h.thumbs?.length) body.append(renderHistoryThumbs(h));
   if (expanded.has(h.id)) body.append(renderHistoryDetails(h));
 
   const li = el("li", { className: `transfer ${h.status}`, title: "Bấm để xem chi tiết" },
@@ -877,6 +891,64 @@ function renderHistoryEntry(h: HistoryEntry): HTMLLIElement {
     renderHistory();
   });
   return li;
+}
+
+// ---- Ảnh thu nhỏ ----
+
+const MEDIA_EXT = /\.(jpe?g|png|webp|gif|heic|heif|avif|bmp|tiff?|mp4|mov|m4v|3gp|mkv|webm|avi)$/i;
+const VIDEO_EXT = /\.(mp4|mov|m4v|3gp|mkv|webm|avi)$/i;
+const HISTORY_THUMBS = 4;
+/** Ảnh thu nhỏ đã tải của từng lượt (giữ lại để vẽ lại danh sách không phải đọc đĩa). */
+const thumbCache = new Map<string, Promise<string[]>>();
+
+function historyThumbs(id: string): Promise<string[]> {
+  let p = thumbCache.get(id);
+  if (!p) {
+    p = invoke<string[]>("history_thumbs", { id }).catch(() => []);
+    thumbCache.set(id, p);
+  }
+  return p;
+}
+
+/** Một ô ảnh/video: ảnh thu nhỏ nếu có, không thì biểu tượng. */
+function mediaTile(name: string, thumb: string | undefined, video: boolean, className: string): HTMLElement {
+  const tile = el("div", { className: `${className}${video ? " video" : ""}`, title: name });
+  if (thumb) tile.append(el("img", { src: thumb, alt: "", draggable: false }));
+  else tile.append(el("span", { className: "media-icon", textContent: video ? "🎬" : "🖼" }));
+  if (video) tile.append(el("span", { className: "media-play", textContent: "▶" }));
+  return tile;
+}
+
+function renderHistoryThumbs(h: HistoryEntry): HTMLElement {
+  const strip = el("div", { className: "t-thumbs" });
+  const shown = (h.thumbs ?? []).slice(0, HISTORY_THUMBS);
+  shown.forEach((t, i) => {
+    const tile = mediaTile(t.name, undefined, VIDEO_EXT.test(t.name), "t-thumb");
+    const file = h.files.find((f) => f.name === t.name);
+    const canOpen = !me?.mobile && !!file?.path && !file.path.includes("://");
+    tile.title = canOpen ? `Bấm để mở: ${t.name}` : t.name;
+    tile.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (canOpen) invoke("open_file", { path: file!.path }).catch((err) => toast(errorText(err), "error"));
+      else historyThumbs(h.id).then((urls) => urls[i] && showThumb(urls[i], t.name));
+    });
+    historyThumbs(h.id).then((urls) => {
+      if (!urls[i]) return;
+      tile.querySelector(".media-icon")?.remove();
+      tile.prepend(el("img", { src: urls[i], alt: "", draggable: false }));
+    });
+    strip.append(tile);
+  });
+  const more = h.files.filter((f) => MEDIA_EXT.test(f.name)).length - shown.length;
+  if (more > 0) strip.append(el("span", { className: "muted small t-thumbs-more", textContent: `+${more}` }));
+  return strip;
+}
+
+/** Xem lớn ảnh thu nhỏ (điện thoại, hoặc file gốc không mở được). */
+function showThumb(src: string, name: string) {
+  $<HTMLImageElement>("thumb-img").src = src;
+  $("thumb-name").textContent = name;
+  $<HTMLDialogElement>("dlg-thumb").showModal();
 }
 
 function renderHistoryDetails(h: HistoryEntry): HTMLElement {
@@ -1186,6 +1258,13 @@ function showNextRequest() {
     $("req-title").replaceChildren(el("span", { id: "req-sender", textContent: r.sender_name }), " muốn gửi cho bạn");
     $("req-summary").textContent = `${r.file_count} file · ${formatBytes(r.total_bytes)} · ${r.sender_os === "web" ? "gửi qua trình duyệt" : `từ máy ${osLabel(r.sender_os)}`}`;
   }
+  const media = r.media ?? [];
+  const tiles = media.map((m) => mediaTile(m.name, m.thumb, m.video, "req-tile"));
+  if (r.media_more && tiles.length) {
+    tiles[tiles.length - 1].append(el("span", { className: "req-more", textContent: `+${r.media_more}` }));
+  }
+  $("req-media").replaceChildren(...tiles);
+  $("req-media").hidden = !media.length;
   $("req-preview").replaceChildren(
     ...r.preview.map((p) => el("li", { textContent: p })),
     ...(more > 0 ? [el("li", { className: "muted", textContent: r.group_name ? `và ${more} máy khác…` : `và ${more} file khác…` })] : []),
@@ -1635,6 +1714,9 @@ async function init() {
     answerRequest(false);
   });
   $("btn-text-close").addEventListener("click", () => $<HTMLDialogElement>("dlg-text").close());
+  const thumbDlg = $<HTMLDialogElement>("dlg-thumb");
+  $("btn-thumb-close").addEventListener("click", () => thumbDlg.close());
+  thumbDlg.addEventListener("click", (e) => e.target === thumbDlg && thumbDlg.close());
   $("btn-text-receive").addEventListener("click", () => {
     $<HTMLDialogElement>("dlg-text").close();
     openOnlineRecv($("txt-body").textContent ?? "");
@@ -1802,6 +1884,7 @@ async function init() {
     if (!(await confirmDialog("Xoá toàn bộ lịch sử?", "Chỉ xoá danh sách trong mục Hoạt động. File đã gửi/nhận vẫn còn nguyên.", "Xoá lịch sử"))) return;
     await invoke("clear_history");
     history = [];
+    thumbCache.clear();
     renderHistory();
   });
   renderPeers();

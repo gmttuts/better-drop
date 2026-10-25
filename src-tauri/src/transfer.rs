@@ -4,6 +4,8 @@ use crate::client::{api_url, build_client, describe_error, Pin};
 use crate::models::*;
 use crate::paths::to_wire_path;
 use crate::state::{AppState, Tracker};
+use crate::thumbs;
+use base64::Engine as _;
 use futures_util::{StreamExt, TryStreamExt};
 use reqwest::StatusCode;
 use std::path::{Path, PathBuf};
@@ -203,6 +205,7 @@ pub async fn send_text(st: Arc<AppState>, peer: Peer, text: String) -> Result<()
         files: vec![],
         text: Some(text),
         group: None,
+        thumbs: vec![],
     };
     let result = async {
         let client = peer_client(&st, &peer)?;
@@ -231,6 +234,7 @@ pub async fn share_group(st: Arc<AppState>, peer: Peer, group: crate::models::Sh
         files: vec![],
         text: None,
         group: Some(group),
+        thumbs: vec![],
     };
     let client = peer_client(&st, &peer)?;
     let (_, resp) = send_prepare(&client, &peer, &req).await?;
@@ -271,12 +275,18 @@ pub async fn send_files(
     tracker: &Arc<Tracker>,
 ) -> Result<(), String> {
     let client = peer_client(st, peer)?;
+    let thumbs = make_thumbs(st, &files).await;
+    tracker.set_history_thumbs(thumbs.iter().map(|(_, name, jpeg)| (name.clone(), jpeg.clone())).collect());
     let req = PrepareRequest {
         sender: st.device_info(),
         kind: TransferKind::Files,
         files: files.iter().map(|f| f.meta.clone()).collect(),
         text: None,
         group: None,
+        thumbs: thumbs
+            .iter()
+            .map(|(id, _, jpeg)| Thumb { file: id.clone(), jpeg: base64::engine::general_purpose::STANDARD.encode(jpeg) })
+            .collect(),
     };
     let (addr, resp) = send_prepare(&client, peer, &req).await?;
     if tracker.is_cancelled() {
@@ -328,6 +338,56 @@ pub async fn send_files(
         }
     }
     Ok(())
+}
+
+/// Tạo ảnh thu nhỏ cho vài file ảnh/video đầu, trong luồng riêng, chờ tối đa
+/// `thumbs::TIME_LIMIT`. Ảnh lỗi hoặc chưa xong kịp thì bỏ: việc gửi không bao giờ hỏng
+/// vì ảnh thu nhỏ. Trả về (id file, tên file, JPEG) theo thứ tự file.
+async fn make_thumbs(st: &AppState, files: &[LocalFile]) -> Vec<(String, String, Vec<u8>)> {
+    let sources = thumbs::pick(files.iter().map(|f| (&f.meta, f.source.as_str())));
+    if sources.is_empty() {
+        return Vec::new();
+    }
+    let open_uri = st.hooks.open_uri.clone();
+    let open: Arc<dyn Fn(&str) -> std::io::Result<std::fs::File> + Send + Sync> =
+        Arc::new(move |src: &str| match (&open_uri, is_uri(src)) {
+            (Some(open), true) => open(src),
+            _ => std::fs::File::open(src),
+        });
+    let count = sources.len();
+    let done: Arc<Mutex<Vec<Option<Vec<u8>>>>> = Arc::new(Mutex::new(vec![None; count]));
+    let sources = Arc::new(sources);
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // Hai luồng là đủ nhanh mà không giải mã cùng lúc quá nhiều ảnh lớn (tốn RAM trên điện thoại).
+    let workers: Vec<_> = (0..2)
+        .map(|w| {
+            let (sources, done, open, system, stop) =
+                (sources.clone(), done.clone(), open.clone(), st.media_thumb.clone(), stop.clone());
+            tokio::task::spawn_blocking(move || {
+                for i in (w..sources.len()).step_by(2) {
+                    if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                        return;
+                    }
+                    let jpeg = thumbs::make_one(&sources[i], &*open, system.as_ref());
+                    done.lock().unwrap()[i] = jpeg;
+                }
+            })
+        })
+        .collect();
+    let _ = tokio::time::timeout(thumbs::TIME_LIMIT, futures_util::future::join_all(workers)).await;
+    // Hết giờ: các luồng còn chạy dừng sau ảnh đang làm dở.
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    let done = done.lock().unwrap().clone();
+    let mut total = 0;
+    sources
+        .iter()
+        .zip(done)
+        .filter_map(|(src, jpeg)| {
+            let jpeg = jpeg?;
+            total += jpeg.len();
+            (total <= thumbs::MAX_TOTAL).then(|| (src.file_id.clone(), src.name.clone(), jpeg))
+        })
+        .collect()
 }
 
 /// Thời gian chờ giữa các lần thử lại sau khi mất kết nối (tổng ~1,5 phút, ngắn hơn

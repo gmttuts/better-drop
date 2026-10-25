@@ -553,6 +553,7 @@ fn old_version_can_read_new_wire_format() {
         files: vec![crate::models::FileMeta { id: "f".into(), rel_path: "x".into(), size: 1 }],
         text: None,
         group: None,
+        thumbs: vec![],
     })
     .unwrap();
     assert_eq!(req["kind"], "files");
@@ -1553,4 +1554,155 @@ fn pair_link_from_camera_is_recognised() {
     assert!(!crate::is_pair_url(&url("betterdrop://share?text=x")));
     assert!(!crate::is_pair_url(&url("https://pair/?id=a")));
     assert!(!crate::is_pair_url(&url("file:///tmp/pair")));
+}
+
+// ---- Ảnh thu nhỏ (xem trước ảnh/video) ----
+
+fn png_bytes(w: u32, h: u32) -> Vec<u8> {
+    let img = image::RgbImage::from_fn(w, h, |x, y| image::Rgb([(x * 3) as u8, (y * 5) as u8, 128]));
+    let mut out = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgb8(img).write_to(&mut out, image::ImageFormat::Png).unwrap();
+    out.into_inner()
+}
+
+fn b64(b: &[u8]) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode(b)
+}
+
+/// Chờ event `name` (bỏ qua event khác).
+async fn next_event(n: &mut Node, name: &str) -> serde_json::Value {
+    tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        loop {
+            let (ev, v) = n.events.recv().await.expect("hết event");
+            if ev == name {
+                return v;
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("không thấy event {name}"))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn photos_arrive_with_thumbnails_and_land_in_history() {
+    let a = node("A").await;
+    let mut b = node("B").await;
+    let peer_b = as_peer(&b);
+    let src = tempfile::tempdir().unwrap();
+    write(&src.path().join("ghi chú.txt"), b"x");
+    write(&src.path().join("a.png"), &png_bytes(800, 600));
+    write(&src.path().join("b.PNG"), &png_bytes(300, 900));
+    write(&src.path().join("clip.mov"), b"not really a video");
+    write(&src.path().join("hỏng.jpg"), b"not really a jpeg");
+    let paths: Vec<String> = ["ghi chú.txt", "a.png", "b.PNG", "clip.mov", "hỏng.jpg"]
+        .iter()
+        .map(|n| src.path().join(n).to_string_lossy().into_owned())
+        .collect();
+    let files = transfer::collect_files(&a.st, &paths).unwrap();
+
+    let a_st = a.st.clone();
+    let sender = tokio::spawn(async move {
+        let tracker = sender_tracker(&a_st);
+        transfer::send_files(&a_st, &peer_b, files, &tracker).await.unwrap();
+        tracker.status()
+    });
+    let req = next_event(&mut b, "incoming-request").await;
+    let media = req["media"].as_array().unwrap();
+    let names: Vec<&str> = media.iter().map(|m| m["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["a.png", "b.PNG", "clip.mov", "hỏng.jpg"], "chỉ ảnh/video, theo thứ tự file");
+    for m in &media[..2] {
+        assert!(m["thumb"].as_str().unwrap().starts_with("data:image/jpeg;base64,/9j/"), "{m}");
+        assert_eq!(m["video"], false);
+    }
+    assert_eq!(media[2]["video"], true);
+    assert!(media[2].get("thumb").is_none(), "máy tính: video chỉ hiện biểu tượng");
+    assert!(media[3].get("thumb").is_none(), "ảnh hỏng thì bỏ qua");
+    assert_eq!(req["media_more"], 0);
+
+    let id = req["request_id"].as_str().unwrap().to_string();
+    b.st.pending.lock().unwrap().remove(&id).unwrap().tx.send(true).unwrap();
+    assert_eq!(sender.await.unwrap(), TransferStatus::Done);
+    let entry = next_event(&mut b, "history-added").await;
+    let thumbs: Vec<&str> = entry["thumbs"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+    assert_eq!(thumbs, ["a.png", "b.PNG"]);
+    let urls = b.st.history.lock().unwrap().thumbs(entry["id"].as_str().unwrap());
+    assert_eq!(urls.len(), 2);
+    assert!(urls.iter().all(|u| u.starts_with("data:image/jpeg;base64,")));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn bad_thumbnails_are_dropped() {
+    let mut new = node("Bản mới").await;
+    let base = format!("127.0.0.1:{}", new.st.port);
+    let http = crate::client::build_client(crate::client::Pin::Fingerprint(new.st.identity.fingerprint.clone()), None).unwrap();
+    let good = crate::thumbs::from_reader(std::io::Cursor::new(png_bytes(200, 200))).unwrap();
+    let mut huge = good.clone();
+    huge.splice(4..4, vec![0u8; crate::thumbs::MAX_BYTES]);
+    let png = png_bytes(20, 20);
+    let mut files: Vec<serde_json::Value> = (1..=8)
+        .map(|i| serde_json::json!({ "id": format!("f{i}"), "rel_path": format!("{i}.jpg"), "size": 1 }))
+        .collect();
+    files.push(serde_json::json!({ "id": "doc", "rel_path": "a.txt", "size": 1 }));
+    let body = serde_json::json!({
+        "sender": serde_json::from_str::<serde_json::Value>(V010_DEVICE_INFO).unwrap(),
+        "kind": "files",
+        "files": files,
+        "thumbs": [
+            { "file": "f1", "jpeg": b64(&png) },          // không phải JPEG
+            { "file": "f2", "jpeg": b64(&huge) },         // quá lớn
+            { "file": "f3", "jpeg": "không phải base64" },
+            { "file": "nope", "jpeg": b64(&good) },       // không có file này
+            { "file": "doc", "jpeg": b64(&good) },        // không phải ảnh
+            { "file": "f8", "jpeg": b64(&good) },         // ngoài 6 ô đầu
+            { "file": "f4", "jpeg": b64(&good) },         // hợp lệ
+            { "file": "f4", "jpeg": b64(&good) },         // trùng
+        ],
+    });
+    let post = tokio::spawn(async move {
+        http.post(crate::client::api_url(&base, "prepare")).json(&body).send().await.unwrap().status()
+    });
+    let req = next_event(&mut new, "incoming-request").await;
+    let media = req["media"].as_array().unwrap();
+    assert_eq!(media.len(), 6);
+    assert_eq!(req["media_more"], 2);
+    let with_thumb: Vec<&str> = media.iter().filter(|m| m.get("thumb").is_some()).map(|m| m["name"].as_str().unwrap()).collect();
+    assert_eq!(with_thumb, ["4.jpg"]);
+    let id = req["request_id"].as_str().unwrap().to_string();
+    new.st.pending.lock().unwrap().remove(&id).unwrap().tx.send(false).unwrap();
+    assert_eq!(post.await.unwrap(), 403);
+}
+
+#[test]
+fn thumbnail_total_is_capped() {
+    let jpeg = |n: usize| {
+        let mut j = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        j.resize(n - 2, 0);
+        j.extend([0xFF, 0xD9]);
+        j
+    };
+    let files: Vec<FileMeta> = (0..6).map(|i| FileMeta { id: format!("f{i}"), rel_path: format!("{i}.jpg"), size: 1 }).collect();
+    let big = jpeg(crate::thumbs::MAX_BYTES);
+    let thumbs: Vec<Thumb> = files.iter().map(|f| Thumb { file: f.id.clone(), jpeg: b64(&big) }).collect();
+    let kept = crate::thumbs::accept(&files, &thumbs);
+    assert!(kept.iter().map(|(_, j)| j.len()).sum::<usize>() <= crate::thumbs::MAX_TOTAL);
+    // 6 ảnh tối đa đều vừa: giới hạn tổng chỉ là lưới an toàn khi đổi các hằng số trên.
+    assert_eq!(kept.len(), crate::thumbs::MAX_THUMBS.min(crate::thumbs::MAX_TOTAL / crate::thumbs::MAX_BYTES));
+}
+
+#[test]
+fn prepare_without_thumbs_omits_the_field() {
+    // Bản cũ không biết `thumbs`; không có ảnh thì không gửi trường này.
+    let req = serde_json::to_value(PrepareRequest {
+        sender: serde_json::from_str(V010_DEVICE_INFO).unwrap(),
+        kind: TransferKind::Files,
+        files: vec![],
+        text: None,
+        group: None,
+        thumbs: vec![],
+    })
+    .unwrap();
+    assert!(req.get("thumbs").is_none());
+    let old: PrepareRequest = serde_json::from_str(&format!(r#"{{"sender":{V010_DEVICE_INFO},"kind":"files","files":[]}}"#)).unwrap();
+    assert!(old.thumbs.is_empty());
 }

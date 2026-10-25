@@ -135,6 +135,7 @@
     <dialog id="dlg-request" class="dialog">
       <h3 id="req-title"><span id="req-sender"></span> muốn gửi cho bạn</h3>
       <p class="req-summary" id="req-summary"></p>
+      <div class="req-media" id="req-media" hidden></div>
       <ul class="req-preview" id="req-preview"></ul>
       <div class="countdown"><i id="req-bar"></i></div>
       <label class="check trust-check" id="req-trust-row" hidden>
@@ -144,6 +145,15 @@
       <div class="dialog-actions">
         <button class="btn" id="btn-reject">Từ chối</button>
         <button class="btn primary" id="btn-accept">Chấp nhận</button>
+      </div>
+    </dialog>
+
+    <!-- Xem lớn ảnh thu nhỏ trong Lịch sử (điện thoại) -->
+    <dialog id="dlg-thumb" class="dialog thumb-dialog">
+      <img id="thumb-img" alt="" />
+      <p class="muted small thumb-name" id="thumb-name"></p>
+      <div class="dialog-actions">
+        <button class="btn" id="btn-thumb-close">Đóng</button>
       </div>
     </dialog>
 

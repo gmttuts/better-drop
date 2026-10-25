@@ -83,6 +83,29 @@ pub struct PrepareRequest {
     /// Với kind = "group".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<SharedGroup>,
+    /// Ảnh thu nhỏ của vài file ảnh/video đầu (từ 0.3.7, xem `thumbs.rs`). Bản cũ không
+    /// gửi trường này và bỏ qua nó khi nhận.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub thumbs: Vec<Thumb>,
+}
+
+/// Ảnh thu nhỏ của một file trong yêu cầu.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Thumb {
+    /// `FileMeta::id` của file ảnh/video.
+    pub file: String,
+    /// JPEG, mã hoá base64.
+    pub jpeg: String,
+}
+
+/// Một ô xem trước trong hộp thoại nhận.
+#[derive(Debug, Clone, Serialize)]
+pub struct MediaPreview {
+    pub name: String,
+    pub video: bool,
+    /// `data:image/jpeg;base64,…`; None: chỉ hiện biểu tượng.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thumb: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -131,6 +154,11 @@ pub struct IncomingRequest {
     /// Có giá trị khi đây là yêu cầu chia sẻ nhóm (file_count = số máy, preview = tên máy).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_name: Option<String>,
+    /// Vài ảnh/video đầu để xem trước.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub media: Vec<MediaPreview>,
+    /// Số ảnh/video còn lại không hiện trong `media`.
+    pub media_more: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -9,6 +9,7 @@ mod paths;
 mod platform;
 mod server;
 mod state;
+mod thumbs;
 mod transfer;
 mod updater;
 #[cfg(desktop)]
@@ -471,6 +472,12 @@ fn get_history(st: AppStateRef, limit: Option<usize>) -> Vec<history::HistoryEnt
     st.history.lock().unwrap().list(limit.unwrap_or(500))
 }
 
+/// Ảnh thu nhỏ của một lượt (`data:` URL), cùng thứ tự với `thumbs` của mục đó.
+#[tauri::command]
+fn history_thumbs(st: AppStateRef, id: String) -> Vec<String> {
+    st.history.lock().unwrap().thumbs(&id)
+}
+
 #[tauri::command]
 fn delete_history_item(st: AppStateRef, id: String) -> Result<(), String> {
     st.history.lock().unwrap().delete(&id).map_err(|e| e.to_string())
@@ -564,6 +571,16 @@ fn online_qr(link: String) -> Result<String, String> {
     online::qr_svg(&link)
 }
 
+/// Mở một file bằng app mặc định (bấm ảnh thu nhỏ trong Lịch sử).
+#[tauri::command]
+fn open_file(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    if !std::path::Path::new(&path).is_file() {
+        return Err("File không còn ở vị trí cũ (đã bị xoá hoặc di chuyển)".into());
+    }
+    app.opener().open_path(path, None::<&str>).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn open_folder(app: tauri::AppHandle, path: String) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
@@ -597,6 +614,16 @@ pub fn run() {
             });
             let mut st = AppState::new(emit, data_dir, ident, port, settings.clone());
             st.hooks = platform::hooks(app.handle());
+            #[cfg(mobile)]
+            {
+                use tauri_plugin_betterdrop_mobile::BetterdropMobileExt;
+                let a = app.handle().clone();
+                st.media_thumb = Some(Arc::new(move |src: &str, video: bool| {
+                    use base64::Engine as _;
+                    let b64 = a.betterdrop_mobile().media_thumb(src, video).ok()?;
+                    base64::engine::general_purpose::STANDARD.decode(b64).ok()
+                }));
+            }
             let st = Arc::new(st);
             app.manage(st.clone());
 
@@ -660,6 +687,8 @@ pub fn run() {
             open_folder,
             get_history,
             delete_history_item,
+            history_thumbs,
+            open_file,
             clear_history,
             reveal_path,
             resend_history,

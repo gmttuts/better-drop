@@ -14,6 +14,8 @@ pub const MAX_TEXT: usize = 10_000;
 /// Lượt gửi cả nghìn file thì chỉ lưu danh sách phần đầu.
 pub const MAX_FILES: usize = 500;
 const FILE: &str = "history.jsonl";
+/// Ảnh thu nhỏ của lượt `id` nằm ở `thumbs/<id>/<n>.jpg` (n: vị trí trong `HistoryEntry::thumbs`).
+const THUMBS_DIR: &str = "thumbs";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HistoryFile {
@@ -48,6 +50,18 @@ pub struct HistoryEntry {
     /// Lượt gửi/nhận qua Internet: link để chép lại.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub online: Option<OnlineLink>,
+    /// File ảnh/video có ảnh thu nhỏ (lấy ảnh bằng `History::thumbs`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub thumbs: Vec<HistoryThumb>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct HistoryThumb {
+    /// Trùng `HistoryFile::name` của file đó.
+    pub name: String,
+    /// JPEG, chỉ có khi vừa ghi; `append` lưu ra file riêng chứ không ghi vào history.jsonl.
+    #[serde(skip)]
+    pub jpeg: Vec<u8>,
 }
 
 /// Link "Gửi qua Internet" lưu trong lịch sử.
@@ -81,7 +95,9 @@ impl History {
             .collect();
         let mut h = History { path, entries: Vec::new() };
         if entries.len() > MAX_ENTRIES {
-            entries.drain(..entries.len() - MAX_ENTRIES);
+            for old in entries.drain(..entries.len() - MAX_ENTRIES) {
+                h.remove_thumbs(&old.id);
+            }
             h.entries = entries;
             let _ = h.rewrite();
         } else {
@@ -99,15 +115,19 @@ impl History {
         self.entries.iter().find(|e| e.id == id)
     }
 
-    pub fn append(&mut self, entry: HistoryEntry) -> std::io::Result<()> {
+    pub fn append(&mut self, mut entry: HistoryEntry) -> std::io::Result<()> {
         if let Some(dir) = self.path.parent() {
             std::fs::create_dir_all(dir)?;
         }
+        self.save_thumbs(&mut entry);
         let line = serde_json::to_string(&entry).expect("luôn serialize được");
         self.entries.push(entry);
         if self.entries.len() > MAX_ENTRIES + MAX_ENTRIES / 5 {
             // Thỉnh thoảng mới cắt bớt để không phải ghi lại cả file mỗi lần.
-            self.entries.drain(..self.entries.len() - MAX_ENTRIES);
+            let old: Vec<String> = self.entries.drain(..self.entries.len() - MAX_ENTRIES).map(|e| e.id).collect();
+            for id in old {
+                self.remove_thumbs(&id);
+            }
             return self.rewrite();
         }
         let mut f = OpenOptions::new().create(true).append(true).open(&self.path)?;
@@ -116,13 +136,67 @@ impl History {
 
     pub fn delete(&mut self, id: &str) -> std::io::Result<()> {
         self.entries.retain(|e| e.id != id);
+        self.remove_thumbs(id);
         self.rewrite()
     }
 
     /// Xoá lịch sử (chỉ xoá bản ghi, không xoá file đã nhận).
     pub fn clear(&mut self) -> std::io::Result<()> {
         self.entries.clear();
+        if let Some(dir) = self.thumbs_root() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
         self.rewrite()
+    }
+
+    fn thumbs_root(&self) -> Option<PathBuf> {
+        self.path.parent().map(|d| d.join(THUMBS_DIR))
+    }
+
+    /// Thư mục ảnh thu nhỏ của một lượt; None nếu id không an toàn để làm tên thư mục.
+    fn thumbs_dir(&self, id: &str) -> Option<PathBuf> {
+        let safe = !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
+        if !safe {
+            return None;
+        }
+        self.thumbs_root().map(|d| d.join(id))
+    }
+
+    fn remove_thumbs(&self, id: &str) {
+        if let Some(dir) = self.thumbs_dir(id) {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+
+    /// Ghi JPEG của các ảnh thu nhỏ ra file; ảnh nào không ghi được thì bỏ khỏi mục.
+    fn save_thumbs(&self, entry: &mut HistoryEntry) {
+        let thumbs = std::mem::take(&mut entry.thumbs);
+        let valid: Vec<HistoryThumb> = thumbs.into_iter().filter(|t| crate::thumbs::is_jpeg(&t.jpeg)).collect();
+        if valid.is_empty() {
+            return;
+        }
+        let Some(dir) = self.thumbs_dir(&entry.id) else { return };
+        if std::fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+        for t in valid {
+            let n = entry.thumbs.len();
+            if std::fs::write(dir.join(format!("{n}.jpg")), &t.jpeg).is_ok() {
+                entry.thumbs.push(HistoryThumb { name: t.name, jpeg: Vec::new() });
+            }
+        }
+    }
+
+    /// Ảnh thu nhỏ của một lượt dạng `data:` URL, cùng thứ tự với `HistoryEntry::thumbs`
+    /// (chuỗi rỗng nếu file ảnh đã mất).
+    pub fn thumbs(&self, id: &str) -> Vec<String> {
+        let (Some(entry), Some(dir)) = (self.get(id), self.thumbs_dir(id)) else { return Vec::new() };
+        (0..entry.thumbs.len())
+            .map(|n| match std::fs::read(dir.join(format!("{n}.jpg"))) {
+                Ok(jpeg) if crate::thumbs::is_jpeg(&jpeg) && jpeg.len() <= crate::thumbs::MAX_BYTES => crate::thumbs::data_url(&jpeg),
+                _ => String::new(),
+            })
+            .collect()
     }
 
     fn rewrite(&self) -> std::io::Result<()> {
@@ -189,6 +263,7 @@ mod tests {
             files: vec![HistoryFile { name: "a.txt".into(), path: Some("/x/a.txt".into()) }],
             text: None,
             online: None,
+            thumbs: vec![],
         }
     }
 
@@ -222,6 +297,49 @@ mod tests {
         assert_eq!(h.list(1)[0].id, (MAX_ENTRIES + 49).to_string(), "giữ lượt mới nhất");
         let lines = std::fs::read_to_string(dir.path().join(FILE)).unwrap().lines().count();
         assert_eq!(lines, MAX_ENTRIES, "file được cắt bớt");
+    }
+
+    const JPEG: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 0xFF, 0xD9];
+
+    #[test]
+    fn thumbs_saved_beside_history_and_removed_with_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut h = History::load(dir.path());
+        let mut e = entry("abc-1");
+        e.thumbs = vec![
+            HistoryThumb { name: "a.jpg".into(), jpeg: JPEG.to_vec() },
+            HistoryThumb { name: "b.jpg".into(), jpeg: b"not a jpeg".to_vec() },
+        ];
+        h.append(e).unwrap();
+        h.append(entry("abc-2")).unwrap();
+        let jsonl = std::fs::read_to_string(dir.path().join(FILE)).unwrap();
+        assert!(jsonl.contains("\"thumbs\":[{\"name\":\"a.jpg\"}]"), "chỉ lưu tên, không lưu ảnh: {jsonl}");
+        assert!(dir.path().join("thumbs/abc-1/0.jpg").exists());
+
+        let again = History::load(dir.path());
+        let urls = again.thumbs("abc-1");
+        assert_eq!(urls.len(), 1);
+        assert!(urls[0].starts_with("data:image/jpeg;base64,/9j/"));
+        assert!(again.thumbs("abc-2").is_empty());
+
+        h.delete("abc-1").unwrap();
+        assert!(!dir.path().join("thumbs/abc-1").exists());
+        let mut e = entry("abc-3");
+        e.thumbs = vec![HistoryThumb { name: "a.jpg".into(), jpeg: JPEG.to_vec() }];
+        h.append(e).unwrap();
+        h.clear().unwrap();
+        assert!(!dir.path().join("thumbs").exists());
+    }
+
+    #[test]
+    fn unsafe_id_gets_no_thumb_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut h = History::load(dir.path());
+        let mut e = entry("../x");
+        e.thumbs = vec![HistoryThumb { name: "a.jpg".into(), jpeg: JPEG.to_vec() }];
+        h.append(e).unwrap();
+        assert!(h.list(1)[0].thumbs.is_empty());
+        assert!(!dir.path().join("x").exists() && !dir.path().join("thumbs").exists());
     }
 
     #[test]

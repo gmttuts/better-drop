@@ -59,6 +59,17 @@ impl<R: Runtime> BetterdropMobile<R> {
       .map_err(Into::into)
   }
 
+  /// Ảnh thu nhỏ JPEG (cạnh dài ~160px) của một ảnh hoặc khung hình đầu của video,
+  /// bằng thư viện của hệ thống (đọc được HEIC, video). `src`: URI hoặc đường dẫn.
+  /// Trả về JPEG mã hoá base64.
+  pub fn media_thumb(&self, src: &str, video: bool) -> crate::Result<String> {
+    self
+      .0
+      .run_mobile_plugin::<ThumbResponse>("mediaThumb", ThumbArgs { uri: src, video })
+      .map(|r| r.data)
+      .map_err(Into::into)
+  }
+
   /// Thư mục lưu file nhận được: Download (Android) / Documents (iOS).
   pub fn download_dir(&self) -> crate::Result<String> {
     self

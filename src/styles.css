@@ -430,6 +430,23 @@ html.scanning body > :not(.scan-overlay):not(.toasts) { visibility: hidden; }
 .req-summary { margin: 0 0 8px; color: var(--muted); }
 .req-preview { margin: 0; padding: 8px 12px 8px 28px; background: var(--bg); border-radius: 8px; max-height: 140px; overflow: auto; font-size: 13px; }
 .req-preview li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Ảnh thu nhỏ: hộp thoại nhận (tối đa 6 ô) và Lịch sử */
+.req-media { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 0 0 8px; }
+.req-tile, .t-thumb { position: relative; aspect-ratio: 1; border-radius: 8px; overflow: hidden; background: var(--bg); display: grid; place-items: center; }
+.req-tile img, .t-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.media-icon { font-size: 22px; opacity: .6; }
+.media-play { position: absolute; left: 4px; bottom: 4px; width: 18px; height: 18px; border-radius: 50%; background: rgba(0, 0, 0, .55); color: #fff; font-size: 9px; display: grid; place-items: center; padding-left: 1px; }
+.req-more { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0, 0, 0, .5); color: #fff; font-weight: 600; font-size: 18px; }
+.t-thumbs { display: flex; align-items: center; gap: 4px; margin-top: 6px; }
+.t-thumb { width: 40px; flex: none; border-radius: 6px; cursor: pointer; }
+.t-thumb .media-icon { font-size: 16px; }
+.t-thumb .media-play { width: 14px; height: 14px; font-size: 7px; left: 2px; bottom: 2px; }
+.t-thumb:hover { outline: 2px solid var(--accent); }
+.t-thumbs-more { margin-left: 2px; }
+.thumb-dialog { width: min(380px, calc(100vw - 32px)); }
+.thumb-dialog img { display: block; width: 100%; max-height: 60vh; object-fit: contain; border-radius: 8px; background: var(--bg); }
+.thumb-name { margin: 8px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .countdown { height: 3px; background: var(--bg); border-radius: 2px; margin-top: 12px; overflow: hidden; }
 .countdown i { display: block; height: 100%; background: var(--accent); transition: width 0.25s linear; }
 .received-text {

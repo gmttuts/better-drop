@@ -171,3 +171,20 @@ Token 128 bit, nên dò qua mạng không khả thi. Vẫn đổi sang `server::
 9. **CSP của webview Tauri** đang là `null` (`tauri.conf.json`). Giao diện app hiện không
    có lỗi XSS, nhưng bật CSP sẽ thêm một lớp phòng thủ. Cần thử kỹ với các plugin, nên để
    làm riêng.
+
+## Ảnh thu nhỏ trong `/prepare` (từ 0.3.7)
+
+Máy gửi kèm ảnh thu nhỏ của vài ảnh/video đầu (trường `thumbs`, có `serde(default)` nên
+bản cũ vẫn gửi/nhận như trước). Ảnh hiện trong hộp thoại Chấp nhận **trước khi** người
+dùng đồng ý, nên máy nhận coi đây là dữ liệu không tin cậy (`thumbs.rs::accept`):
+
+- Chỉ giữ ảnh của một trong 6 file ảnh/video đầu của chính yêu cầu đó, mỗi file một ảnh.
+- Chuỗi base64 quá dài thì bỏ trước khi giải mã; mỗi ảnh tối đa 20 KB, tổng tối đa
+  150 KB. Không làm tăng giới hạn body 32 MB của `/prepare`.
+- Chỉ nhận JPEG trọn vẹn (bắt đầu `FF D8 FF`, kết thúc `FF D9`); giao diện hiện bằng
+  `data:image/jpeg;base64,…` trong thẻ `<img>`, không bao giờ là HTML/SVG.
+- Lịch sử lưu ảnh ở `thumbs/<id lượt>/<n>.jpg` trong thư mục dữ liệu; id chỉ gồm chữ,
+  số và `-` (id lạ thì không lưu ảnh). Đọc lại cũng kiểm tra JPEG và kích thước.
+
+Test: `bad_thumbnails_are_dropped`, `thumbnail_total_is_capped`,
+`unsafe_id_gets_no_thumb_dir`.

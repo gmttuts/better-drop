@@ -4,7 +4,13 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.webkit.WebView
+import android.graphics.Bitmap
+import android.graphics.ImageDecoder
+import android.media.MediaMetadataRetriever
 import android.media.MediaScannerConnection
+import android.util.Base64
+import java.io.ByteArrayOutputStream
+import java.io.File
 import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Build
@@ -27,6 +33,12 @@ import app.tauri.plugin.Plugin
 @InvokeArg
 class UriArgs {
     lateinit var uri: String
+}
+
+@InvokeArg
+class ThumbArgs {
+    lateinit var uri: String
+    var video: Boolean = false
 }
 
 @InvokeArg
@@ -54,6 +66,7 @@ class OnArgs {
 }
 
 private const val LOCAL_NETWORK = "localNetwork"
+private const val THUMB_SIDE = 160
 private const val NOTIFICATIONS = "notifications"
 
 /**
@@ -254,6 +267,71 @@ class BetterDropPlugin(private val activity: Activity) : Plugin(activity) {
         ret.put("name", name ?: uri.lastPathSegment ?: "file")
         ret.put("size", size)
         invoke.resolve(ret)
+    }
+
+    /**
+     * Ảnh thu nhỏ JPEG (cạnh dài 160px, base64) của một ảnh (kể cả HEIC) hoặc khung hình
+     * gần đầu của một video, để máy nhận xem trước. Chạy ở luồng riêng.
+     */
+    @Command
+    fun mediaThumb(invoke: Invoke) {
+        val args = invoke.parseArgs(ThumbArgs::class.java)
+        Thread {
+            try {
+                val uri = if (args.uri.contains("://")) Uri.parse(args.uri) else Uri.fromFile(File(args.uri))
+                val bitmap = if (args.video) videoFrame(uri) else imageThumb(uri)
+                if (bitmap == null) {
+                    invoke.reject("Không tạo được ảnh thu nhỏ")
+                    return@Thread
+                }
+                val small = scaleDown(bitmap, THUMB_SIDE)
+                val out = ByteArrayOutputStream()
+                small.compress(Bitmap.CompressFormat.JPEG, 70, out)
+                val ret = JSObject()
+                ret.put("data", Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP))
+                invoke.resolve(ret)
+            } catch (e: Throwable) {
+                invoke.reject("Không tạo được ảnh thu nhỏ: ${e.message}")
+            }
+        }.start()
+    }
+
+    private fun videoFrame(uri: Uri): Bitmap? {
+        val r = MediaMetadataRetriever()
+        try {
+            r.setDataSource(activity.applicationContext, uri)
+            // Giây thứ nhất thường đẹp hơn khung hình đầu (hay bị đen); video ngắn hơn thì lấy khung đầu.
+            for (at in longArrayOf(1_000_000L, 0L)) {
+                val frame = if (Build.VERSION.SDK_INT >= 27) {
+                    r.getScaledFrameAtTime(at, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, THUMB_SIDE * 2, THUMB_SIDE * 2)
+                } else {
+                    r.getFrameAtTime(at, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                }
+                if (frame != null) return frame
+            }
+            return null
+        } finally {
+            r.release()
+        }
+    }
+
+    /** Android 9+: ImageDecoder đọc được HEIC và tự xoay theo EXIF. */
+    private fun imageThumb(uri: Uri): Bitmap? {
+        if (Build.VERSION.SDK_INT < 28) return null
+        val source = ImageDecoder.createSource(activity.contentResolver, uri)
+        return ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+            val side = maxOf(info.size.width, info.size.height)
+            decoder.setTargetSampleSize(maxOf(1, side / (THUMB_SIDE * 2)))
+            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+        }
+    }
+
+    private fun scaleDown(b: Bitmap, side: Int): Bitmap {
+        val longest = maxOf(b.width, b.height)
+        if (longest <= side) return b
+        val w = maxOf(1, b.width * side / longest)
+        val h = maxOf(1, b.height * side / longest)
+        return Bitmap.createScaledBitmap(b, w, h, true)
     }
 
     /** Thư mục Download công khai (hiện trong app Files). */

@@ -1,3 +1,5 @@
+import AVFoundation
+import ImageIO
 import SwiftRs
 import Tauri
 import UIKit
@@ -5,6 +7,11 @@ import WebKit
 
 class UriArgs: Decodable {
   let uri: String
+}
+
+class ThumbArgs: Decodable {
+  let uri: String
+  let video: Bool
 }
 
 class BetterDropPlugin: Plugin {
@@ -36,6 +43,38 @@ class BetterDropPlugin: Plugin {
       "name": values?.name ?? url.lastPathComponent,
       "size": values?.fileSize ?? -1,
     ])
+  }
+
+  /// Ảnh thu nhỏ JPEG (cạnh dài 160px, base64) của một ảnh (kể cả HEIC) hoặc khung hình
+  /// gần đầu của một video, để máy nhận xem trước. Chạy ở luồng nền.
+  @objc public func mediaThumb(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(ThumbArgs.self)
+    let url = args.uri.contains("://") ? (URL(string: args.uri) ?? URL(fileURLWithPath: args.uri)) : URL(fileURLWithPath: args.uri)
+    DispatchQueue.global(qos: .userInitiated).async {
+      let scoped = url.startAccessingSecurityScopedResource()
+      defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+      var image: CGImage?
+      if args.video {
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 160, height: 160)
+        // Giây thứ nhất thường đẹp hơn khung hình đầu (hay bị đen); video ngắn hơn thì lấy khung đầu.
+        image = (try? generator.copyCGImage(at: CMTime(seconds: 1, preferredTimescale: 600), actualTime: nil))
+          ?? (try? generator.copyCGImage(at: .zero, actualTime: nil))
+      } else if let source = CGImageSourceCreateWithURL(url as CFURL, nil) {
+        let options: [CFString: Any] = [
+          kCGImageSourceCreateThumbnailFromImageAlways: true,
+          kCGImageSourceCreateThumbnailWithTransform: true,
+          kCGImageSourceThumbnailMaxPixelSize: 160,
+        ]
+        image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+      }
+      guard let image, let data = UIImage(cgImage: image).jpegData(compressionQuality: 0.7) else {
+        invoke.reject("Không tạo được ảnh thu nhỏ")
+        return
+      }
+      invoke.resolve(["data": data.base64EncodedString()])
+    }
   }
 
   /// File nhận được lưu trong Documents của app (hiện trong app Tệp).
