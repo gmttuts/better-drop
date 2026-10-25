@@ -945,10 +945,113 @@ fn shared_paths_come_from_command_line_args() {
         dir.path().to_string_lossy().into_owned(),
         "/không/tồn/tại".to_string(),
     ];
-    assert_eq!(
-        crate::paths_from_args(args),
-        vec![f.to_string_lossy().into_owned(), dir.path().to_string_lossy().into_owned()]
-    );
+    let a = crate::launch_args(args);
+    assert_eq!(a.paths, vec![f.to_string_lossy().into_owned(), dir.path().to_string_lossy().into_owned()]);
+    assert_eq!(a.send_to, None);
+}
+
+#[test]
+fn send_to_arg_names_device_and_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = dir.path().join("ảnh 1.jpg");
+    std::fs::write(&f, b"x").unwrap();
+    let id = "3f2a6c1e-8b7d-4e5f-9a0b-1c2d3e4f5a6b";
+    // Explorer: "BetterDrop.exe" --send-to <id> "%1"
+    let args = |rest: &[&str]| std::iter::once("BetterDrop.exe").chain(rest.iter().copied()).map(String::from).collect::<Vec<_>>();
+    let file = f.to_string_lossy().into_owned();
+    let a = crate::launch_args(args(&["--send-to", id, &file]));
+    assert_eq!(a.send_to.as_deref(), Some(id));
+    assert_eq!(a.paths, vec![file.clone()]);
+    // id không bị hiểu nhầm là file kể cả khi trùng tên một thư mục có thật.
+    let a = crate::launch_args(args(&["--send-to", &dir.path().to_string_lossy(), &file]));
+    assert_eq!(a.send_to, None);
+    assert_eq!(a.paths, vec![file.clone()]);
+    // Thiếu id hoặc id lạ: chỉ mở app với file.
+    assert_eq!(crate::launch_args(args(&["--send-to"])), crate::LaunchArgs::default());
+    let a = crate::launch_args(args(&["--send-to", "x\" & y\"", &file]));
+    assert_eq!((a.send_to, a.paths), (None, vec![file]));
+}
+
+#[test]
+fn context_menu_registry_keys() {
+    use crate::context_menu::{menu_keys, RegValue, ROOTS};
+    use crate::devices::DeviceRef;
+    let exe = r"C:\Users\An\AppData\Local\BetterDrop\BetterDrop.exe";
+    let str_of = |keys: &[crate::context_menu::RegKey], path: &str, name: &str| {
+        keys.iter()
+            .find(|k| k.path == path)
+            .and_then(|k| k.values.iter().find(|(n, _)| *n == name))
+            .map(|(_, v)| v.clone())
+    };
+    let s = |v: &str| Some(RegValue::Str(v.into()));
+
+    // Chưa có máy nào: một mục mở app với các file đã chọn.
+    let keys = menu_keys(exe, &[], false);
+    for root in ROOTS {
+        assert_eq!(str_of(&keys, root, "MUIVerb"), s("Gửi bằng BetterDrop"));
+        assert_eq!(str_of(&keys, root, "MultiSelectModel"), s("Player"));
+        assert_eq!(str_of(&keys, root, "Icon"), s(&format!("\"{exe}\",0")));
+        assert_eq!(str_of(&keys, root, "SubCommands"), None);
+        assert_eq!(str_of(&keys, &format!(r"{root}\command"), ""), s(&format!("\"{exe}\" \"%1\"")));
+    }
+    assert_eq!(ROOTS, [r"Software\Classes\*\shell\BetterDrop", r"Software\Classes\Directory\shell\BetterDrop"]);
+
+    // Có máy: menu con theo thứ tự, mỗi máy gửi thẳng, cuối cùng là "Chọn máy khác…".
+    let dev = |id: &str, name: &str| DeviceRef { id: id.into(), name: name.into(), os: "macos".into() };
+    let keys = menu_keys(exe, &[dev("a-1", "Mac của An"), dev("b_2", "Tom & Jerry"), dev("bad id", "Lạ")], true);
+    let root = ROOTS[0];
+    assert_eq!(str_of(&keys, root, "MUIVerb"), s("Send with BetterDrop"));
+    assert_eq!(str_of(&keys, root, "SubCommands"), s(""));
+    assert!(!keys.iter().any(|k| k.path == format!(r"{root}\command")));
+    assert_eq!(str_of(&keys, &format!(r"{root}\shell\00"), "MUIVerb"), s("Mac của An"));
+    assert_eq!(str_of(&keys, &format!(r"{root}\shell\00\command"), ""), s(&format!("\"{exe}\" --send-to a-1 \"%1\"")));
+    assert_eq!(str_of(&keys, &format!(r"{root}\shell\01"), "MUIVerb"), s("Tom && Jerry"));
+    assert_eq!(str_of(&keys, &format!(r"{root}\shell\01"), "MultiSelectModel"), s("Player"));
+    // id có dấu cách không được đưa vào dòng lệnh.
+    assert!(!keys.iter().any(|k| k.path == format!(r"{root}\shell\02")));
+    let other = format!(r"{root}\shell\99other");
+    assert_eq!(str_of(&keys, &other, "MUIVerb"), s("Choose another device…"));
+    assert_eq!(str_of(&keys, &other, "CommandFlags"), Some(RegValue::Dword(0x20)));
+    assert_eq!(str_of(&keys, &format!(r"{other}\command"), ""), s(&format!("\"{exe}\" \"%1\"")));
+    // Thư mục có cùng menu.
+    assert_eq!(str_of(&keys, &format!(r"{}\shell\00\command", ROOTS[1]), ""), s(&format!("\"{exe}\" --send-to a-1 \"%1\"")));
+    // Mọi khoá đều nằm dưới hai khoá gốc (gỡ cài đặt xoá hai khoá này là sạch).
+    assert!(keys.iter().all(|k| ROOTS.iter().any(|r| k.path.starts_with(r))));
+}
+
+#[test]
+fn context_menu_devices_and_labels() {
+    use crate::context_menu::{menu_label, pick_devices, valid_id, MAX_DEVICES};
+    use crate::devices::{DeviceBook, DeviceRef, Group, TrustedDevice};
+    let dref = |id: &str, name: &str| DeviceRef { id: id.into(), name: name.into(), os: String::new() };
+    let peer = |id: &str, name: &str| Peer {
+        info: DeviceInfo { id: id.into(), name: name.into(), os: "windows".into(), fp: String::new(), port: 1, version: String::new() },
+        addrs: vec![],
+        manual: false,
+        online: true,
+    };
+    let mut book = DeviceBook::default();
+    book.known.push(peer("k", "Máy lưu"));
+    book.hidden.push(dref("h", "Đã quên"));
+    book.trusted.push(TrustedDevice { id: "t".into(), name: "Tin cậy".into(), os: String::new(), fp: "ab".into(), added_at: 0 });
+    book.groups.push(Group { id: "g".into(), name: "Nhóm".into(), members: vec![dref("m", "Thành viên"), dref("p", "Tên cũ")] });
+    let peers = vec![peer("p", "Tên mới"), peer("h", "Đã quên")];
+    let seen = vec![dref("s", "Bàn làm việc")];
+    let got = pick_devices(&peers, &book, &seen);
+    let names: Vec<&str> = got.iter().map(|d| d.name.as_str()).collect();
+    // Xếp theo tên, không trùng, bỏ máy đã ẩn, tên mới nhất từ máy đang thấy.
+    assert_eq!(names, vec!["Bàn làm việc", "Máy lưu", "Thành viên", "Tin cậy", "Tên mới"]);
+
+    let many: Vec<Peer> = (0..20).map(|i| peer(&format!("id{i:02}"), &format!("Máy {i:02}"))).collect();
+    assert_eq!(pick_devices(&many, &DeviceBook::default(), &[]).len(), MAX_DEVICES);
+
+    assert!(valid_id("3f2a6c1e-8b7d-4e5f-9a0b-1c2d3e4f5a6b"));
+    assert!(!valid_id(""));
+    assert!(!valid_id("a b"));
+    assert!(!valid_id("a\"b"));
+    assert!(!valid_id(&"x".repeat(65)));
+    assert_eq!(menu_label("  R&D\n"), "R&&D");
+    assert_eq!(menu_label(&"a".repeat(50)).chars().count(), 40);
 }
 
 #[test]

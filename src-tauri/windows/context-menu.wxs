@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Bộ cài MSI: mục "Send with BetterDrop" trong menu chuột phải của file và thư mục
+  (giống hooks.nsh của bộ cài NSIS). Chỉ ghi cho người cài (HKCU). Khi chạy, app ghi lại
+  mục này thành menu con có danh sách máy và chữ theo ngôn ngữ đã chọn; gỡ cài đặt thì
+  xoá cả khoá cùng menu con.
+  Chữ phải là ASCII: MSI tiếng Anh dùng bảng mã 1252, không chứa ký tự tiếng Việt.
+  [#Path] là đường dẫn file BetterDrop.exe (File Id="Path" trong main.wxs của Tauri).
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <DirectoryRef Id="TARGETDIR">
+      <Component Id="BetterDropContextMenu" Guid="*">
+        <RegistryKey Root="HKCU" Key="Software\Classes\*\shell\BetterDrop" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+          <RegistryValue Type="string" Name="MUIVerb" Value="Send with BetterDrop" KeyPath="yes" />
+          <RegistryValue Type="string" Name="Icon" Value="&quot;[#Path]&quot;,0" />
+          <RegistryValue Type="string" Name="MultiSelectModel" Value="Player" />
+          <RegistryValue Type="string" Key="command" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Classes\Directory\shell\BetterDrop" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+          <RegistryValue Type="string" Name="MUIVerb" Value="Send with BetterDrop" />
+          <RegistryValue Type="string" Name="Icon" Value="&quot;[#Path]&quot;,0" />
+          <RegistryValue Type="string" Name="MultiSelectModel" Value="Player" />
+          <RegistryValue Type="string" Key="command" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+        </RegistryKey>
+      </Component>
+    </DirectoryRef>
+  </Fragment>
+</Wix>
