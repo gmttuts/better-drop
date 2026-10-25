@@ -421,9 +421,12 @@ mod imp {
 
     /// Android: lấy file/văn bản từ menu Chia sẻ (plugin giữ lại intent).
     pub fn pull_shared(app: &AppHandle) {
-        if let Ok((paths, text)) = app.betterdrop_mobile().take_shared() {
+        if let Ok((paths, text, link)) = app.betterdrop_mobile().take_shared() {
             if let Some(st) = app.try_state::<Arc<crate::state::AppState>>() {
                 st.add_shared(paths, text);
+                if let Some(link) = link {
+                    st.set_shared_link(link);
+                }
             }
         }
     }

@@ -1545,3 +1545,12 @@ async fn tray_menu_lists_online_peers_from_event() {
     let shown = crate::tray::tray_peers(&peers);
     assert_eq!(shown, vec![(b.st.device_info().id, "Máy B".to_string())]);
 }
+
+#[test]
+fn pair_link_from_camera_is_recognised() {
+    let url = |s: &str| tauri::Url::parse(s).unwrap();
+    assert!(crate::is_pair_url(&url("betterdrop://pair?id=a&fp=b&a=192.168.1.2:53318")));
+    assert!(!crate::is_pair_url(&url("betterdrop://share?text=x")));
+    assert!(!crate::is_pair_url(&url("https://pair/?id=a")));
+    assert!(!crate::is_pair_url(&url("file:///tmp/pair")));
+}

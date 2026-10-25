@@ -13,6 +13,9 @@ pub(crate) struct SharedResponse {
   pub uris: Vec<String>,
   #[serde(default)]
   pub text: Option<String>,
+  /// Link `betterdrop://pair?…` mở app (quét QR bằng camera thường).
+  #[serde(default)]
+  pub link: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

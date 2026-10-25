@@ -183,6 +183,11 @@ pub(crate) fn shared_text_from_url(url: &tauri::Url) -> Option<String> {
     url.query_pairs().find(|(k, _)| k == "text").map(|(_, v)| v.into_owned()).filter(|t| !t.is_empty())
 }
 
+/// `betterdrop://pair?…`: mã QR ghép nối, quét bằng camera thường thì hệ điều hành mở app với link này.
+pub(crate) fn is_pair_url(url: &tauri::Url) -> bool {
+    url.scheme() == discovery::LINK_SCHEME && url.host_str() == Some("pair")
+}
+
 #[tauri::command]
 fn get_peers(st: AppStateRef) -> Vec<Peer> {
     st.peer_list()
@@ -693,8 +698,12 @@ pub fn run() {
                     .collect();
                 // iOS: Share Extension không có App Group thì gửi văn bản/link qua betterdrop://share?text=…
                 let text = urls.iter().find_map(shared_text_from_url);
+                let pair = urls.iter().find(|u| is_pair_url(u)).map(|u| u.to_string());
                 if let Some(st) = app.try_state::<Arc<AppState>>() {
                     st.add_shared(items, text);
+                    if let Some(link) = pair {
+                        st.set_shared_link(link);
+                    }
                 }
                 #[cfg(desktop)]
                 tray::show_main(app);

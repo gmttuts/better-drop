@@ -279,6 +279,10 @@ const EXACT: Record<string, string> = {
   "Bản dùng thử trên web không mở được camera. Trong app thật, bạn quét mã QR trên máy tính để ghép nối.":
     "The web demo can't use the camera. In the app, you scan the QR code on the computer to pair.",
   "Cập nhật và mở lại": "Update and restart",
+  "Không kết nối được tới máy tính. Kiểm tra: điện thoại và máy tính cùng một mạng Wi‑Fi (không phải mạng khách), router không bật “cách ly thiết bị” (AP isolation), điện thoại không bật VPN. Đã cấp quyền thì quét lại.":
+    "Couldn't reach the computer. Check that the phone and computer are on the same Wi‑Fi (not a guest network), the router doesn't use client/AP isolation, and the phone has no VPN on. Then scan again.",
+  "BetterDrop chưa được phép kết nối trong mạng Wi‑Fi. Vào Cài đặt › Ứng dụng › BetterDrop › Quyền › Thiết bị lân cận › Cho phép, rồi quét lại.":
+    "BetterDrop isn't allowed to connect on your Wi‑Fi yet. Go to Settings › Apps › BetterDrop › Permissions › Nearby devices › Allow, then scan again.",
   "Để sau": "Later",
   "Tải bản mới": "Download update",
   "Kiểm tra bản mới": "Check for updates",

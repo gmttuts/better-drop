@@ -34,11 +34,11 @@ impl<R: Runtime> BetterdropMobile<R> {
   }
 
   /// Android: file/văn bản người dùng chia sẻ vào BetterDrop (rồi xoá khỏi hàng đợi).
-  pub fn take_shared(&self) -> crate::Result<(Vec<String>, Option<String>)> {
+  pub fn take_shared(&self) -> crate::Result<(Vec<String>, Option<String>, Option<String>)> {
     self
       .0
       .run_mobile_plugin::<SharedResponse>("takeShared", ())
-      .map(|r| (r.uris, r.text))
+      .map(|r| (r.uris, r.text, r.link))
       .map_err(Into::into)
   }
 

@@ -18,8 +18,8 @@ impl<R: Runtime> BetterdropMobile<R> {
     Ok(())
   }
 
-  pub fn take_shared(&self) -> crate::Result<(Vec<String>, Option<String>)> {
-    Ok((vec![], None))
+  pub fn take_shared(&self) -> crate::Result<(Vec<String>, Option<String>, Option<String>)> {
+    Ok((vec![], None, None))
   }
 
   pub fn request_local_network(&self) -> crate::Result<bool> {

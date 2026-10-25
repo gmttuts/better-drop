@@ -73,6 +73,7 @@ class BetterDropPlugin(private val activity: Activity) : Plugin(activity) {
     // ---- Nhận file/văn bản từ menu "Chia sẻ" của app khác ----
     private val sharedUris = mutableListOf<String>()
     private var sharedText: String? = null
+    private var sharedLink: String? = null
 
     override fun load(webView: WebView) {
         super.load(webView)
@@ -168,6 +169,12 @@ class BetterDropPlugin(private val activity: Activity) : Plugin(activity) {
                            else @Suppress("DEPRECATION") intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
                 uris?.forEach { u -> sharedUris.add(u.toString()) }
             }
+            // Quét mã QR ghép nối bằng camera thường: Android mở app với betterdrop://pair?…
+            Intent.ACTION_VIEW -> {
+                val data = intent.data ?: return
+                if (data.scheme != "betterdrop" || data.host != "pair") return
+                sharedLink = data.toString()
+            }
             else -> return
         }
         // Không xử lý lại cùng intent khi activity được tạo lại (xoay màn hình…).
@@ -180,8 +187,10 @@ class BetterDropPlugin(private val activity: Activity) : Plugin(activity) {
         val ret = JSObject()
         ret.put("uris", JSArray.from(sharedUris.toTypedArray()))
         sharedText?.let { ret.put("text", it) }
+        sharedLink?.let { ret.put("link", it) }
         sharedUris.clear()
         sharedText = null
+        sharedLink = null
         invoke.resolve(ret)
     }
 

@@ -142,8 +142,10 @@ function errorText(e: unknown): string {
 function toast(message: string, kind: "info" | "error" = "info") {
   const t = el("div", { className: `toast ${kind}`, textContent: message });
   $("toasts").append(t);
-  setTimeout(() => t.classList.add("leaving"), 4000);
-  setTimeout(() => t.remove(), 4400);
+  // Thông báo dài (hướng dẫn sửa lỗi) cần thời gian đọc.
+  const ms = Math.min(15000, Math.max(4000, message.length * 60));
+  setTimeout(() => t.classList.add("leaving"), ms);
+  setTimeout(() => t.remove(), ms + 400);
 }
 
 const ICON_LAPTOP =
@@ -1333,6 +1335,29 @@ async function stopScanning() {
   }
 }
 
+/** Kết nối bằng link ghép nối (quét QR trong app, hoặc camera thường mở app bằng link). */
+async function connectPairLink(link: string) {
+  try {
+    const p = await invoke<Peer>("add_manual_peer", { addr: link });
+    toast(`Đã kết nối với ${p.name} — mã ${shortCode(p.fp)}`);
+  } catch (e) {
+    const msg = errorText(e);
+    // Android 16+: thiếu quyền "Thiết bị lân cận" thì mọi kết nối trong LAN đều treo tới hết giờ.
+    // Xin quyền (hoặc xác nhận đã có) để báo đúng nguyên nhân.
+    if (me?.info.os === "android" && msg.startsWith("Không kết nối được")) {
+      const granted = await invoke<boolean>("ensure_local_network").catch(() => true);
+      toast(
+        granted
+          ? "Không kết nối được tới máy tính. Kiểm tra: điện thoại và máy tính cùng một mạng Wi‑Fi (không phải mạng khách), router không bật “cách ly thiết bị” (AP isolation), điện thoại không bật VPN. Đã cấp quyền thì quét lại."
+          : "BetterDrop chưa được phép kết nối trong mạng Wi‑Fi. Vào Cài đặt › Ứng dụng › BetterDrop › Quyền › Thiết bị lân cận › Cho phép, rồi quét lại.",
+        "error",
+      );
+      return;
+    }
+    throw e;
+  }
+}
+
 async function scanPairQr() {
   if (scanning) return;
   try {
@@ -1353,10 +1378,7 @@ async function scanPairQr() {
   const back = await onBackButtonPress(() => stopScanning()).catch(() => null);
   try {
     const res = await scan({ windowed: true, formats: [Format.QRCode] });
-    if (scanning) {
-      const p = await invoke<Peer>("add_manual_peer", { addr: res.content });
-      toast(`Đã kết nối với ${p.name} — mã ${shortCode(p.fp)}`);
-    }
+    if (scanning) await connectPairLink(res.content);
   } catch (e) {
     if (scanning) toast(errorText(e), "error"); // Lỗi thật, không phải do người dùng bấm Huỷ.
   } finally {
@@ -1441,8 +1463,11 @@ async function openWebDialog() {
 
 /** Lấy các mục được chia sẻ vào (Mở bằng, Send to, menu Chia sẻ) và đưa vào danh sách chờ gửi. */
 async function pullShared() {
-  const s = await invoke<{ paths: string[]; text: string | null }>("take_shared_items").catch(() => null);
+  const s = await invoke<{ paths: string[]; text: string | null; link?: string | null }>("take_shared_items").catch(
+    () => null,
+  );
   if (!s) return;
+  if (s.link) await connectPairLink(s.link).catch((e) => toast(errorText(e), "error"));
   if (s.paths.length) {
     await addStaged(s.paths);
     toast(`Đã thêm ${s.paths.length} mục từ app khác — chọn máy nhận để gửi`);

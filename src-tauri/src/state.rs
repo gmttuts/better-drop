@@ -79,6 +79,8 @@ pub struct SharedItems {
     /// Đường dẫn file/thư mục, hoặc URI (content://, file://) trên điện thoại.
     pub paths: Vec<String>,
     pub text: Option<String>,
+    /// Link ghép nối `betterdrop://pair?…` mở từ camera/app khác: giao diện tự kết nối.
+    pub link: Option<String>,
 }
 
 impl AppState {
@@ -228,6 +230,12 @@ impl AppState {
                 s.text = text;
             }
         }
+        self.emit("shared-items", serde_json::json!({}));
+    }
+
+    /// Mở BetterDrop bằng link ghép nối (quét QR bằng camera thường).
+    pub fn set_shared_link(&self, link: String) {
+        self.shared.lock().unwrap().link = Some(link);
         self.emit("shared-items", serde_json::json!({}));
     }
 
