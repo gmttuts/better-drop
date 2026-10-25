@@ -184,6 +184,16 @@ const EXACT: Record<string, string> = {
   "Chưa được phép hiện thông báo: khi BetterDrop ở nền bạn sẽ không thấy máy khác gửi tới.":
     "Notifications are off: while BetterDrop is in the background you won't see incoming files.",
   "Chạy nền": "Runs in the background",
+  "Phím tắt": "Keyboard shortcuts",
+  "Bật phím tắt toàn cục": "Enable global shortcuts",
+  "Gửi clipboard tới máy gần nhất": "Send clipboard to the last-used device",
+  "Mở BetterDrop": "Open BetterDrop",
+  "Nhấn tổ hợp phím…": "Press a shortcut…",
+  "Bấm vào ô rồi nhấn tổ hợp phím mới. “Máy gần nhất” là máy đang bật mà bạn gửi tới gần đây nhất.":
+    "Click a box, then press the new shortcut. The “last-used device” is the online device you sent to most recently.",
+  "Đã đổi phím tắt": "Shortcut changed",
+  "Phím tắt cần có ít nhất một phím Ctrl, Alt hoặc ⌘": "A shortcut needs at least Ctrl, Alt or ⌘",
+  "Hai phím tắt đang trùng nhau": "The two shortcuts are the same",
   "Địa chỉ của máy này (để nhập ở máy kia nếu không tự thấy):": "This device's address (type it on the other device if it doesn't show up):",
   "Địa chỉ khác": "Other addresses",
   "Máy nối mạng bằng nhiều cách (dây LAN, Wi‑Fi) nên có nhiều địa chỉ. Dùng địa chỉ nào cũng được.":
@@ -378,6 +388,8 @@ const RULES: [RegExp, (...m: string[]) => string][] = [
   [/^File không còn trên (.+) \(đã hết hạn hoặc bị xoá\)$/, (_, p) => `The file is no longer on ${p} (expired or deleted)`],
   [/^(.+) trả về trang web thay vì file$/, (_, p) => `${p} returned a web page instead of the file`],
   [/^(.+) trả lỗi HTTP (\d+)$/, (_, p, c) => `${p} returned HTTP ${c}`],
+  [/^Tổ hợp (.+) đang được app khác dùng\. Hãy chọn tổ hợp khác\.$/, (_, k) => `${k} is already used by another app. Choose a different shortcut.`],
+  [/^Tổ hợp phím không hợp lệ: (.+)$/, (_, k) => `Invalid shortcut: ${k}`],
   [/^Dịch vụ từ chối \(HTTP (\d+)\)$/, (_, c) => `The file host refused (HTTP ${c})`],
   [/^(.+) trả về kết quả lạ: (.*)$/, (_, p, r) => `${p} returned something unexpected: ${r}`],
   [/^File (.+) đã bị sửa trong lúc gửi\. Hãy gửi lại$/, (_, f) => `${f} changed while sending. Please send again`],

@@ -3,6 +3,8 @@ mod client;
 mod context_menu;
 mod devices;
 mod history;
+#[cfg(desktop)]
+mod hotkey;
 mod discovery;
 mod identity;
 mod models;
@@ -18,7 +20,7 @@ mod updater;
 mod tray;
 mod web;
 
-use models::{PairInfo, Peer, SelfInfo, Settings, StagedItem};
+use models::{Hotkeys, PairInfo, Peer, SelfInfo, Settings, StagedItem};
 use state::AppState;
 use std::sync::Arc;
 use tauri::{Emitter, Manager, State};
@@ -100,6 +102,46 @@ fn set_language(app: tauri::AppHandle, language: String) -> Result<SelfInfo, Str
     #[cfg(desktop)]
     tray::apply_language(&app);
     Ok(info)
+}
+
+/// Đổi phím tắt toàn cục. Tổ hợp mới không đăng ký được thì giữ phím tắt cũ và báo lỗi.
+#[tauri::command]
+fn set_hotkeys(app: tauri::AppHandle, hotkeys: Hotkeys) -> Result<SelfInfo, String> {
+    #[cfg(desktop)]
+    {
+        if let Err(e) = hotkey::apply(&app, &hotkeys) {
+            let old = app.state::<Arc<AppState>>().settings.read().unwrap().hotkeys.clone();
+            let _ = hotkey::apply(&app, &old);
+            return Err(e);
+        }
+        change_settings(&app, |s| s.hotkeys = hotkeys)
+    }
+    #[cfg(mobile)]
+    {
+        let _ = (app, hotkeys);
+        Err("Điện thoại không có phím tắt".into())
+    }
+}
+
+/// Tạm tắt phím tắt khi đang bấm tổ hợp mới trong Cài đặt (`paused` = false để bật lại).
+/// Trả về lỗi đăng ký gần nhất (vd tổ hợp đang được app khác dùng), nếu có.
+#[tauri::command]
+fn pause_hotkeys(app: tauri::AppHandle, paused: bool) -> Option<String> {
+    #[cfg(desktop)]
+    {
+        if paused {
+            hotkey::pause(&app);
+        } else {
+            let hk = app.state::<Arc<AppState>>().settings.read().unwrap().hotkeys.clone();
+            let _ = hotkey::apply(&app, &hk);
+        }
+        hotkey::last_error()
+    }
+    #[cfg(mobile)]
+    {
+        let _ = (app, paused);
+        None
+    }
 }
 
 #[tauri::command]
@@ -668,6 +710,8 @@ pub fn run() {
             set_autostart,
             set_hide_dock,
             set_language,
+            set_hotkeys,
+            pause_hotkeys,
             check_update,
             install_update,
             take_shared_items,

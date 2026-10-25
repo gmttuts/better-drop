@@ -174,6 +174,7 @@ fn node() -> Node {
         hide_dock: false,
         language: "vi".into(),
         background_receive: true,
+        hotkeys: Default::default(),
     };
     let st = Arc::new(AppState::new(emit, dir.path().join("data"), ident, 0, settings));
     Node { st, events: rx, _dir: dir }

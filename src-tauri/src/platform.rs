@@ -24,10 +24,13 @@ mod imp {
                 tray::show_main(app);
             }));
         }
-        builder.plugin(tauri_plugin_updater::Builder::new().build()).plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            Some(vec![HIDDEN_ARG]),
-        ))
+        builder
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .plugin(tauri_plugin_autostart::init(
+                tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+                Some(vec![HIDDEN_ARG]),
+            ))
+            .plugin(crate::hotkey::plugin())
     }
 
     /// File trong tham số dòng lệnh: đưa vào danh sách chờ gửi, hoặc gửi luôn khi có
@@ -81,6 +84,8 @@ mod imp {
         open_with_args(app, std::env::args());
         context_menu::refresh(app);
         tray::setup(app, settings.receive_enabled)?;
+        // Tổ hợp bị app khác chiếm thì bỏ qua: lỗi hiện trong Cài đặt.
+        let _ = crate::hotkey::apply(app, &settings.hotkeys);
         apply_dock(app, settings.hide_dock);
         // Khi tự mở cùng máy tính thì chạy nền luôn, không hiện cửa sổ.
         if !std::env::args().any(|a| a == HIDDEN_ARG) {

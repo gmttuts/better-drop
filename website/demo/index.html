@@ -14,6 +14,7 @@
   const me = {
     info: { id: "me", name: "MacBook của bạn", os: "mac", fp: "520d9a1b", port: 53318, version: "0.3.3" },
     settings: { device_id: "me", name: "MacBook của bạn", download_dir: "~/Downloads/BetterDrop", receive_enabled: true, hide_dock: false,
+      hotkeys: { enabled: true, send_clipboard: "CmdOrCtrl+Shift+D", open_app: "CmdOrCtrl+Shift+B" },
       language: new URLSearchParams(location.search).get("lang") === "en" ? "en" : "vi" },
     addrs: ["192.168.1.12:53318"],
     autostart: true,
@@ -229,6 +230,8 @@
     set_receive_enabled({ enabled }) { me.settings.receive_enabled = enabled; return me; },
     set_autostart({ enabled }) { me.autostart = enabled; return me; },
     set_hide_dock({ hide }) { me.settings.hide_dock = hide; return me; },
+    set_hotkeys({ hotkeys }) { me.settings.hotkeys = hotkeys; return me; },
+    pause_hotkeys: () => null,
     set_language({ language }) {
       // Bản demo đổi ngôn ngữ bằng tham số ?lang= trên URL.
       const u = new URL(location.href);
@@ -329,8 +332,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>BetterDrop (bản dùng thử)</title>
     <link rel="icon" type="image/png" href="./logo.png" />
-    <script type="module" crossorigin src="./assets/index-C7PPLGyT.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-D29KcBG1.css">
+    <script type="module" crossorigin src="./assets/index-x032WWA2.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-zse4-ps7.css">
   </head>
   <body>
     <header class="topbar">
@@ -705,6 +708,14 @@
           <label class="check" id="row-dock" hidden><input type="checkbox" id="set-dock" /> Ẩn biểu tượng trên Dock</label>
           <label class="check" id="row-background" hidden><input type="checkbox" id="set-background" /> Nhận file khi chạy nền</label>
           <p class="muted small" id="bg-hint"></p>
+        </fieldset>
+        <fieldset class="toggles" id="row-hotkeys" hidden>
+          <legend>Phím tắt</legend>
+          <label class="check"><input type="checkbox" id="set-hotkeys" /> Bật phím tắt toàn cục</label>
+          <div class="hotkey-row"><span>Gửi clipboard tới máy gần nhất</span><input class="hotkey" id="hk-send" readonly placeholder="Nhấn tổ hợp phím…" /></div>
+          <div class="hotkey-row"><span>Mở BetterDrop</span><input class="hotkey" id="hk-open" readonly placeholder="Nhấn tổ hợp phím…" /></div>
+          <p class="muted small">Bấm vào ô rồi nhấn tổ hợp phím mới. “Máy gần nhất” là máy đang bật mà bạn gửi tới gần đây nhất.</p>
+          <p class="small hotkey-error" id="hk-error" hidden></p>
         </fieldset>
         <div class="hidden-block" id="trusted-block" hidden>
           <div class="legend">Máy tin cậy <span class="muted small">(file được nhận luôn, không hỏi)</span></div>

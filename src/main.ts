@@ -31,6 +31,12 @@ interface Settings {
   hide_dock: boolean;
   language?: string;
   background_receive?: boolean;
+  hotkeys?: Hotkeys;
+}
+interface Hotkeys {
+  enabled: boolean;
+  send_clipboard: string;
+  open_app: string;
 }
 interface SelfInfo {
   info: DeviceInfo;
@@ -187,6 +193,7 @@ function renderMe() {
   $<HTMLInputElement>("set-autostart").checked = me.autostart;
   $<HTMLInputElement>("set-dock").checked = me.settings.hide_dock;
   $<HTMLInputElement>("set-background").checked = me.settings.background_receive !== false;
+  renderHotkeys();
 }
 
 /// Các ô tích ở mục "Chạy nền" có hiệu lực ngay, không cần bấm Lưu.
@@ -1367,6 +1374,9 @@ function openSettings() {
   $("row-autostart").hidden = me.mobile;
   $("row-background").hidden = !android;
   $("btn-choose-dir").hidden = me.mobile;
+  $("row-hotkeys").hidden = me.mobile || !me.settings.hotkeys;
+  renderHotkeys();
+  refreshHotkeyStatus();
   $("bg-hint").textContent = android
     ? me.settings.background_receive !== false
       ? "BetterDrop giữ một thông báo thường trực để Android không tắt app. Vuốt app khỏi danh sách ứng dụng gần đây sẽ thoát hẳn."
@@ -1380,6 +1390,104 @@ function openSettings() {
     ...(me.addrs.length ? me.addrs : ["(không có mạng)"]).map((a) => el("li", { className: "code", textContent: a })),
   );
   $<HTMLDialogElement>("dlg-settings").showModal();
+}
+
+// ---- Phím tắt toàn cục (máy tính) ----
+
+const HOTKEY_FIELDS = { "hk-send": "send_clipboard", "hk-open": "open_app" } as const;
+
+/** "CmdOrCtrl+Shift+D" → "⌘⇧D" trên Mac, "Ctrl+Shift+D" trên Windows/Linux (giống hotkey::label). */
+function hotkeyLabel(s: string): string {
+  const mac = me?.info.os === "mac";
+  const names: Record<string, [string, string]> = {
+    cmdorctrl: ["⌘", "Ctrl"],
+    commandorcontrol: ["⌘", "Ctrl"],
+    cmd: ["⌘", "Win"],
+    command: ["⌘", "Win"],
+    super: ["⌘", "Win"],
+    meta: ["⌘", "Win"],
+    ctrl: ["⌃", "Ctrl"],
+    control: ["⌃", "Ctrl"],
+    alt: ["⌥", "Alt"],
+    option: ["⌥", "Alt"],
+    shift: ["⇧", "Shift"],
+  };
+  const parts = s.split("+").map((p) => names[p.toLowerCase()]?.[mac ? 0 : 1] ?? p.replace(/^(Key|Digit)/, ""));
+  return parts.join(mac ? "" : "+");
+}
+
+/** Tổ hợp vừa nhấn, dạng Rust đọc được ("Ctrl+Alt+Shift+Cmd+D"); null khi mới nhấn phím bổ trợ. */
+function hotkeyFromEvent(e: KeyboardEvent): string | null {
+  if (["Control", "Shift", "Alt", "Meta", "CapsLock", "Fn"].includes(e.key) || !e.code) return null;
+  const parts: string[] = [];
+  if (e.ctrlKey) parts.push("Ctrl");
+  if (e.altKey) parts.push("Alt");
+  if (e.shiftKey) parts.push("Shift");
+  if (e.metaKey) parts.push(me?.info.os === "mac" ? "Cmd" : "Super");
+  parts.push(e.code.replace(/^(Key|Digit)/, ""));
+  return parts.join("+");
+}
+
+function showHotkeyError(err: string | null) {
+  $("hk-error").hidden = !err;
+  $("hk-error").textContent = err ?? "";
+}
+
+function renderHotkeys() {
+  const hk = me?.settings.hotkeys;
+  if (!hk) return;
+  $<HTMLInputElement>("set-hotkeys").checked = hk.enabled;
+  for (const [id, key] of Object.entries(HOTKEY_FIELDS)) {
+    const input = $<HTMLInputElement>(id);
+    input.disabled = !hk.enabled;
+    if (document.activeElement !== input) input.value = hotkeyLabel(hk[key]);
+  }
+}
+
+async function saveHotkeys(change: Partial<Hotkeys>): Promise<boolean> {
+  if (!me?.settings.hotkeys) return false;
+  try {
+    me = await invoke<SelfInfo>("set_hotkeys", { hotkeys: { ...me.settings.hotkeys, ...change } });
+    showHotkeyError(null);
+    renderMe();
+    return true;
+  } catch (e) {
+    showHotkeyError(errorText(e));
+    renderMe();
+    return false;
+  }
+}
+
+function bindHotkeys() {
+  $("set-hotkeys").addEventListener("change", () => saveHotkeys({ enabled: $<HTMLInputElement>("set-hotkeys").checked }));
+  for (const [id, key] of Object.entries(HOTKEY_FIELDS)) {
+    const input = $<HTMLInputElement>(id);
+    // Bỏ phím tắt cũ trong lúc bắt phím, để nhấn lại chính tổ hợp đó không kích hoạt nó.
+    input.addEventListener("focus", () => {
+      input.value = "";
+      invoke("pause_hotkeys", { paused: true }).catch(() => {});
+    });
+    input.addEventListener("blur", async () => {
+      renderHotkeys();
+      const err = await invoke<string | null>("pause_hotkeys", { paused: false }).catch(() => null);
+      if (err) showHotkeyError(err);
+    });
+    input.addEventListener("keydown", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === "Escape" || e.key === "Tab") return input.blur();
+      const combo = hotkeyFromEvent(e);
+      if (!combo) return;
+      if (await saveHotkeys({ [key]: combo })) toast("Đã đổi phím tắt");
+      input.blur();
+    });
+  }
+}
+
+/** Mở Cài đặt: thử đăng ký lại phím tắt (app chiếm tổ hợp có thể đã thoát) và hiện lỗi nếu còn. */
+async function refreshHotkeyStatus() {
+  if (me?.mobile) return;
+  showHotkeyError(await invoke<string | null>("pause_hotkeys", { paused: false }).catch(() => null));
 }
 
 // ---- Ghép nối bằng mã QR ----
@@ -1754,6 +1862,7 @@ async function init() {
   bindToggle("set-autostart", "set_autostart", "enabled");
   bindToggle("set-dock", "set_hide_dock", "hide");
   bindToggle("set-background", "set_background_receive", "enabled");
+  bindHotkeys();
   $("paused-chip").addEventListener("click", async () => {
     try {
       me = await invoke<SelfInfo>("set_receive_enabled", { enabled: true });
