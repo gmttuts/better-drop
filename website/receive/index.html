@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nhận file · BetterDrop</title>
+  <meta name="description" content="Nhận file được gửi qua BetterDrop. File được giải mã ngay trong trình duyệt của bạn.">
+  <meta name="robots" content="noindex">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0c0d10" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="../assets/favicon.png">
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="receive.css">
+</head>
+<body>
+  <header class="nav">
+    <a class="brand" href="../"><img src="../assets/icon.png" alt="" width="28" height="28">BetterDrop</a>
+    <div class="lang" role="group" aria-label="Language / Ngôn ngữ" style="margin-left:auto"><button data-lang="en">EN</button><button data-lang="vi">VI</button></div>
+  </header>
+
+  <main class="wrap recv">
+    <section class="recv-card">
+      <div class="recv-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M7 18a4.5 4.5 0 0 1-.5-9A6 6 0 0 1 18 9.5 4 4 0 0 1 17.5 18zM12 9v6m0 0-2.5-2.5M12 15l2.5-2.5"/></svg>
+      </div>
+      <h1 data-t="title"></h1>
+      <p class="fine" data-t="sub"></p>
+
+      <!-- Link hỏng / không có link -->
+      <div id="bad" hidden>
+        <p class="recv-error" id="bad-msg"></p>
+        <form id="paste-form" class="recv-paste">
+          <input id="paste-link" autocomplete="off" spellcheck="false" data-t-placeholder="pastePh">
+          <button class="btn btn-small" type="submit" data-t="open"></button>
+        </form>
+      </div>
+
+      <!-- Có link -->
+      <div id="steps" hidden>
+        <div class="recv-meta fine" id="meta"></div>
+
+        <ol class="recv-steps" id="manual-steps">
+          <li>
+            <div class="step-head"><span data-t="step1"></span></div>
+            <p class="fine" id="step1-note"></p>
+            <a class="btn btn-small" id="provider-link" target="_blank" rel="noopener noreferrer"></a>
+          </li>
+          <li>
+            <div class="step-head"><span data-t="step2"></span></div>
+            <label class="drop" id="drop">
+              <input type="file" id="file-input" hidden>
+              <strong data-t="drop"></strong>
+              <span class="fine" data-t="dropOr"></span>
+            </label>
+          </li>
+        </ol>
+
+        <div class="recv-ready" id="ready" hidden>
+          <div class="recv-file">
+            <div class="recv-name" id="out-name"></div>
+            <div class="fine" id="out-info"></div>
+          </div>
+          <button class="btn" id="btn-save" data-t="save"></button>
+          <p class="fine recv-warn" id="mem-warn" hidden></p>
+        </div>
+
+        <div class="recv-progress" id="progress" hidden>
+          <div class="recv-bar"><i id="bar"></i></div>
+          <div class="fine" id="progress-text"></div>
+        </div>
+
+        <p class="recv-ok" id="done" hidden></p>
+        <p class="recv-error" id="error" hidden></p>
+      </div>
+
+      <details class="recv-app" id="app-box" hidden>
+        <summary data-t="appTitle"></summary>
+        <p class="fine" id="app-text"></p>
+        <button class="btn btn-small btn-soft" id="btn-copy" data-t="copyLink"></button>
+      </details>
+    </section>
+
+    <p class="fine recv-foot" data-t="privacy"></p>
+  </main>
+
+  <script src="receive.js"></script>
+</body>
+</html>

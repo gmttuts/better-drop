@@ -55,7 +55,7 @@ const EXACT: Record<string, string> = {
   "Đã tải lên. Gửi link này cho người nhận:": "Uploaded. Send this link to the recipient:",
   "Gửi link tới máy gần": "Send the link to a nearby device",
   "Không có máy nào đang bật": "No devices online",
-  "Dán link BetterDrop (https://gmttuts.github.io/better-drop/nhan/#…)": "Paste a BetterDrop link (https://gmttuts.github.io/better-drop/nhan/#…)",
+  "Dán link BetterDrop (https://gmttuts.github.io/better-drop/receive/#…)": "Paste a BetterDrop link (https://gmttuts.github.io/better-drop/receive/#…)",
   "Tải về": "Download",
   "Tải về bằng link này": "Download from this link",
   "Mở trang tải": "Open the download page",

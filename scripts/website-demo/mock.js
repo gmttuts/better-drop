@@ -213,7 +213,7 @@
       const t = { id: "t" + ++tid, direction: "send", peer_name: name, kind: "files", file_count: paths.length,
         total_bytes: paths.reduce((s, x) => s + sizeOf(x), 0), transferred: 0, speed_bps: 0, status: "waiting", error: null, dir_path: null,
         files: paths.map((x) => ({ name: baseName(x), path: x })) };
-      const link = `https://gmttuts.github.io/better-drop/nhan/#1.${provider === "temp-sh" ? "ts.dEmO1/betterdrop.bdrop" : "st.DEMOdemo1"}.Wb3lYv0Yx2Qd5c8m1nH4pK7rT9uE6sA0zB3gJ5kL8oM`;
+      const link = `https://gmttuts.github.io/better-drop/receive/#1.${provider === "temp-sh" ? "ts.dEmO1/betterdrop.bdrop" : "st.DEMOdemo1"}.Wb3lYv0Yx2Qd5c8m1nH4pK7rT9uE6sA0zB3gJ5kL8oM`;
       const expires_at = now() + days * 86400;
       live.set(t.id, t);
       (async () => {
@@ -239,7 +239,7 @@
       return t.id;
     },
     online_receive_link: ({ link }) => {
-      if (!/\/nhan\/#1\.(st|ts)\./.test(link)) throw "Link BetterDrop không hợp lệ (thiếu hoặc sai phần sau dấu #)";
+      if (!/\/receive\/#1\.(st|ts)\./.test(link)) throw "Link BetterDrop không hợp lệ (thiếu hoặc sai phần sau dấu #)";
       if (!link.includes("#1.st.")) throw "Bản dùng thử trên web không tải được file thật.";
       return { transfer_id: null, provider_name: "storage.to", page_url: "" };
     },

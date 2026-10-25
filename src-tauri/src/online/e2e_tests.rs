@@ -226,7 +226,7 @@ async fn send_and_receive_through_mock_services() {
     send(a.st.clone(), vec![path.clone()], Provider::StorageTo).await.unwrap();
     let done = wait_for(&mut a, "online-done").await;
     let link = done["link"].as_str().unwrap().to_string();
-    assert!(link.starts_with("https://gmttuts.github.io/better-drop/nhan/#1.st.F"));
+    assert!(link.starts_with("https://gmttuts.github.io/better-drop/receive/#1.st.F"));
     assert_eq!(mock.lock().unwrap().expiry_days, Some(7));
     let visitor = mock.lock().unwrap().visitor.clone().unwrap();
     assert!(visitor.starts_with("betterdrop-"));

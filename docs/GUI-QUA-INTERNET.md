@@ -58,7 +58,7 @@ Các cột "theo tài liệu" bên dưới lấy từ trang của dịch vụ; p
 | uguu.se, 0x0.st, tmpfiles.org, x0.at | Loại: không có CORS, dung lượng hoặc thời gian giữ kém hơn temp.sh |
 | Kho riêng trên Cloudflare R2 | Hướng lâu dài nếu muốn người nhận tải thẳng: cần một tài khoản Cloudflare của người phát triển (người dùng app không cần), phải tự chống lạm dụng |
 
-Thêm một dịch vụ khác chỉ cần một biến thể mới trong `src-tauri/src/online/providers.rs` và một dòng trong `PROVIDERS` của `website/nhan/nhan.js` (đặt `direct` để trang tự tải).
+Thêm một dịch vụ khác chỉ cần một biến thể mới trong `src-tauri/src/online/providers.rs` và một dòng trong `PROVIDERS` của `website/receive/receive.js` (đặt `direct` để trang tự tải).
 
 ## Người nhận làm gì
 
@@ -74,7 +74,7 @@ Gửi nhiều file hoặc thư mục: trình duyệt lưu một file `.zip` (kh�
 ### Link
 
 ```
-https://gmttuts.github.io/better-drop/nhan/#1.<dịch vụ>.<mã file>.<khoá>
+https://gmttuts.github.io/better-drop/receive/#1.<dịch vụ>.<mã file>.<khoá>
 ```
 
 - `1`: phiên bản định dạng link và file. Đổi cách mã hoá/đóng gói thì tăng số này; bản cũ báo "Link được tạo bằng BetterDrop mới hơn".
@@ -130,7 +130,7 @@ Dữ liệu gốc (trước khi mã hoá):
 - Lịch sử lưu link (trường `online` trong `history.jsonl`) để "Sao chép link" và "Hiện mã QR" lại.
 - File bị sửa trong lúc gửi (kích thước hoặc CRC đổi): báo lỗi, không tạo link hỏng.
 
-### Trang nhận (`website/nhan/`)
+### Trang nhận (`website/receive/`)
 
 - JS thuần, dùng chung `website/styles.css`, tiếng Việt/Anh (nút EN/VI, nhớ lựa chọn như trang chủ).
 - Đọc phần `#`, kiểm tra khoá ngay khi thả file (giải mã khối đầu, đọc manifest) để báo sai khoá trước khi lưu.
