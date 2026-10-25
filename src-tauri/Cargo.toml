@@ -59,6 +59,10 @@ tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 
+# Windows: ghi menu chuột phải "Gửi bằng BetterDrop" (danh sách máy) vào registry.
+[target.'cfg(windows)'.dependencies]
+winreg = "0.56"
+
 # Chỉ có trên điện thoại: quét mã QR bằng camera, báo có bản mới.
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-barcode-scanner = "2"

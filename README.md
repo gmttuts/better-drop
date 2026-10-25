@@ -11,7 +11,8 @@ Chuyển file, thư mục và văn bản giữa Mac ⇄ Windows ⇄ Linux ⇄ An
 - Dữ liệu đi qua HTTPS (TLS). Mỗi máy có chứng chỉ riêng, và bên gửi chỉ chấp nhận đúng chứng chỉ đã quảng bá. Mã 4 ký tự (vd `520D`) dùng để so với máy kia.
 - **Gửi tiếp khi rớt mạng**: mất Wi‑Fi giữa chừng thì tự gửi tiếp từ chỗ đang dở (chờ tối đa 2 phút), không gửi lại từ đầu.
 - **Nhóm máy**: chia sẻ một nhóm cho máy khác bằng nút "Gửi nhóm".
-- **Chia sẻ từ app khác**: Android "Chia sẻ → BetterDrop", Mac "Mở bằng"/kéo vào Dock, Windows chuột phải › "Send to › BetterDrop", iPhone/iPad "Chia sẻ → BetterDrop" (ảnh, video, file trong app Tệp, link và văn bản từ Safari…) hoặc "Mở bằng". File/văn bản được đưa sẵn vào danh sách gửi.
+- **Chia sẻ từ app khác**: Android "Chia sẻ → BetterDrop", Mac "Mở bằng"/kéo vào Dock, Windows chuột phải › "Gửi bằng BetterDrop" (hoặc "Send to › BetterDrop"), iPhone/iPad "Chia sẻ → BetterDrop" (ảnh, video, file trong app Tệp, link và văn bản từ Safari…) hoặc "Mở bằng". File/văn bản được đưa sẵn vào danh sách gửi.
+- **Menu chuột phải trên Windows**: chọn file/thư mục (một hay nhiều) › chuột phải › **Gửi bằng BetterDrop** › tên máy để gửi luôn, hoặc "Chọn máy khác…" để mở app với các mục đó trong danh sách gửi. Chi tiết ở mục [Menu chuột phải trên Windows](#menu-chuột-phải-trên-windows).
 - **Gửi nhanh từ thanh menu/khay hệ thống** (Mac/Windows/Linux): bấm biểu tượng BetterDrop › "Gửi clipboard tới" hoặc "Gửi file tới" › chọn máy, không cần mở cửa sổ. Kết quả báo bằng thông báo hệ thống và vẫn ghi vào lịch sử.
 - **Tiếng Anh**: Cài đặt › Ngôn ngữ (Tự động/Tiếng Việt/English).
 - **Tự cập nhật** (Mac/Windows/Linux AppImage): mở app sẽ tự xem có bản phát hành mới trên GitHub, bấm "Cập nhật và mở lại". Bản cập nhật được ký, app kiểm tra chữ ký trước khi cài.
@@ -55,6 +56,32 @@ npm run tauri build
 3. Bộ cài nằm ở `src-tauri\target\release\bundle\msi\` và `...\nsis\`.
 
 **Khoá ký bản cập nhật**: bản phát hành trên GitHub được ký bằng khoá trong GitHub Secret `TAURI_SIGNING_PRIVATE_KEY` (+ `_PASSWORD`); bản sao nằm ở `~/.tauri/betterdrop-updater.key` trên máy của chủ dự án. **Mất khoá thì các bản đã cài không tự cập nhật được nữa**, hãy cất giữ cẩn thận. Build bản có ký trên máy: đặt hai biến môi trường đó rồi chạy `npm run tauri build -- --config src-tauri/tauri.updater.conf.json`. App chỉ thấy bản mới khi bản phát hành đã **Publish** (không phải nháp) và có file `latest.json`.
+
+## Menu chuột phải trên Windows
+
+Bộ cài thêm mục **Gửi bằng BetterDrop** (*Send with BetterDrop*) vào menu chuột phải của file và thư mục, cho riêng người dùng đang cài (`HKCU\Software\Classes\*\shell\BetterDrop` và `...\Directory\shell\BetterDrop`, không cần quyền admin). Gỡ cài đặt thì xoá các khoá này.
+
+- Lúc mới cài, mục này mở BetterDrop với các mục đã chọn nằm sẵn trong danh sách gửi.
+- Khi BetterDrop chạy, app ghi lại mục đó thành menu con: **Gửi bằng BetterDrop › Máy A / Máy B / Chọn máy khác…** (tối đa 8 máy: máy đang thấy, máy đã lưu, máy tin cậy, máy trong nhóm; bỏ máy đã "quên"). Danh sách tự cập nhật khi có máy mới, chữ đổi theo ngôn ngữ trong Cài đặt.
+- Chọn tên máy: app chạy `BetterDrop.exe --send-to <id> "<file>"` và gửi luôn (máy nhận vẫn bấm Chấp nhận như thường, trừ máy tin cậy). Máy đó không bật (chờ tối đa 8 giây để tìm thấy khi app vừa mở) thì app mở cửa sổ với các mục nằm sẵn trong danh sách gửi và hiện thông báo.
+- Chọn nhiều file: Explorer chạy app một lần cho mỗi file, bản đang chạy gom lại (chờ 0,8 giây không có file mới) rồi gửi một lượt.
+
+Giới hạn:
+- **Windows 11**: menu mới chỉ hiện mục của app có gói MSIX, nên mục này nằm trong **Show more options** (hoặc Shift + chuột phải). Windows 10 hiện ngay.
+- **Bộ cài MSI** (`src-tauri/windows/context-menu.wxs`): cũng tạo mục này, nhưng chỉ cho người đã chạy bộ cài (MSI cài cho cả máy, còn menu nằm trong HKCU) và chữ ban đầu là tiếng Anh (bảng mã của MSI không có ký tự tiếng Việt); mở app một lần là chữ đổi theo ngôn ngữ. Người dùng khác trên cùng máy thì dùng "Send to".
+- App chỉ ghi menu con khi bộ cài đã tạo mục cơ bản, và không ghi khi chạy bản dev (`npm run tauri dev`) hay khi đặt `BETTERDROP_PROFILE`.
+
+**Cần thử trên máy Windows thật** (chưa kiểm chứng được vì không có máy Windows):
+1. Cài bằng bộ cài NSIS (`.exe`): chuột phải một file → có "Gửi bằng BetterDrop" (Windows tiếng Việt) hoặc "Send with BetterDrop", có icon BetterDrop; bấm vào → app mở với file trong danh sách gửi.
+2. Mở app, đợi thấy máy khác → đóng cửa sổ (app chạy nền) → chuột phải lại: có menu con với tên máy và "Chọn máy khác…" (có kẻ ngang phía trên).
+3. Chọn 1 file › tên máy đang bật → gửi luôn, máy kia hiện yêu cầu nhận.
+4. Chọn 20 file (và một thư mục) › tên máy → **chỉ một** yêu cầu nhận chứa đủ file; thử cả lúc app đang tắt hẳn (thoát từ khay) lẫn lúc đang chạy.
+5. Tắt BetterDrop trên máy nhận › chuột phải › tên máy đó → sau vài giây app mở với file trong danh sách gửi và có thông báo "… đang không bật".
+6. Chuột phải một thư mục, và chuột phải trong ổ mạng/USB: menu vẫn hiện, gửi được.
+7. Tên máy có dấu `&` hiện đúng; đổi ngôn ngữ trong Cài đặt → chữ trên menu đổi theo.
+8. Windows 11: mục nằm trong "Show more options".
+9. Gỡ cài đặt → mục biến mất hẳn (kiểm tra `regedit` không còn `HKCU\Software\Classes\*\shell\BetterDrop`). Cập nhật lên bản mới → menu vẫn còn.
+10. Cài bằng `.msi`: có "Send with BetterDrop"; mở app → chữ đổi theo ngôn ngữ và có menu con; gỡ bằng MSI → mục biến mất.
 
 ## Điện thoại
 
@@ -103,6 +130,7 @@ Lưu ý: tương thích giao thức không giúp được khi hệ điều hành
 | `src-tauri/src/client.rs` | HTTP client kiểm tra chứng chỉ bằng fingerprint |
 | `src-tauri/src/paths.rs` | Làm sạch đường dẫn (chặn `../`, ký tự cấm trên Windows, chuẩn hoá tên tiếng Việt) |
 | `src-tauri/src/identity.rs` | Cài đặt và chứng chỉ tự ký |
+| `src-tauri/src/context_menu.rs`, `src-tauri/windows/` | Windows: menu chuột phải "Gửi bằng BetterDrop" (registry, `--send-to`), hook bộ cài NSIS, fragment WiX cho MSI |
 | `src-tauri/src/tray.rs` | Thanh menu/khay hệ thống: chạy nền, thông báo, gửi nhanh clipboard/file |
 | `src-tauri/src/online/` | Gửi qua Internet: mã hoá theo khối (`crypto.rs`), đóng gói zip (`package.rs`, `zip.rs`), dịch vụ lưu file (`providers.rs`) |
 | `website/receive/` | Trang nhận link "Gửi qua Internet" (giải mã bằng WebCrypto, lưu thẳng xuống đĩa) |

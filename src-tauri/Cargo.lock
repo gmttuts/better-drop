@@ -404,6 +404,7 @@ dependencies = [
  "uuid",
  "walkdir",
  "webpki-roots",
+ "winreg",
  "zip 9.0.5",
 ]
 

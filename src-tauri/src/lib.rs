@@ -1,4 +1,6 @@
 mod client;
+#[cfg(desktop)]
+mod context_menu;
 mod devices;
 mod history;
 mod discovery;
@@ -166,13 +168,26 @@ async fn take_shared_items(app: tauri::AppHandle) -> state::SharedItems {
     items
 }
 
-/// Đường dẫn file/thư mục trong tham số dòng lệnh (Windows "Send to", mở bằng app…).
-pub(crate) fn paths_from_args<I: IntoIterator<Item = String>>(args: I) -> Vec<String> {
-    args.into_iter()
-        .skip(1)
-        .filter(|a| !a.starts_with('-'))
-        .filter(|a| std::path::Path::new(a).exists())
-        .collect()
+/// Tham số dòng lệnh khi app được mở kèm file.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct LaunchArgs {
+    /// File/thư mục (Windows "Send to", menu chuột phải, mở bằng app…).
+    pub paths: Vec<String>,
+    /// `--send-to <id>` (menu chuột phải Windows › tên máy): gửi luôn tới máy này.
+    pub send_to: Option<String>,
+}
+
+pub(crate) fn launch_args<I: IntoIterator<Item = String>>(args: I) -> LaunchArgs {
+    let mut out = LaunchArgs::default();
+    let mut it = args.into_iter().skip(1);
+    while let Some(a) = it.next() {
+        if a == "--send-to" {
+            out.send_to = it.next().filter(|id| id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') && !id.is_empty());
+        } else if !a.starts_with('-') && std::path::Path::new(&a).exists() {
+            out.paths.push(a);
+        }
+    }
+    out
 }
 
 /// Văn bản trong đường dẫn `betterdrop://share?text=…` (Share Extension trên iOS mở app bằng đường dẫn này).

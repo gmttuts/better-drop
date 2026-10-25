@@ -8,7 +8,7 @@ mod imp {
     use crate::identity::{self, Defaults};
     use crate::models::Settings;
     use crate::state::Hooks;
-    use crate::tray;
+    use crate::{context_menu, tray};
     use std::path::PathBuf;
     use tauri::{AppHandle, Builder, Manager, Wry};
     use tauri_plugin_autostart::ManagerExt as _;
@@ -20,9 +20,7 @@ mod imp {
         if identity::profile().is_none() {
             builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
                 // Mở lại app (vd "Send to" khi app đang chạy): lấy file trong tham số.
-                if let Some(st) = app.try_state::<std::sync::Arc<crate::state::AppState>>() {
-                    st.add_shared(crate::paths_from_args(args), None);
-                }
+                open_with_args(app, args);
                 tray::show_main(app);
             }));
         }
@@ -30,6 +28,20 @@ mod imp {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec![HIDDEN_ARG]),
         ))
+    }
+
+    /// File trong tham số dòng lệnh: đưa vào danh sách chờ gửi, hoặc gửi luôn khi có
+    /// `--send-to <id>` (menu chuột phải Windows › tên máy).
+    fn open_with_args(app: &AppHandle, args: impl IntoIterator<Item = String>) {
+        let a = crate::launch_args(args);
+        match a.send_to {
+            Some(id) if cfg!(windows) && !a.paths.is_empty() => context_menu::queue_send(app, id, a.paths),
+            _ => {
+                if let Some(st) = app.try_state::<std::sync::Arc<crate::state::AppState>>() {
+                    st.add_shared(a.paths, None);
+                }
+            }
+        }
     }
 
     pub fn dirs(_app: &AppHandle) -> tauri::Result<(PathBuf, Defaults)> {
@@ -42,12 +54,18 @@ mod imp {
 
     pub fn on_event(app: &AppHandle, event: &str, payload: &serde_json::Value) {
         tray::on_event(app, event, payload);
+        if matches!(event, "peers-changed" | "devices-changed") {
+            context_menu::refresh(app);
+        }
     }
 
     pub fn before_discovery(_app: &AppHandle) {}
 
-    /// Máy tính luôn chạy nền (khay hệ thống), không có gì để bật/tắt.
-    pub fn settings_changed(_app: &AppHandle) {}
+    /// Máy tính luôn chạy nền (khay hệ thống), không có gì để bật/tắt. Đổi ngôn ngữ thì
+    /// viết lại chữ trên menu chuột phải (Windows).
+    pub fn settings_changed(app: &AppHandle) {
+        context_menu::refresh(app);
+    }
 
     pub fn request_notifications(_app: &AppHandle) -> bool {
         true
@@ -59,10 +77,9 @@ mod imp {
     }
 
     pub fn after_setup(app: &AppHandle, settings: &Settings) -> tauri::Result<()> {
-        // Mở app kèm file (Windows "Send to", Linux "Mở bằng"): đưa vào danh sách chờ gửi.
-        if let Some(st) = app.try_state::<std::sync::Arc<crate::state::AppState>>() {
-            st.add_shared(crate::paths_from_args(std::env::args()), None);
-        }
+        // Mở app kèm file (Windows "Send to"/menu chuột phải, Linux "Mở bằng"): đưa vào danh sách chờ gửi.
+        open_with_args(app, std::env::args());
+        context_menu::refresh(app);
         tray::setup(app, settings.receive_enabled)?;
         apply_dock(app, settings.hide_dock);
         // Khi tự mở cùng máy tính thì chạy nền luôn, không hiện cửa sổ.
