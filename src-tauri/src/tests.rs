@@ -32,6 +32,7 @@ async fn node(name: &str) -> Node {
         hide_dock: false,
         language: "vi".into(),
         background_receive: true,
+        hotkeys: Default::default(),
     };
     let st = Arc::new(AppState::new(emit, dir.path().join("data"), ident, port, settings));
     let s2 = st.clone();
@@ -1553,4 +1554,85 @@ fn pair_link_from_camera_is_recognised() {
     assert!(!crate::is_pair_url(&url("betterdrop://share?text=x")));
     assert!(!crate::is_pair_url(&url("https://pair/?id=a")));
     assert!(!crate::is_pair_url(&url("file:///tmp/pair")));
+}
+
+/// Lượt trong lịch sử (dựng từ JSON để không phụ thuộc các trường thêm sau).
+#[cfg(desktop)]
+fn hist(direction: &str, peer_id: &str, status: &str) -> crate::history::HistoryEntry {
+    serde_json::from_value(serde_json::json!({
+        "id": uuid::Uuid::new_v4().to_string(), "finished_at": 0, "direction": direction,
+        "peer_name": peer_id, "peer_id": peer_id, "kind": "text", "file_count": 0,
+        "total_bytes": 0, "status": status,
+    }))
+    .unwrap()
+}
+
+#[cfg(desktop)]
+#[test]
+fn hotkey_picks_most_recent_online_peer() {
+    use crate::hotkey::{pick_target, Target};
+    let on = |ids: &[&str]| ids.iter().map(|i| (i.to_string(), i.to_uppercase())).collect::<Vec<_>>();
+    // Lịch sử mới nhất trước: B tắt máy nên bỏ qua; lượt nhận từ C và lượt gửi lỗi tới D không tính.
+    let history = vec![
+        hist("send", "b", "done"),
+        hist("receive", "c", "done"),
+        hist("send", "d", "error"),
+        hist("send", "a", "done"),
+    ];
+    assert_eq!(pick_target(&on(&["a", "c", "d"]), &history), Target::Peer("a".into()));
+    assert_eq!(pick_target(&on(&["a", "b"]), &history), Target::Peer("b".into()));
+    // Chưa gửi tới máy nào đang bật: một máy thì gửi luôn, nhiều máy thì để chọn.
+    assert_eq!(pick_target(&on(&["c"]), &history), Target::Peer("c".into()));
+    assert_eq!(pick_target(&on(&["c", "d"]), &history), Target::Choose);
+    assert_eq!(pick_target(&on(&[]), &history), Target::NoPeers);
+    assert_eq!(pick_target(&on(&["x", "y"]), &[]), Target::Choose);
+}
+
+#[cfg(desktop)]
+#[test]
+fn hotkey_parse_and_label() {
+    use crate::hotkey::{label, parse_shortcut};
+    use tauri_plugin_global_shortcut::{Code, Modifiers};
+    let d = parse_shortcut("CmdOrCtrl+Shift+D").unwrap();
+    let cmd = if cfg!(target_os = "macos") { Modifiers::SUPER } else { Modifiers::CONTROL };
+    assert_eq!((d.mods, d.key), (cmd | Modifiers::SHIFT, Code::KeyD));
+    // Tổ hợp do ô bắt phím tạo ra (tên phím theo KeyboardEvent.code).
+    let s = parse_shortcut("Ctrl+Alt+Digit5").unwrap();
+    assert_eq!((s.mods, s.key), (Modifiers::CONTROL | Modifiers::ALT, Code::Digit5));
+    assert!(parse_shortcut("Cmd+F12").is_ok());
+    // Thiếu Ctrl/Alt/⌘ (sẽ chặn mất phím gõ), sai tên phím, hai phím chính.
+    assert!(parse_shortcut("Shift+D").is_err());
+    assert!(parse_shortcut("D").is_err());
+    assert!(parse_shortcut("Ctrl+Shift+Nope").is_err());
+    assert!(parse_shortcut("Ctrl+D+E").is_err());
+
+    // Cài đặt: tắt thì không đăng ký gì; hai tổ hợp giống nhau (viết khác) thì báo lỗi.
+    use crate::hotkey::validate;
+    assert!(validate(&Hotkeys::default()).unwrap().is_some());
+    assert!(validate(&Hotkeys { enabled: false, send_clipboard: "x".into(), ..Default::default() }).unwrap().is_none());
+    let same = Hotkeys { send_clipboard: "CmdOrCtrl+Shift+KeyB".into(), ..Default::default() };
+    assert_eq!(validate(&same).unwrap_err(), "Hai phím tắt đang trùng nhau");
+    assert!(validate(&Hotkeys { open_app: "Shift+B".into(), ..Default::default() }).is_err());
+
+    assert_eq!(label("CmdOrCtrl+Shift+D", true), "⌘⇧D");
+    assert_eq!(label("CmdOrCtrl+Shift+D", false), "Ctrl+Shift+D");
+    assert_eq!(label("Ctrl+Alt+Digit5", true), "⌃⌥5");
+    assert_eq!(label("Super+KeyK", false), "Win+K");
+}
+
+#[test]
+fn hotkey_settings_default_and_roundtrip() {
+    // File cài đặt cũ chưa có "hotkeys": dùng mặc định (bật).
+    let old = r#"{"device_id":"x","name":"Mac","download_dir":"/tmp"}"#;
+    let s: Settings = serde_json::from_str(old).unwrap();
+    assert_eq!(s.hotkeys, Hotkeys::default());
+    assert!(s.hotkeys.enabled);
+    assert_eq!(s.hotkeys.send_clipboard, "CmdOrCtrl+Shift+D");
+    assert_eq!(s.hotkeys.open_app, "CmdOrCtrl+Shift+B");
+    // Thiếu một trường trong "hotkeys" thì trường đó lấy mặc định.
+    let partial = r#"{"device_id":"x","name":"Mac","download_dir":"/tmp","hotkeys":{"enabled":false,"open_app":"Alt+F2"}}"#;
+    let s: Settings = serde_json::from_str(partial).unwrap();
+    assert_eq!((s.hotkeys.enabled, s.hotkeys.open_app.as_str(), s.hotkeys.send_clipboard.as_str()), (false, "Alt+F2", "CmdOrCtrl+Shift+D"));
+    let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+    assert_eq!(back.hotkeys, s.hotkeys);
 }

@@ -122,6 +122,7 @@ pub fn load_settings(dir: &Path, defaults: Defaults) -> Settings {
         hide_dock: false,
         language: "auto".into(),
         background_receive: true,
+        hotkeys: Default::default(),
     };
     let _ = save_settings(dir, &s);
     s

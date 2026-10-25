@@ -372,6 +372,14 @@
           <label class="check" id="row-background" hidden><input type="checkbox" id="set-background" /> Nhận file khi chạy nền</label>
           <p class="muted small" id="bg-hint"></p>
         </fieldset>
+        <fieldset class="toggles" id="row-hotkeys" hidden>
+          <legend>Phím tắt</legend>
+          <label class="check"><input type="checkbox" id="set-hotkeys" /> Bật phím tắt toàn cục</label>
+          <div class="hotkey-row"><span>Gửi clipboard tới máy gần nhất</span><input class="hotkey" id="hk-send" readonly placeholder="Nhấn tổ hợp phím…" /></div>
+          <div class="hotkey-row"><span>Mở BetterDrop</span><input class="hotkey" id="hk-open" readonly placeholder="Nhấn tổ hợp phím…" /></div>
+          <p class="muted small">Bấm vào ô rồi nhấn tổ hợp phím mới. “Máy gần nhất” là máy đang bật mà bạn gửi tới gần đây nhất.</p>
+          <p class="small hotkey-error" id="hk-error" hidden></p>
+        </fieldset>
         <div class="hidden-block" id="trusted-block" hidden>
           <div class="legend">Máy tin cậy <span class="muted small">(file được nhận luôn, không hỏi)</span></div>
           <ul class="hidden-list" id="trusted-list"></ul>

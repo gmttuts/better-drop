@@ -10,6 +10,7 @@
   const me = {
     info: { id: "me", name: "MacBook của bạn", os: "mac", fp: "520d9a1b", port: 53318, version: "0.3.3" },
     settings: { device_id: "me", name: "MacBook của bạn", download_dir: "~/Downloads/BetterDrop", receive_enabled: true, hide_dock: false,
+      hotkeys: { enabled: true, send_clipboard: "CmdOrCtrl+Shift+D", open_app: "CmdOrCtrl+Shift+B" },
       language: new URLSearchParams(location.search).get("lang") === "en" ? "en" : "vi" },
     addrs: ["192.168.1.12:53318"],
     autostart: true,
@@ -193,6 +194,8 @@
     set_receive_enabled({ enabled }) { me.settings.receive_enabled = enabled; return me; },
     set_autostart({ enabled }) { me.autostart = enabled; return me; },
     set_hide_dock({ hide }) { me.settings.hide_dock = hide; return me; },
+    set_hotkeys({ hotkeys }) { me.settings.hotkeys = hotkeys; return me; },
+    pause_hotkeys: () => null,
     set_language({ language }) {
       // Bản demo đổi ngôn ngữ bằng tham số ?lang= trên URL.
       const u = new URL(location.href);

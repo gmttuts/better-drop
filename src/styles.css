@@ -452,6 +452,12 @@ html.scanning body > :not(.scan-overlay):not(.toasts) { visibility: hidden; }
 .settings label.check { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-weight: 400; cursor: pointer; }
 .check input { width: auto; margin: 0; accent-color: var(--accent); }
 .toggles .muted { margin: 4px 0 0; }
+.hotkey-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.hotkey-row span { min-width: 0; }
+.hotkey { width: 140px; flex: none; text-align: center; cursor: pointer; caret-color: transparent; }
+.hotkey:focus { border-color: var(--accent); outline: 2px solid var(--accent-soft); }
+.hotkey:disabled { opacity: 0.5; cursor: default; }
+.hotkey-error { color: var(--danger); margin: 4px 0 0; }
 .info-block { background: var(--bg); border-radius: 8px; padding: 10px 12px; }
 .addrs { list-style: none; padding: 0; margin: 4px 0 8px; -webkit-user-select: text; user-select: text; }
 

@@ -39,7 +39,7 @@ const CLIP_PREFIX: &str = "clip:";
 const FILE_PREFIX: &str = "file:";
 
 /// Chọn chữ theo ngôn ngữ giao diện trong Cài đặt.
-fn t(app: &AppHandle, vi: &str, en: &str) -> String {
+pub(crate) fn t(app: &AppHandle, vi: &str, en: &str) -> String {
     let english = app
         .try_state::<Arc<AppState>>()
         .is_some_and(|st| st.settings.read().unwrap().english());
@@ -121,7 +121,7 @@ fn tr_error(app: &AppHandle, err: &str) -> String {
 }
 
 /// "Gửi clipboard tới › Máy A": gửi văn bản trong clipboard.
-fn send_clipboard(app: &AppHandle, peer_id: &str) {
+pub(crate) fn send_clipboard(app: &AppHandle, peer_id: &str) {
     let st = app.state::<Arc<AppState>>().inner().clone();
     let Some(peer) = st.find_peer(peer_id) else {
         notify(app, &t(app, "Không gửi được", "Couldn't send"), &tr_error(app, "Không tìm thấy máy nhận"));

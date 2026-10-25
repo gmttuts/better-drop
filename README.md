@@ -13,6 +13,7 @@ Chuyển file, thư mục và văn bản giữa Mac ⇄ Windows ⇄ Linux ⇄ An
 - **Nhóm máy**: chia sẻ một nhóm cho máy khác bằng nút "Gửi nhóm".
 - **Chia sẻ từ app khác**: Android "Chia sẻ → BetterDrop", Mac "Mở bằng"/kéo vào Dock, Windows chuột phải › "Send to › BetterDrop", iPhone/iPad "Chia sẻ → BetterDrop" (ảnh, video, file trong app Tệp, link và văn bản từ Safari…) hoặc "Mở bằng". File/văn bản được đưa sẵn vào danh sách gửi.
 - **Gửi nhanh từ thanh menu/khay hệ thống** (Mac/Windows/Linux): bấm biểu tượng BetterDrop › "Gửi clipboard tới" hoặc "Gửi file tới" › chọn máy, không cần mở cửa sổ. Kết quả báo bằng thông báo hệ thống và vẫn ghi vào lịch sử.
+- **Phím tắt toàn cục** (Mac/Windows/Linux): ⌘⇧D / Ctrl+Shift+D gửi văn bản trong clipboard tới máy gần nhất (máy đang bật mà bạn gửi tới gần đây nhất; nếu có nhiều máy mà chưa gửi lần nào thì mở cửa sổ ở tab Văn bản với nội dung đã điền sẵn). ⌘⇧B / Ctrl+Shift+B mở BetterDrop. Bật/tắt và đổi tổ hợp trong Cài đặt › Phím tắt.
 - **Tiếng Anh**: Cài đặt › Ngôn ngữ (Tự động/Tiếng Việt/English).
 - **Tự cập nhật** (Mac/Windows/Linux AppImage): mở app sẽ tự xem có bản phát hành mới trên GitHub, bấm "Cập nhật và mở lại". Bản cập nhật được ký, app kiểm tra chữ ký trước khi cài.
 - File nhận được lưu vào `~/Downloads/BetterDrop` (đổi được trong Cài đặt). Nếu trùng tên, file mới được thêm hậu tố ` (1)`, không ghi đè file cũ.

@@ -199,6 +199,30 @@ pub struct Settings {
     /// (dịch vụ chạy nền kèm thông báo thường trực). Máy tính luôn chạy nền nên bỏ qua.
     #[serde(default = "default_true")]
     pub background_receive: bool,
+    /// Phím tắt toàn cục (chỉ máy tính). Thêm sau: file cài đặt cũ không có thì dùng mặc định (bật).
+    #[serde(default)]
+    pub hotkeys: Hotkeys,
+}
+
+/// Phím tắt toàn cục, dạng chữ như "CmdOrCtrl+Shift+D" (CmdOrCtrl = ⌘ trên Mac, Ctrl trên Windows/Linux).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct Hotkeys {
+    pub enabled: bool,
+    /// Gửi clipboard tới máy gần nhất.
+    pub send_clipboard: String,
+    /// Mở BetterDrop.
+    pub open_app: String,
+}
+
+impl Default for Hotkeys {
+    fn default() -> Self {
+        Hotkeys {
+            enabled: true,
+            send_clipboard: "CmdOrCtrl+Shift+D".into(),
+            open_app: "CmdOrCtrl+Shift+B".into(),
+        }
+    }
 }
 
 fn default_language() -> String {
