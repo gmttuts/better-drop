@@ -29,7 +29,10 @@
   let groups = [{ id: "g1", name: "Phòng kế toán", members: [{ id: "p1", name: "Laptop Phạm Bá Cháy", os: "windows" }, { id: "p5", name: "PC Thiết kế chờ nâng cấp", os: "windows" }] }];
   let hidden = [];
   let trusted = [{ id: "p2", name: "Pixel 9 của Tuyến", os: "android", fp: "c41e02b7" }];
-  const devices = () => ({ groups, hidden, trusted });
+  let defaultRule = { max_mb: null, media_only: false };
+  let rules = [{ id: "p3", name: "iPad của Dương Vũ", os: "ios", fp: "9a0b77d2", folder: "iPad của Dương Vũ", auto: { max_mb: null, media_only: true } }];
+  let clipboard = { enabled: true, devices: ["p2"] };
+  const devices = () => ({ groups, hidden, trusted, default_rule: defaultRule, rules, clipboard });
 
   // ---- Sample thumbnails: tiny hand-drawn SVG "photos" (no real images) ----
   function sampleThumb(hue, sun, hills) {
@@ -184,7 +187,25 @@
     take_shared_items: () => ({ paths: [], text: null }),
     check_update: () => null,
     install_update: () => null,
-    untrust_device({ id }) { trusted = trusted.filter((d) => d.id !== id); return devices(); },
+    untrust_device({ id }) {
+      trusted = trusted.filter((d) => d.id !== id);
+      clipboard = { ...clipboard, devices: clipboard.devices.filter((d) => d !== id) };
+      return devices();
+    },
+    set_default_rule({ rule }) { defaultRule = rule; return devices(); },
+    set_device_rule({ id, folder, auto }) {
+      const p = peers.find((x) => x.id === id) || trusted.find((x) => x.id === id);
+      rules = rules.filter((r) => r.id !== id);
+      if (folder.trim() || auto) rules.push({ id, name: p?.name ?? "", os: p?.os ?? "", fp: p?.fp ?? "", folder: folder.trim(), auto });
+      return devices();
+    },
+    set_clipboard_sync({ enabled }) { clipboard = { ...clipboard, enabled }; return devices(); },
+    set_clipboard_device({ id, enabled }) {
+      const rest = clipboard.devices.filter((d) => d !== id);
+      clipboard = { ...clipboard, devices: enabled && trusted.some((t) => t.id === id) ? [...rest, id] : rest };
+      return devices();
+    },
+    async send_clipboard() { await wait(250); return null; },
     get_history: () => history,
     delete_history_item({ id }) { history = history.filter((h) => h.id !== id); return null; },
     clear_history() { history = []; return null; },

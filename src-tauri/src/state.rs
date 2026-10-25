@@ -43,6 +43,8 @@ pub struct Hooks {
     pub native_discovery: Option<Arc<dyn NativeDiscovery>>,
     /// Gọi trước khi (dựng lại) mDNS, kể cả sau khi mạng thay đổi (Android: khoá multicast).
     pub before_mdns: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// Ghi văn bản vào clipboard của hệ thống (đồng bộ clipboard). None: không ghi được.
+    pub write_clipboard: Option<Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>>,
 }
 
 pub struct AppState {
@@ -73,6 +75,19 @@ pub struct AppState {
     pub shared: Mutex<SharedItems>,
     /// Điện thoại: lấy ảnh thu nhỏ (khung hình video, HEIC) bằng thư viện của hệ thống.
     pub media_thumb: Option<crate::thumbs::MediaThumbFn>,
+    /// Đồng bộ clipboard: lần đọc/ghi gần nhất (chống gửi trùng, chống vòng lặp).
+    pub clip: Mutex<crate::clipboard_sync::ClipState>,
+}
+
+/// Sổ thiết bị gửi lên giao diện (`get_devices`, event `devices-changed`).
+#[derive(serde::Serialize)]
+pub struct DevicesInfo {
+    pub groups: Vec<crate::devices::Group>,
+    pub hidden: Vec<crate::devices::DeviceRef>,
+    pub trusted: Vec<crate::devices::TrustedDevice>,
+    pub default_rule: crate::devices::AutoRule,
+    pub rules: Vec<crate::devices::DeviceRule>,
+    pub clipboard: crate::devices::ClipboardSync,
 }
 
 /// Mục được chia sẻ vào BetterDrop từ app khác (Mở bằng, Send to, menu Chia sẻ…).
@@ -114,6 +129,7 @@ impl AppState {
             history: Arc::new(Mutex::new(History::load(&data_dir_for_history))),
             shared: Mutex::default(),
             media_thumb: None,
+            clip: Mutex::default(),
         }
     }
 
@@ -209,12 +225,20 @@ impl AppState {
         self.emit_peers();
     }
 
+    pub fn devices_info(&self) -> DevicesInfo {
+        let book = self.devices.lock().unwrap();
+        DevicesInfo {
+            groups: book.groups.clone(),
+            hidden: book.hidden.clone(),
+            trusted: book.trusted.clone(),
+            default_rule: book.default_rule.clone(),
+            rules: book.rules.clone(),
+            clipboard: book.clipboard.clone(),
+        }
+    }
+
     pub fn emit_devices(&self) {
-        let book = self.devices.lock().unwrap().clone();
-        self.emit(
-            "devices-changed",
-            serde_json::json!({ "groups": book.groups, "hidden": book.hidden, "trusted": book.trusted }),
-        );
+        self.emit("devices-changed", self.devices_info());
     }
 
     /// Nhận thêm mục được chia sẻ vào và báo giao diện lấy ra.

@@ -33,7 +33,10 @@
   let groups = [{ id: "g1", name: "Phòng kế toán", members: [{ id: "p1", name: "Laptop Phạm Bá Cháy", os: "windows" }, { id: "p5", name: "PC Thiết kế chờ nâng cấp", os: "windows" }] }];
   let hidden = [];
   let trusted = [{ id: "p2", name: "Pixel 9 của Tuyến", os: "android", fp: "c41e02b7" }];
-  const devices = () => ({ groups, hidden, trusted });
+  let defaultRule = { max_mb: null, media_only: false };
+  let rules = [{ id: "p3", name: "iPad của Dương Vũ", os: "ios", fp: "9a0b77d2", folder: "iPad của Dương Vũ", auto: { max_mb: null, media_only: true } }];
+  let clipboard = { enabled: true, devices: ["p2"] };
+  const devices = () => ({ groups, hidden, trusted, default_rule: defaultRule, rules, clipboard });
 
   // ---- Sample thumbnails: tiny hand-drawn SVG "photos" (no real images) ----
   function sampleThumb(hue, sun, hills) {
@@ -188,7 +191,25 @@
     take_shared_items: () => ({ paths: [], text: null }),
     check_update: () => null,
     install_update: () => null,
-    untrust_device({ id }) { trusted = trusted.filter((d) => d.id !== id); return devices(); },
+    untrust_device({ id }) {
+      trusted = trusted.filter((d) => d.id !== id);
+      clipboard = { ...clipboard, devices: clipboard.devices.filter((d) => d !== id) };
+      return devices();
+    },
+    set_default_rule({ rule }) { defaultRule = rule; return devices(); },
+    set_device_rule({ id, folder, auto }) {
+      const p = peers.find((x) => x.id === id) || trusted.find((x) => x.id === id);
+      rules = rules.filter((r) => r.id !== id);
+      if (folder.trim() || auto) rules.push({ id, name: p?.name ?? "", os: p?.os ?? "", fp: p?.fp ?? "", folder: folder.trim(), auto });
+      return devices();
+    },
+    set_clipboard_sync({ enabled }) { clipboard = { ...clipboard, enabled }; return devices(); },
+    set_clipboard_device({ id, enabled }) {
+      const rest = clipboard.devices.filter((d) => d !== id);
+      clipboard = { ...clipboard, devices: enabled && trusted.some((t) => t.id === id) ? [...rest, id] : rest };
+      return devices();
+    },
+    async send_clipboard() { await wait(250); return null; },
     get_history: () => history,
     delete_history_item({ id }) { history = history.filter((h) => h.id !== id); return null; },
     clear_history() { history = []; return null; },
@@ -332,8 +353,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>BetterDrop (bản dùng thử)</title>
     <link rel="icon" type="image/png" href="./logo.png" />
-    <script type="module" crossorigin src="./assets/index-x032WWA2.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-zse4-ps7.css">
+    <script type="module" crossorigin src="./assets/index-Dd0E1Eu4.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-Dd9ieekY.css">
   </head>
   <body>
     <header class="topbar">
@@ -402,7 +423,9 @@
           <textarea id="text-input" rows="7" placeholder="Nhập hoặc dán văn bản, đường link…"></textarea>
           <div class="row-end">
             <button class="btn" id="btn-paste">Dán từ clipboard</button>
+            <button class="btn" id="btn-send-clip" title="Gửi nội dung clipboard tới các máy đang chọn. Máy nhận tin cậy máy này và bật đồng bộ clipboard thì ghi thẳng vào clipboard.">Gửi clipboard</button>
           </div>
+          <p class="muted small" id="clip-mobile-hint" hidden>Điện thoại không đọc được clipboard khi BetterDrop ở nền, nên không tự đồng bộ: chép xong, chọn máy rồi bấm “Gửi clipboard”.</p>
         </div>
       </section>
 
@@ -521,6 +544,40 @@
         <button class="btn" type="button" id="btn-share-group-cancel">Huỷ</button>
         <button class="btn primary" type="button" id="btn-share-group-send">Chia sẻ</button>
       </div>
+    </dialog>
+
+    <!-- Quy tắc nhận của một máy -->
+    <dialog id="dlg-rule" class="dialog">
+      <h3 id="rule-title">Quy tắc nhận</h3>
+      <form id="rule-form" class="settings">
+        <label>Thư mục nhận riêng
+          <div class="input-row">
+            <input id="rule-folder" placeholder="Thư mục nhận mặc định" />
+            <button class="btn" type="button" id="btn-rule-folder">Chọn…</button>
+            <button class="btn" type="button" id="btn-rule-folder-default">Mặc định</button>
+          </div>
+        </label>
+        <p class="muted small" id="rule-folder-hint"></p>
+        <label>Tự nhận không hỏi
+          <select id="rule-mode">
+            <option value="default">Theo quy tắc chung</option>
+            <option value="custom">Đặt riêng cho máy này</option>
+            <option value="off">Luôn hỏi</option>
+          </select>
+        </label>
+        <div id="rule-custom" hidden>
+          <div class="rule-row">
+            <label class="check"><input type="checkbox" id="rule-dev-size-on" /> Tổng dung lượng không quá</label>
+            <input type="number" id="rule-dev-size" min="1" max="1000000" value="50" class="mb-input" /> <span>MB</span>
+          </div>
+          <label class="check"><input type="checkbox" id="rule-dev-media" /> Tất cả là ảnh/video</label>
+        </div>
+        <p class="muted small" id="rule-note"></p>
+        <div class="dialog-actions">
+          <button class="btn" type="button" id="btn-rule-cancel">Huỷ</button>
+          <button class="btn primary" type="submit">Lưu</button>
+        </div>
+      </form>
     </dialog>
 
     <!-- Xác nhận -->
@@ -708,6 +765,22 @@
           <label class="check" id="row-dock" hidden><input type="checkbox" id="set-dock" /> Ẩn biểu tượng trên Dock</label>
           <label class="check" id="row-background" hidden><input type="checkbox" id="set-background" /> Nhận file khi chạy nền</label>
           <p class="muted small" id="bg-hint"></p>
+        </fieldset>
+        <fieldset class="toggles">
+          <legend>Nhận file</legend>
+          <p class="muted small rule-intro">Tự nhận, không hỏi, từ máy đã lưu nhưng chưa tin cậy (máy bạn đã thêm hoặc đã từng chấp nhận) khi:</p>
+          <div class="rule-row">
+            <label class="check"><input type="checkbox" id="rule-size-on" /> Tổng dung lượng không quá</label>
+            <input type="number" id="rule-size" min="1" max="1000000" value="50" class="mb-input" /> <span>MB</span>
+          </div>
+          <label class="check"><input type="checkbox" id="rule-media" /> Tất cả là ảnh/video</label>
+          <p class="muted small">Không chọn gì: luôn hỏi. Máy lạ chưa từng lưu luôn được hỏi. Máy tin cậy luôn tự nhận. Đặt riêng cho từng máy (thư mục nhận, điều kiện) bằng nút hình thư mục cạnh tên máy.</p>
+        </fieldset>
+        <fieldset class="toggles">
+          <legend>Đồng bộ clipboard</legend>
+          <label class="check"><input type="checkbox" id="set-clip-sync" /> Đồng bộ clipboard với máy tin cậy</label>
+          <p class="muted small" id="clip-hint"></p>
+          <ul class="hidden-list" id="clip-devices"></ul>
         </fieldset>
         <fieldset class="toggles" id="row-hotkeys" hidden>
           <legend>Phím tắt</legend>

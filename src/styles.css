@@ -471,6 +471,15 @@ html.scanning body > :not(.scan-overlay):not(.toasts) { visibility: hidden; }
 .toggles .muted { margin: 4px 0 0; }
 .hotkey-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
 .hotkey-row span { min-width: 0; }
+.rule-intro { margin: 0 0 6px !important; }
+.rule-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.settings .rule-row label.check { margin-bottom: 0; }
+.mb-input { width: 90px !important; }
+.row-btns { display: flex; gap: 6px; flex-shrink: 0; }
+.icon-btn.on { color: var(--accent); }
+#clip-devices { margin-top: 6px; }
+#clip-devices label.check { margin-bottom: 0; }
+.row-end { gap: 8px; }
 .hotkey { width: 140px; flex: none; text-align: center; cursor: pointer; caret-color: transparent; }
 .hotkey:focus { border-color: var(--accent); outline: 2px solid var(--accent-soft); }
 .hotkey:disabled { opacity: 0.5; cursor: default; }

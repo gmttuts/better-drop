@@ -324,7 +324,12 @@ async fn prepare(
             return Err(StatusCode::TOO_MANY_REQUESTS);
         }
         remember_sender(&st, &req.sender, remote);
-        receive_text(&st, &req.sender.name, Some(&req.sender.id), text);
+        // Clipboard từ máy tin cậy đã bật đồng bộ: ghi thẳng vào clipboard, không hỏi,
+        // không ghi Lịch sử. Không đủ điều kiện thì như văn bản thường.
+        let clip = req.clipboard && crate::clipboard_sync::accepts(&st, &req.sender, client_fp.as_deref());
+        if !(clip && crate::clipboard_sync::receive(&st, &req.sender.name, &text).await) {
+            receive_text(&st, &req.sender.name, Some(&req.sender.id), text);
+        }
         return Ok(Json(PrepareResponse::default()));
     }
     let _slot = pending_slot(&st, remote.ip())?;
@@ -350,6 +355,10 @@ pub struct Trust {
     pub auto: bool,
     /// Có thể hiện ô "Luôn chấp nhận từ máy này".
     pub candidate: Option<crate::devices::TrustedDevice>,
+    /// Tự nhận khi các file thoả điều kiện này (quy tắc nhận của máy đã lưu, chưa tin cậy).
+    pub rule: Option<crate::devices::AutoRule>,
+    /// Thư mục nhận riêng của máy này (None: thư mục nhận mặc định).
+    pub folder: Option<String>,
 }
 
 /// Danh tính chỉ được coi là thật khi chứng chỉ máy gửi trình trong TLS (đã kiểm chữ
@@ -360,8 +369,16 @@ pub fn trust_of(st: &AppState, sender: &DeviceInfo, client_fp: Option<&str>) -> 
     if !proven {
         return Trust::default();
     }
+    let book = st.devices.lock().unwrap();
+    let auto = book.is_trusted(&sender.id, &sender.fp);
     Trust {
-        auto: st.devices.lock().unwrap().is_trusted(&sender.id, &sender.fp),
+        auto,
+        // Quy tắc nhận cũng gắn với dấu vân tay: máy khác khai cùng id không được hưởng.
+        rule: if auto { None } else { book.auto_rule_for(&sender.id, &sender.fp) },
+        folder: book
+            .rule_for(&sender.id, &sender.fp)
+            .map(|r| r.folder.clone())
+            .filter(|f| !f.trim().is_empty()),
         candidate: Some(crate::devices::TrustedDevice {
             id: sender.id.clone(),
             name: sender.name.clone(),
@@ -519,11 +536,12 @@ pub async fn accept_files_with_thumbs(
     // Tên đúng như sẽ lưu (đã làm sạch), không phải tên máy gửi khai.
     let clean = |f: &FileMeta| sanitize_rel_path(&f.rel_path).join("/");
 
-    if trust.auto {
-        // Máy tin cậy: nhận luôn, chỉ báo cho người dùng biết.
+    let by_rule = !trust.auto && trust.rule.as_ref().is_some_and(|r| r.allows(req_files, total_bytes));
+    if trust.auto || by_rule {
+        // Máy tin cậy, hoặc thoả quy tắc nhận: nhận luôn, chỉ báo cho người dùng biết.
         st.emit(
             "auto-accepted",
-            serde_json::json!({ "sender_name": sender_name, "file_count": req_files.len(), "total_bytes": total_bytes }),
+            serde_json::json!({ "sender_name": sender_name, "file_count": req_files.len(), "total_bytes": total_bytes, "rule": by_rule }),
         );
     } else {
         let can_trust = trust.candidate.is_some();
@@ -561,7 +579,11 @@ pub async fn accept_files_with_thumbs(
     }
 
     let session_id = uuid::Uuid::new_v4().to_string();
-    let base_dir = PathBuf::from(st.settings.read().unwrap().download_dir.clone());
+    let download_dir = PathBuf::from(st.settings.read().unwrap().download_dir.clone());
+    let base_dir = match &trust.folder {
+        Some(f) => crate::devices::receive_dir(&download_dir, f, cfg!(mobile)),
+        None => download_dir,
+    };
     let mut tokens = HashMap::new();
     let mut files = HashMap::new();
     for f in req_files {

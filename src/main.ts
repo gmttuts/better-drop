@@ -193,6 +193,7 @@ function renderMe() {
   $<HTMLInputElement>("set-autostart").checked = me.autostart;
   $<HTMLInputElement>("set-dock").checked = me.settings.hide_dock;
   $<HTMLInputElement>("set-background").checked = me.settings.background_receive !== false;
+  $("clip-mobile-hint").hidden = !me.mobile;
   renderHotkeys();
 }
 
@@ -287,12 +288,45 @@ interface TrustedDevice {
   fp: string;
 }
 
+/** Điều kiện tự nhận (khớp `devices::AutoRule`). Không đặt gì = tắt. */
+interface AutoRule {
+  max_mb: number | null;
+  media_only: boolean;
+}
+interface DeviceRule {
+  id: string;
+  name: string;
+  os: string;
+  fp: string;
+  folder: string;
+  /** null: theo quy tắc chung. */
+  auto: AutoRule | null;
+}
+interface ClipboardSync {
+  enabled: boolean;
+  devices: string[];
+}
+interface DevicesInfo {
+  groups: Group[];
+  hidden: DeviceRef[];
+  trusted?: TrustedDevice[];
+  default_rule?: AutoRule;
+  rules?: DeviceRule[];
+  clipboard?: ClipboardSync;
+}
+
 let groups: Group[] = [];
 let trusted: TrustedDevice[] = [];
+let defaultRule: AutoRule = { max_mb: null, media_only: false };
+let deviceRules: DeviceRule[] = [];
+let clipSync: ClipboardSync = { enabled: false, devices: [] };
 let hiddenDevices: DeviceRef[] = [];
 /** Nhóm đang lọc; null = tất cả máy. */
 let activeGroup: string | null = null;
 const selected = new Set<string>();
+
+const ICON_RULE =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 13l2 2 4-4"/></svg>';
 
 const ICON_FORGET =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>';
@@ -455,6 +489,12 @@ function renderPeers() {
       forget.setAttribute("aria-label", `Quên ${d.name}`);
       forget.addEventListener("click", () => forgetDevice(d));
 
+      const ruleBtn = el("button", { className: "icon-btn", title: "Quy tắc nhận: thư mục riêng, tự nhận" });
+      ruleBtn.innerHTML = ICON_RULE;
+      ruleBtn.setAttribute("aria-label", `Quy tắc nhận của ${d.name}`);
+      if (deviceRules.some((r) => r.id === d.id)) ruleBtn.classList.add("on");
+      ruleBtn.addEventListener("click", () => openRuleDialog(d));
+
       const icon = el("span", { className: "peer-icon" });
       icon.innerHTML = osIcon(d.os);
       const meta = el("div", { className: "muted small" });
@@ -483,6 +523,7 @@ function renderPeers() {
         icon,
         el("div", { className: "peer-text" }, el("div", { className: "peer-name", textContent: d.name }), meta),
         send,
+        ruleBtn,
         forget,
       );
     }),
@@ -510,11 +551,15 @@ async function forgetDevice(d: DeviceRef) {
   }
 }
 
-function applyDevices(info: { groups: Group[]; hidden: DeviceRef[]; trusted?: TrustedDevice[] }) {
+function applyDevices(info: DevicesInfo) {
   groups = info.groups;
   hiddenDevices = info.hidden;
   trusted = info.trusted ?? [];
+  defaultRule = info.default_rule ?? { max_mb: null, media_only: false };
+  deviceRules = info.rules ?? [];
+  clipSync = info.clipboard ?? { enabled: false, devices: [] };
   renderTrusted();
+  renderReceiveRules();
   if (activeGroup && !groups.some((g) => g.id === activeGroup)) activeGroup = null;
   renderPeers();
   renderHidden();
@@ -645,6 +690,8 @@ function renderTrusted() {
   $("trusted-block").hidden = trusted.length === 0;
   $("trusted-list").replaceChildren(
     ...trusted.map((d) => {
+      const rule = el("button", { className: "btn small", textContent: "Quy tắc…", type: "button", title: "Thư mục nhận riêng của máy này" });
+      rule.addEventListener("click", () => openRuleDialog(d));
       const b = el("button", { className: "btn small", textContent: "Bỏ tin cậy", type: "button" });
       b.addEventListener("click", async () => {
         try {
@@ -658,10 +705,150 @@ function renderTrusted() {
         "li",
         {},
         el("span", {}, `${d.name} `, el("span", { className: "muted small code", textContent: shortCode(d.fp) })),
-        b,
+        el("span", { className: "row-btns" }, rule, b),
       );
     }),
   );
+}
+
+// ---- Quy tắc nhận & đồng bộ clipboard ----
+
+const MB_DEFAULT = 50;
+
+/** Đọc cặp ô "dung lượng ≤ N MB" + "chỉ ảnh/video". */
+function readAutoRule(sizeOn: string, size: string, media: string): AutoRule {
+  const n = Math.floor(Number($<HTMLInputElement>(size).value));
+  return {
+    max_mb: $<HTMLInputElement>(sizeOn).checked && n > 0 ? n : null,
+    media_only: $<HTMLInputElement>(media).checked,
+  };
+}
+
+function fillAutoRule(r: AutoRule, sizeOn: string, size: string, media: string) {
+  $<HTMLInputElement>(sizeOn).checked = r.max_mb !== null;
+  $<HTMLInputElement>(size).value = String(r.max_mb ?? MB_DEFAULT);
+  $<HTMLInputElement>(size).disabled = r.max_mb === null;
+  $<HTMLInputElement>(media).checked = r.media_only;
+}
+
+function describeRule(r: AutoRule): string {
+  const parts = [];
+  if (r.max_mb !== null) parts.push(`≤ ${r.max_mb} MB`);
+  if (r.media_only) parts.push("chỉ ảnh/video");
+  return parts.length ? parts.join(", ") : "luôn hỏi";
+}
+
+/** Phần "Nhận file" và "Đồng bộ clipboard" trong Cài đặt. */
+function renderReceiveRules() {
+  fillAutoRule(defaultRule, "rule-size-on", "rule-size", "rule-media");
+  $<HTMLInputElement>("set-clip-sync").checked = clipSync.enabled;
+  const mobile = !!me?.mobile;
+  $("clip-hint").textContent = mobile
+    ? "Điện thoại chỉ NHẬN: Android/iOS không cho app đọc clipboard khi chạy nền. Văn bản từ máy tính tin cậy được ghi vào clipboard khi BetterDrop đang mở (hoặc chạy nền nếu hệ điều hành cho phép). Để gửi, bấm “Gửi clipboard” trong tab Văn bản."
+    : "Văn bản bạn chép (tối đa 100 KB) được gửi tới các máy tin cậy đã chọn đang bật; máy đó ghi thẳng vào clipboard, chỉ hiện một thông báo nhỏ. Không ghi vào Lịch sử.";
+  $("clip-devices").replaceChildren(
+    ...(trusted.length
+      ? trusted.map((d) => {
+          const box = el("input", { type: "checkbox", checked: clipSync.devices.includes(d.id), disabled: !clipSync.enabled });
+          box.addEventListener("change", async () => {
+            try {
+              applyDevices(await invoke<DevicesInfo>("set_clipboard_device", { id: d.id, enabled: box.checked }));
+            } catch (e) {
+              box.checked = !box.checked;
+              toast(errorText(e), "error");
+            }
+          });
+          return el("li", {}, el("label", { className: "check" }, box, d.name));
+        })
+      : [el("li", { className: "muted small", textContent: "Chưa có máy tin cậy. Khi nhận file, chọn “Luôn chấp nhận từ máy này” để tin cậy một máy." })]),
+  );
+}
+
+async function saveDefaultRule() {
+  $<HTMLInputElement>("rule-size").disabled = !$<HTMLInputElement>("rule-size-on").checked;
+  try {
+    applyDevices(await invoke<DevicesInfo>("set_default_rule", { rule: readAutoRule("rule-size-on", "rule-size", "rule-media") }));
+  } catch (e) {
+    toast(errorText(e), "error");
+  }
+}
+
+let ruleDevice: DeviceRef | null = null;
+
+function openRuleDialog(d: DeviceRef) {
+  ruleDevice = d;
+  const r = deviceRules.find((x) => x.id === d.id);
+  const mobile = !!me?.mobile;
+  $("rule-title").textContent = `Quy tắc nhận: ${d.name}`;
+  const folder = $<HTMLInputElement>("rule-folder");
+  folder.value = r?.folder ?? "";
+  folder.readOnly = !mobile;
+  folder.placeholder = mobile ? `vd ${d.name}` : "Thư mục nhận mặc định";
+  $("btn-rule-folder").hidden = mobile;
+  $("rule-folder-hint").textContent = mobile
+    ? `Thư mục con trong thư mục nhận (${me?.settings.download_dir ?? ""}). Để trống: lưu thẳng vào thư mục nhận.`
+    : "Để trống: lưu vào thư mục nhận mặc định.";
+  const mode = r?.auto == null ? "default" : r.auto.max_mb === null && !r.auto.media_only ? "off" : "custom";
+  $<HTMLSelectElement>("rule-mode").value = mode;
+  fillAutoRule(r?.auto ?? defaultRule, "rule-dev-size-on", "rule-dev-size", "rule-dev-media");
+  renderRuleMode();
+  $<HTMLDialogElement>("dlg-rule").showModal();
+}
+
+function renderRuleMode() {
+  const d = ruleDevice;
+  const mode = $<HTMLSelectElement>("rule-mode").value;
+  $("rule-custom").hidden = mode !== "custom";
+  $<HTMLInputElement>("rule-dev-size").disabled = !$<HTMLInputElement>("rule-dev-size-on").checked;
+  const isTrusted = !!d && trusted.some((t) => t.id === d.id);
+  $("rule-note").textContent = isTrusted
+    ? "Máy tin cậy luôn được nhận không hỏi; chỉ thư mục riêng có tác dụng."
+    : mode === "default"
+      ? `Quy tắc chung hiện là: ${describeRule(defaultRule)}. Chỉ áp dụng khi máy này đã được thêm hoặc đã từng được chấp nhận.`
+      : "Quy tắc gắn với chứng chỉ của máy này: máy khác giả cùng tên/mã cũng không được hưởng.";
+}
+
+async function saveRuleFromDialog(ev: Event) {
+  ev.preventDefault();
+  const d = ruleDevice;
+  if (!d) return;
+  const mode = $<HTMLSelectElement>("rule-mode").value;
+  const auto: AutoRule | null =
+    mode === "default"
+      ? null
+      : mode === "off"
+        ? { max_mb: null, media_only: false }
+        : readAutoRule("rule-dev-size-on", "rule-dev-size", "rule-dev-media");
+  try {
+    applyDevices(await invoke<DevicesInfo>("set_device_rule", { id: d.id, folder: $<HTMLInputElement>("rule-folder").value, auto }));
+    $<HTMLDialogElement>("dlg-rule").close();
+    toast(`Đã lưu quy tắc nhận của ${d.name}`);
+  } catch (e) {
+    toast(errorText(e), "error");
+  }
+}
+
+/** Gửi clipboard tới các máy đang chọn (điện thoại không tự đồng bộ được). */
+async function sendClipboard() {
+  const targets = peers.filter((p) => selected.has(p.id) && p.online);
+  if (!targets.length) {
+    toast("Chọn máy nhận trước (ô vuông cạnh tên máy)", "error");
+    return;
+  }
+  let text = "";
+  try {
+    text = (await readText()) ?? "";
+  } catch {
+    /* clipboard trống hoặc không phải văn bản */
+  }
+  if (!text.trim()) {
+    toast("Clipboard không có văn bản", "error");
+    return;
+  }
+  const results = await Promise.allSettled(targets.map((p) => invoke("send_clipboard", { peerId: p.id, text })));
+  const ok = results.filter((r) => r.status === "fulfilled").length;
+  if (ok) toast(ok === 1 && targets.length === 1 ? `Đã gửi clipboard tới ${targets[0].name}` : `Đã gửi clipboard tới ${ok} máy`);
+  results.forEach((r, i) => r.status === "rejected" && toast(`${targets[i].name}: ${errorText(r.reason)}`, "error"));
 }
 
 function renderHidden() {
@@ -1766,6 +1953,27 @@ async function init() {
     }
   });
 
+  $("btn-send-clip").addEventListener("click", sendClipboard);
+  for (const id of ["rule-size-on", "rule-size", "rule-media"]) $(id).addEventListener("change", saveDefaultRule);
+  $("set-clip-sync").addEventListener("change", async () => {
+    const box = $<HTMLInputElement>("set-clip-sync");
+    try {
+      applyDevices(await invoke<DevicesInfo>("set_clipboard_sync", { enabled: box.checked }));
+    } catch (e) {
+      box.checked = !box.checked;
+      toast(errorText(e), "error");
+    }
+  });
+  $("rule-form").addEventListener("submit", saveRuleFromDialog);
+  $("rule-mode").addEventListener("change", renderRuleMode);
+  $("rule-dev-size-on").addEventListener("change", renderRuleMode);
+  $("btn-rule-cancel").addEventListener("click", () => $<HTMLDialogElement>("dlg-rule").close());
+  $("btn-rule-folder-default").addEventListener("click", () => ($<HTMLInputElement>("rule-folder").value = ""));
+  $("btn-rule-folder").addEventListener("click", async () => {
+    const r = await open({ directory: true, multiple: false, defaultPath: me?.settings.download_dir });
+    if (typeof r === "string") $<HTMLInputElement>("rule-folder").value = r;
+  });
+
   $("btn-check-update").addEventListener("click", () => checkUpdate(true));
   $("btn-update-install").addEventListener("click", installUpdate);
   $("btn-update-later").addEventListener("click", () => {
@@ -1880,7 +2088,7 @@ async function init() {
   $("btn-group-cancel").addEventListener("click", () => $<HTMLDialogElement>("dlg-group").close());
 
   // Sự kiện từ Rust
-  await listen<{ groups: Group[]; hidden: DeviceRef[] }>("devices-changed", (e) => applyDevices(e.payload));
+  await listen<DevicesInfo>("devices-changed", (e) => applyDevices(e.payload));
   await listen<SelfInfo>("settings-changed", (e) => {
     me = e.payload;
     renderMe();
@@ -1912,8 +2120,15 @@ async function init() {
     history = [e.payload, ...history.filter((h) => h.id !== e.payload.id)];
     renderHistory();
   });
-  await listen<{ sender_name: string; file_count: number; total_bytes: number }>("auto-accepted", (e) =>
-    toast(`Đang nhận ${e.payload.file_count} file từ ${e.payload.sender_name} (máy tin cậy)`),
+  await listen<{ sender_name: string; file_count: number; total_bytes: number; rule?: boolean }>("auto-accepted", (e) =>
+    toast(
+      e.payload.rule
+        ? `Đang nhận ${e.payload.file_count} file từ ${e.payload.sender_name} (theo quy tắc nhận)`
+        : `Đang nhận ${e.payload.file_count} file từ ${e.payload.sender_name} (máy tin cậy)`,
+    ),
+  );
+  await listen<{ sender_name: string; chars: number }>("clipboard-received", (e) =>
+    toast(`Đã chép vào clipboard từ ${e.payload.sender_name} (${e.payload.chars} ký tự)`),
   );
   await listen<{ name: string; sender_name: string }>("group-received", (e) =>
     toast(`Đã thêm nhóm “${e.payload.name}” từ ${e.payload.sender_name}`),

@@ -87,6 +87,11 @@ pub struct PrepareRequest {
     /// gửi trường này và bỏ qua nó khi nhận.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub thumbs: Vec<Thumb>,
+    /// Văn bản này là clipboard được đồng bộ (từ 0.3.7, xem `clipboard_sync.rs`): máy nhận
+    /// tin cậy máy gửi và đã bật đồng bộ thì ghi thẳng vào clipboard, không hiện hộp thoại.
+    /// Bản cũ không gửi trường này và coi văn bản như văn bản thường.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub clipboard: bool,
 }
 
 /// Ảnh thu nhỏ của một file trong yêu cầu.

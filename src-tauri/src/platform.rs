@@ -204,6 +204,8 @@ mod imp {
             } else {
                 None
             },
+            // Gắn trong lib.rs (dùng chung với máy tính).
+            write_clipboard: None,
         }
     }
 

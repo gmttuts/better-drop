@@ -10,6 +10,8 @@ use tokio::sync::mpsc;
 struct Node {
     st: Arc<AppState>,
     events: mpsc::UnboundedReceiver<(&'static str, serde_json::Value)>,
+    /// Clipboard giả của máy này (đồng bộ clipboard ghi vào đây).
+    clip: Arc<std::sync::Mutex<Option<String>>>,
     _dir: tempfile::TempDir,
 }
 
@@ -34,10 +36,17 @@ async fn node(name: &str) -> Node {
         background_receive: true,
         hotkeys: Default::default(),
     };
-    let st = Arc::new(AppState::new(emit, dir.path().join("data"), ident, port, settings));
+    let mut st = AppState::new(emit, dir.path().join("data"), ident, port, settings);
+    let clip: Arc<std::sync::Mutex<Option<String>>> = Arc::default();
+    let c = clip.clone();
+    st.hooks.write_clipboard = Some(Arc::new(move |t: &str| {
+        *c.lock().unwrap() = Some(t.to_string());
+        Ok(())
+    }));
+    let st = Arc::new(st);
     let s2 = st.clone();
     tokio::spawn(async move { server::serve(s2, listener).await.unwrap() });
-    Node { st, events: rx, _dir: dir }
+    Node { st, events: rx, clip, _dir: dir }
 }
 
 fn as_peer(n: &Node) -> Peer {
@@ -555,6 +564,7 @@ fn old_version_can_read_new_wire_format() {
         text: None,
         group: None,
         thumbs: vec![],
+        clipboard: false,
     })
     .unwrap();
     assert_eq!(req["kind"], "files");
@@ -1388,7 +1398,7 @@ async fn same_name_files_received_concurrently_get_unique_names() {
     let st = node.st.clone();
     let metas: Vec<FileMeta> =
         (0..40).map(|i| FileMeta { id: i.to_string(), rel_path: "trùng.txt".into(), size: 4 }).collect();
-    let trust = server::Trust { auto: true, candidate: None };
+    let trust = server::Trust { auto: true, ..Default::default() };
     let prep = server::accept_files(&st, "A", None, "macos", &metas, trust).await.unwrap();
     futures_util::stream::iter(metas)
         .for_each_concurrent(16, |m| {
@@ -1576,7 +1586,7 @@ async fn bench_receive(label: &str, count: usize, size: usize, parallel: usize) 
     let metas: Vec<FileMeta> = (0..count)
         .map(|i| FileMeta { id: i.to_string(), rel_path: format!("thư mục/{i}.bin"), size: size as u64 })
         .collect();
-    let trust = server::Trust { auto: true, candidate: None };
+    let trust = server::Trust { auto: true, ..Default::default() };
     let prep = server::accept_files(&st, "A", None, "macos", &metas, trust).await.unwrap();
     let data = axum::body::Bytes::from((0..size).map(|i| (i % 251) as u8).collect::<Vec<u8>>());
     let started = std::time::Instant::now();
@@ -1804,6 +1814,7 @@ fn prepare_without_thumbs_omits_the_field() {
         text: None,
         group: None,
         thumbs: vec![],
+        clipboard: false,
     })
     .unwrap();
     assert!(req.get("thumbs").is_none());
@@ -1890,4 +1901,271 @@ fn hotkey_settings_default_and_roundtrip() {
     assert_eq!((s.hotkeys.enabled, s.hotkeys.open_app.as_str(), s.hotkeys.send_clipboard.as_str()), (false, "Alt+F2", "CmdOrCtrl+Shift+D"));
     let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
     assert_eq!(back.hotkeys, s.hotkeys);
+}
+
+// ---- Quy tắc nhận ----
+
+/// Gửi một file `name` (`size` byte) từ `a` tới `b`. Trả về trạng thái cuối bên gửi.
+async fn send_one(a: &Node, b: &Node, name: &str, size: usize) -> tokio::task::JoinHandle<TransferStatus> {
+    let src = tempfile::tempdir().unwrap();
+    write(&src.path().join(name), &vec![7u8; size]);
+    let files = transfer::collect_files(&a.st, &[src.path().join(name).to_string_lossy().into_owned()]).unwrap();
+    let (st, peer) = (a.st.clone(), as_peer(b));
+    tokio::spawn(async move {
+        let _keep = src;
+        let t = sender_tracker(&st);
+        let _ = transfer::send_files(&st, &peer, files, &t).await;
+        t.status()
+    })
+}
+
+/// Chờ tới khi bên nhận hoặc tự nhận ("auto-accepted"), hoặc hỏi ("incoming-request": từ chối).
+/// Trả về true nếu tự nhận.
+async fn auto_or_ask(b: &mut Node) -> bool {
+    loop {
+        let (ev, v) = b.events.recv().await.unwrap();
+        match ev {
+            "auto-accepted" => return true,
+            "incoming-request" => {
+                let id = v["request_id"].as_str().unwrap().to_string();
+                if let Some(p) = b.st.pending.lock().unwrap().remove(&id) {
+                    let _ = p.tx.send(false);
+                }
+                return false;
+            }
+            _ => {}
+        }
+    }
+}
+
+fn key_of(n: &Node) -> (String, String) {
+    let me = n.st.device_info();
+    (me.id, me.fp)
+}
+
+/// Máy đã lưu (người dùng từng bấm Chấp nhận): quy tắc chung tự nhận file nhỏ, file lớn hơn
+/// giới hạn thì vẫn hỏi.
+#[tokio::test(flavor = "multi_thread")]
+async fn default_rule_auto_accepts_small_files_from_saved_device() {
+    let a = node("Mac").await;
+    let mut b = node("Windows").await;
+    {
+        let mut book = b.st.devices.lock().unwrap();
+        let (id, fp) = key_of(&a);
+        book.approve(&id, &fp);
+        book.default_rule = crate::devices::AutoRule { max_mb: Some(1), media_only: false };
+    }
+    let send = send_one(&a, &b, "nho.txt", 1000).await;
+    assert!(auto_or_ask(&mut b).await, "file nhỏ phải được tự nhận");
+    assert_eq!(send.await.unwrap(), TransferStatus::Done);
+
+    let send = send_one(&a, &b, "lon.bin", 1024 * 1024 + 1).await;
+    assert!(!auto_or_ask(&mut b).await, "quá giới hạn dung lượng thì phải hỏi");
+    assert_eq!(send.await.unwrap(), TransferStatus::Rejected);
+}
+
+/// Quy tắc riêng ghi đè quy tắc chung, và file vào đúng thư mục riêng của máy đó.
+#[tokio::test(flavor = "multi_thread")]
+async fn device_rule_overrides_default_rule_and_uses_its_folder() {
+    let a = node("iPhone của Lan").await;
+    let mut b = node("Mac").await;
+    let own = tempfile::tempdir().unwrap();
+    let folder = own.path().join("iPhone của Lan");
+    {
+        let mut book = b.st.devices.lock().unwrap();
+        let (id, fp) = key_of(&a);
+        book.approve(&id, &fp);
+        // Quy tắc chung: tự nhận mọi file ≤ 100 MB. Quy tắc riêng: chỉ ảnh/video.
+        book.default_rule = crate::devices::AutoRule { max_mb: Some(100), media_only: false };
+        book.set_rule(crate::devices::DeviceRule {
+            id,
+            name: "iPhone của Lan".into(),
+            os: "ios".into(),
+            fp,
+            folder: folder.to_string_lossy().into_owned(),
+            auto: Some(crate::devices::AutoRule { max_mb: None, media_only: true }),
+        });
+    }
+    let send = send_one(&a, &b, "anh.jpg", 10).await;
+    assert!(auto_or_ask(&mut b).await, "ảnh thoả quy tắc riêng");
+    assert_eq!(send.await.unwrap(), TransferStatus::Done);
+    assert!(folder.join("anh.jpg").is_file(), "file phải vào thư mục riêng của máy");
+    let dl = b.st.settings.read().unwrap().download_dir.clone();
+    assert!(!Path::new(&dl).join("anh.jpg").exists());
+
+    let send = send_one(&a, &b, "ghi-chu.txt", 10).await;
+    assert!(!auto_or_ask(&mut b).await, "quy tắc riêng (chỉ ảnh/video) ghi đè quy tắc chung");
+    assert_eq!(send.await.unwrap(), TransferStatus::Rejected);
+}
+
+/// Máy lạ khai id của máy có quy tắc nhận, trình chứng chỉ của chính nó: không được tự nhận,
+/// không ghi vào thư mục riêng. Khai cả dấu vân tay của máy thật (không có khoá bí mật) cũng vậy.
+#[tokio::test(flavor = "multi_thread")]
+async fn impostor_does_not_get_the_real_devices_receive_rule() {
+    let real = node("Máy A").await;
+    let impostor = node("Kẻ giả mạo").await;
+    let mut b = node("Windows").await;
+    let own = tempfile::tempdir().unwrap();
+    {
+        let mut book = b.st.devices.lock().unwrap();
+        let (id, fp) = key_of(&real);
+        book.approve(&id, &fp);
+        book.default_rule = crate::devices::AutoRule { max_mb: Some(100), media_only: false };
+        book.set_rule(crate::devices::DeviceRule {
+            id,
+            name: "Máy A".into(),
+            os: "mac".into(),
+            fp,
+            folder: own.path().to_string_lossy().into_owned(),
+            auto: Some(crate::devices::AutoRule { max_mb: Some(100), media_only: false }),
+        });
+    }
+    let (http, base) = raw_client(&b, Some(&impostor));
+    let url = crate::client::api_url(&base, "prepare");
+    // 1. Khai id máy A với dấu vân tay của chính mình (chứng minh được, nhưng sai chứng chỉ).
+    let mut fake = impostor.st.device_info();
+    fake.id = real.st.device_info().id;
+    // 2. Khai đúng id + dấu vân tay của máy A nhưng trình chứng chỉ khác.
+    let claims = [fake, real.st.device_info()];
+    for sender in claims {
+        let trust = server::trust_of(&b.st, &sender, Some(&impostor.st.identity.fingerprint));
+        assert!(!trust.auto && trust.rule.is_none() && trust.folder.is_none(), "kẻ giả mạo được hưởng quy tắc");
+        let body = serde_json::json!({
+            "sender": sender, "kind": "files",
+            "files": [{ "id": "f1", "rel_path": "anh.jpg", "size": 1 }],
+        });
+        let (http, url) = (http.clone(), url.clone());
+        let req = tokio::spawn(async move { http.post(url).json(&body).send().await.unwrap().status() });
+        assert!(!auto_or_ask(&mut b).await, "kẻ giả mạo không được tự nhận");
+        assert_eq!(req.await.unwrap(), 403);
+    }
+    // Máy thật thì được.
+    let send = send_one(&real, &b, "that.jpg", 5).await;
+    assert!(auto_or_ask(&mut b).await);
+    assert_eq!(send.await.unwrap(), TransferStatus::Done);
+    assert!(own.path().join("that.jpg").is_file());
+}
+
+/// Máy lạ chỉ cần gửi một đoạn văn bản (không ai phải đồng ý) là được "tự nhớ". Như thế
+/// chưa đủ để được tự nhận theo quy tắc chung: vẫn phải hỏi.
+#[tokio::test(flavor = "multi_thread")]
+async fn stranger_is_always_asked_even_after_sending_text() {
+    let stranger = node("Máy lạ").await;
+    let mut b = node("Windows").await;
+    b.st.devices.lock().unwrap().default_rule = crate::devices::AutoRule { max_mb: Some(100), media_only: false };
+    transfer::send_text(stranger.st.clone(), as_peer(&b), "chào".into()).await.unwrap();
+    assert!(b.st.find_peer(&stranger.st.device_info().id).is_some(), "máy gửi văn bản được tự nhớ");
+    let send = send_one(&stranger, &b, "x.jpg", 5).await;
+    assert!(!auto_or_ask(&mut b).await, "máy lạ phải được hỏi");
+    assert_eq!(send.await.unwrap(), TransferStatus::Rejected);
+}
+
+// ---- Đồng bộ clipboard ----
+
+/// Cho `b` tin cậy `a` và bật đồng bộ clipboard với `a`; `a` biết `b` để gửi tới.
+fn sync_clipboard(a: &Node, b: &Node) {
+    {
+        let mut book = b.st.devices.lock().unwrap();
+        book.trust(trusted_entry(&a.st));
+        book.clipboard.enabled = true;
+        book.set_clipboard_device(&a.st.device_info().id, true);
+    }
+    a.st.remember_peer(as_peer(b));
+}
+
+fn drain(n: &mut Node) -> Vec<&'static str> {
+    let mut out = vec![];
+    while let Ok((ev, _)) = n.events.try_recv() {
+        out.push(ev);
+    }
+    out
+}
+
+/// Clipboard từ máy tin cậy đã bật đồng bộ: ghi thẳng vào clipboard, không hiện hộp thoại,
+/// không ghi Lịch sử.
+#[tokio::test(flavor = "multi_thread")]
+async fn clipboard_from_trusted_device_is_written_without_asking() {
+    let a = node("Mac").await;
+    let mut b = node("Windows").await;
+    sync_clipboard(&a, &b);
+    crate::clipboard_sync::send(&a.st, &as_peer(&b), "xin chào").await.unwrap();
+    assert_eq!(b.clip.lock().unwrap().as_deref(), Some("xin chào"));
+    let evs = drain(&mut b);
+    assert!(evs.contains(&"clipboard-received"), "{evs:?}");
+    assert!(!evs.contains(&"incoming-text"), "không được hiện hộp thoại");
+    assert!(b.st.history.lock().unwrap().list(10).is_empty(), "không ghi Lịch sử");
+}
+
+/// Không đủ điều kiện (máy lạ, máy giả id, máy tin cậy chưa chọn đồng bộ, đồng bộ đang tắt):
+/// hiện như văn bản thường, không đụng vào clipboard.
+#[tokio::test(flavor = "multi_thread")]
+async fn clipboard_from_other_devices_is_shown_as_text() {
+    let a = node("Mac").await;
+    let stranger = node("Máy lạ").await;
+    let mut b = node("Windows").await;
+    sync_clipboard(&a, &b);
+
+    let (http, base) = raw_client(&b, Some(&stranger));
+    let url = crate::client::api_url(&base, "prepare");
+    let mut fake = stranger.st.device_info();
+    fake.id = a.st.device_info().id;
+    for sender in [stranger.st.device_info(), fake, a.st.device_info()] {
+        let body = serde_json::json!({ "sender": sender, "kind": "text", "text": "mật khẩu", "clipboard": true });
+        assert_eq!(http.post(&url).json(&body).send().await.unwrap().status(), 200);
+        assert!(drain(&mut b).contains(&"incoming-text"));
+        assert!(b.clip.lock().unwrap().is_none(), "máy không đủ điều kiện ghi được clipboard");
+    }
+
+    // Máy tin cậy nhưng tắt đồng bộ: văn bản thường.
+    b.st.devices.lock().unwrap().clipboard.enabled = false;
+    crate::clipboard_sync::send(&a.st, &as_peer(&b), "x").await.unwrap();
+    assert!(drain(&mut b).contains(&"incoming-text"));
+    assert!(b.clip.lock().unwrap().is_none());
+
+    // Quá dài: văn bản thường.
+    b.st.devices.lock().unwrap().clipboard.enabled = true;
+    let long = "a".repeat(crate::clipboard_sync::MAX_CLIP_BYTES + 1);
+    crate::clipboard_sync::send(&a.st, &as_peer(&b), &long).await.unwrap();
+    assert!(drain(&mut b).contains(&"incoming-text"));
+    assert!(b.clip.lock().unwrap().is_none());
+}
+
+/// Chép ở A thì B nhận; vòng đọc clipboard của B thấy văn bản vừa nhận nhưng không gửi
+/// ngược lại. Chuỗi giống hệt lần trước, nội dung có sẵn lúc mở app, văn bản quá dài:
+/// không gửi.
+#[tokio::test(flavor = "multi_thread")]
+async fn clipboard_sync_does_not_loop() {
+    use crate::clipboard_sync::{observe, push};
+    let mut a = node("Mac").await;
+    let mut b = node("Windows").await;
+    sync_clipboard(&a, &b);
+    sync_clipboard(&b, &a);
+
+    // Lần đọc đầu (nội dung có sẵn lúc mở app) không gửi.
+    assert_eq!(observe(&a.st, Some("cũ")), None);
+    assert_eq!(observe(&b.st, Some("cũ")), None);
+
+    let text = observe(&a.st, Some("chép ở A")).expect("văn bản mới phải được gửi");
+    assert_eq!(push(&a.st, &text).await, 1);
+    assert_eq!(b.clip.lock().unwrap().as_deref(), Some("chép ở A"));
+    // B đọc clipboard, thấy văn bản vừa nhận: không gửi ngược.
+    assert_eq!(observe(&b.st, Some("chép ở A")), None);
+    assert_eq!(observe(&b.st, Some("chép ở A")), None);
+    // A đọc lại cùng nội dung: không gửi trùng.
+    assert_eq!(observe(&a.st, Some("chép ở A")), None);
+    assert!(a.clip.lock().unwrap().is_none(), "A không nhận lại chính văn bản của mình");
+    assert!(!drain(&mut a).contains(&"clipboard-received"));
+
+    // Văn bản quá dài thì bỏ qua.
+    let long = "x".repeat(crate::clipboard_sync::MAX_CLIP_BYTES + 1);
+    assert_eq!(observe(&b.st, Some(&long)), None);
+    // B chép văn bản mới thì gửi được sang A.
+    let text = observe(&b.st, Some("chép ở B")).unwrap();
+    assert_eq!(push(&b.st, &text).await, 1);
+    assert_eq!(a.clip.lock().unwrap().as_deref(), Some("chép ở B"));
+    assert_eq!(observe(&a.st, Some("chép ở B")), None);
+    // Tắt đồng bộ thì không gửi.
+    a.st.devices.lock().unwrap().clipboard.enabled = false;
+    assert_eq!(observe(&a.st, Some("mới nữa")), None);
+    let _ = drain(&mut b);
 }

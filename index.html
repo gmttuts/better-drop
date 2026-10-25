@@ -75,7 +75,9 @@
           <textarea id="text-input" rows="7" placeholder="Nhập hoặc dán văn bản, đường link…"></textarea>
           <div class="row-end">
             <button class="btn" id="btn-paste">Dán từ clipboard</button>
+            <button class="btn" id="btn-send-clip" title="Gửi nội dung clipboard tới các máy đang chọn. Máy nhận tin cậy máy này và bật đồng bộ clipboard thì ghi thẳng vào clipboard.">Gửi clipboard</button>
           </div>
+          <p class="muted small" id="clip-mobile-hint" hidden>Điện thoại không đọc được clipboard khi BetterDrop ở nền, nên không tự đồng bộ: chép xong, chọn máy rồi bấm “Gửi clipboard”.</p>
         </div>
       </section>
 
@@ -194,6 +196,40 @@
         <button class="btn" type="button" id="btn-share-group-cancel">Huỷ</button>
         <button class="btn primary" type="button" id="btn-share-group-send">Chia sẻ</button>
       </div>
+    </dialog>
+
+    <!-- Quy tắc nhận của một máy -->
+    <dialog id="dlg-rule" class="dialog">
+      <h3 id="rule-title">Quy tắc nhận</h3>
+      <form id="rule-form" class="settings">
+        <label>Thư mục nhận riêng
+          <div class="input-row">
+            <input id="rule-folder" placeholder="Thư mục nhận mặc định" />
+            <button class="btn" type="button" id="btn-rule-folder">Chọn…</button>
+            <button class="btn" type="button" id="btn-rule-folder-default">Mặc định</button>
+          </div>
+        </label>
+        <p class="muted small" id="rule-folder-hint"></p>
+        <label>Tự nhận không hỏi
+          <select id="rule-mode">
+            <option value="default">Theo quy tắc chung</option>
+            <option value="custom">Đặt riêng cho máy này</option>
+            <option value="off">Luôn hỏi</option>
+          </select>
+        </label>
+        <div id="rule-custom" hidden>
+          <div class="rule-row">
+            <label class="check"><input type="checkbox" id="rule-dev-size-on" /> Tổng dung lượng không quá</label>
+            <input type="number" id="rule-dev-size" min="1" max="1000000" value="50" class="mb-input" /> <span>MB</span>
+          </div>
+          <label class="check"><input type="checkbox" id="rule-dev-media" /> Tất cả là ảnh/video</label>
+        </div>
+        <p class="muted small" id="rule-note"></p>
+        <div class="dialog-actions">
+          <button class="btn" type="button" id="btn-rule-cancel">Huỷ</button>
+          <button class="btn primary" type="submit">Lưu</button>
+        </div>
+      </form>
     </dialog>
 
     <!-- Xác nhận -->
@@ -381,6 +417,22 @@
           <label class="check" id="row-dock" hidden><input type="checkbox" id="set-dock" /> Ẩn biểu tượng trên Dock</label>
           <label class="check" id="row-background" hidden><input type="checkbox" id="set-background" /> Nhận file khi chạy nền</label>
           <p class="muted small" id="bg-hint"></p>
+        </fieldset>
+        <fieldset class="toggles">
+          <legend>Nhận file</legend>
+          <p class="muted small rule-intro">Tự nhận, không hỏi, từ máy đã lưu nhưng chưa tin cậy (máy bạn đã thêm hoặc đã từng chấp nhận) khi:</p>
+          <div class="rule-row">
+            <label class="check"><input type="checkbox" id="rule-size-on" /> Tổng dung lượng không quá</label>
+            <input type="number" id="rule-size" min="1" max="1000000" value="50" class="mb-input" /> <span>MB</span>
+          </div>
+          <label class="check"><input type="checkbox" id="rule-media" /> Tất cả là ảnh/video</label>
+          <p class="muted small">Không chọn gì: luôn hỏi. Máy lạ chưa từng lưu luôn được hỏi. Máy tin cậy luôn tự nhận. Đặt riêng cho từng máy (thư mục nhận, điều kiện) bằng nút hình thư mục cạnh tên máy.</p>
+        </fieldset>
+        <fieldset class="toggles">
+          <legend>Đồng bộ clipboard</legend>
+          <label class="check"><input type="checkbox" id="set-clip-sync" /> Đồng bộ clipboard với máy tin cậy</label>
+          <p class="muted small" id="clip-hint"></p>
+          <ul class="hidden-list" id="clip-devices"></ul>
         </fieldset>
         <fieldset class="toggles" id="row-hotkeys" hidden>
           <legend>Phím tắt</legend>

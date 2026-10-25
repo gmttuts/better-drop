@@ -1,4 +1,5 @@
 mod client;
+mod clipboard_sync;
 #[cfg(desktop)]
 mod context_menu;
 mod devices;
@@ -271,27 +272,20 @@ fn update_settings(app: tauri::AppHandle, name: String, download_dir: String) ->
 /// Nhận cả địa chỉ IP lẫn liên kết `betterdrop://` (dán từ QR).
 #[tauri::command]
 async fn add_manual_peer(st: AppStateRef<'_>, addr: String) -> Result<Peer, String> {
-    if addr.trim().starts_with(discovery::LINK_SCHEME) {
+    let peer = if addr.trim().starts_with(discovery::LINK_SCHEME) {
         discovery::add_from_link(&st, &addr).await
     } else {
         discovery::add_manual(&st, &addr).await
-    }
+    }?;
+    // Người dùng tự thêm máy này: quy tắc nhận chung được áp dụng cho nó.
+    let _ = change_devices(&st, |b| b.approve(&peer.info.id, &peer.info.fp));
+    Ok(peer)
 }
 
-#[derive(serde::Serialize)]
-struct DevicesInfo {
-    groups: Vec<devices::Group>,
-    hidden: Vec<devices::DeviceRef>,
-    trusted: Vec<devices::TrustedDevice>,
-}
+type DevicesInfo = state::DevicesInfo;
 
 fn devices_info(st: &AppState) -> DevicesInfo {
-    let book = st.devices.lock().unwrap();
-    DevicesInfo {
-        groups: book.groups.clone(),
-        hidden: book.hidden.clone(),
-        trusted: book.trusted.clone(),
-    }
+    st.devices_info()
 }
 
 /// Lưu sổ thiết bị sau khi sửa, rồi báo UI cập nhật danh sách máy và nhóm.
@@ -463,10 +457,14 @@ async fn send_text(st: AppStateRef<'_>, peer_id: String, text: String) -> Result
 #[tauri::command]
 fn respond_request(st: AppStateRef, request_id: String, accept: bool, trust: Option<bool>) {
     let Some(p) = st.pending.lock().unwrap().remove(&request_id) else { return };
-    if accept && trust == Some(true) {
-        if let Some(dev) = p.trust_candidate {
-            let _ = change_devices(&st, |b| b.trust(dev));
-        }
+    if let (true, Some(dev)) = (accept, p.trust_candidate) {
+        // Đã đồng ý nhận từ máy này (đúng chứng chỉ): từ nay áp dụng quy tắc nhận chung.
+        let _ = change_devices(&st, |b| {
+            b.approve(&dev.id, &dev.fp);
+            if trust == Some(true) {
+                b.trust(dev);
+            }
+        });
     }
     let _ = p.tx.send(accept);
 }
@@ -515,6 +513,74 @@ async fn share_group(st: AppStateRef<'_>, group_id: String, peer_ids: Vec<String
 #[tauri::command]
 fn untrust_device(st: AppStateRef, id: String) -> Result<DevicesInfo, String> {
     change_devices(&st, |b| b.untrust(&id))
+}
+
+// ---- Quy tắc nhận ----
+
+/// Đặt quy tắc nhận riêng cho máy `id`: thư mục riêng ("" = mặc định) và điều kiện tự
+/// nhận (None = theo quy tắc chung). Quy tắc gắn với chứng chỉ máy đó đang dùng.
+#[tauri::command]
+fn set_device_rule(
+    st: AppStateRef,
+    id: String,
+    folder: String,
+    auto: Option<devices::AutoRule>,
+) -> Result<DevicesInfo, String> {
+    let peer = st.find_peer(&id);
+    let (fp, name, os) = {
+        let book = st.devices.lock().unwrap();
+        let trusted = book.trusted.iter().find(|t| t.id == id);
+        let fp = book.fp_of(&id).map(str::to_string).or_else(|| peer.as_ref().map(|p| p.info.fp.clone()));
+        let name = peer.as_ref().map(|p| p.info.name.clone()).or_else(|| trusted.map(|t| t.name.clone()));
+        let os = peer.as_ref().map(|p| p.info.os.clone()).or_else(|| trusted.map(|t| t.os.clone()));
+        (fp, name, os)
+    };
+    let fp = fp.filter(|f| !f.is_empty()).ok_or("Chưa biết chứng chỉ của máy này: hãy để nó gửi tới hoặc thêm bằng IP/QR trước")?;
+    let folder = folder.trim().to_string();
+    let folder = if folder.is_empty() {
+        folder
+    } else if cfg!(mobile) {
+        // Điện thoại: chỉ thư mục con trong thư mục nhận mặc định.
+        paths::sanitize_rel_path(&folder).join("/")
+    } else if std::path::Path::new(&folder).is_absolute() {
+        folder
+    } else {
+        return Err("Hãy chọn thư mục bằng nút Chọn…".into());
+    };
+    let rule = devices::DeviceRule { id: id.clone(), name: name.unwrap_or_default(), os: os.unwrap_or_default(), fp, folder, auto };
+    change_devices(&st, |b| b.set_rule(rule))
+}
+
+/// Quy tắc nhận chung (Cài đặt › Nhận file).
+#[tauri::command]
+fn set_default_rule(st: AppStateRef, rule: devices::AutoRule) -> Result<DevicesInfo, String> {
+    change_devices(&st, |b| b.default_rule = rule)
+}
+
+// ---- Đồng bộ clipboard ----
+
+#[tauri::command]
+fn set_clipboard_sync(st: AppStateRef, enabled: bool) -> Result<DevicesInfo, String> {
+    change_devices(&st, |b| b.clipboard.enabled = enabled)
+}
+
+#[tauri::command]
+fn set_clipboard_device(st: AppStateRef, id: String, enabled: bool) -> Result<DevicesInfo, String> {
+    change_devices(&st, |b| b.set_clipboard_device(&id, enabled))
+}
+
+/// Gửi clipboard thủ công (điện thoại không đọc được clipboard ở nền). Máy nhận tin cậy
+/// máy này và đã bật đồng bộ thì ghi thẳng vào clipboard, không thì hiện như văn bản.
+#[tauri::command]
+async fn send_clipboard(st: AppStateRef<'_>, peer_id: String, text: String) -> Result<(), String> {
+    if text.trim().is_empty() {
+        return Err("Clipboard không có văn bản".into());
+    }
+    if text.len() > clipboard_sync::MAX_CLIP_BYTES {
+        return Err("Văn bản quá dài để gửi như clipboard (tối đa 100 KB): hãy gửi bằng tab Văn bản".into());
+    }
+    let peer = st.find_peer(&peer_id).ok_or("Không tìm thấy máy nhận")?;
+    clipboard_sync::send(&st, &peer, &text).await
 }
 
 #[tauri::command]
@@ -671,6 +737,17 @@ pub fn run() {
             });
             let mut st = AppState::new(emit, data_dir, ident, port, settings.clone());
             st.hooks = platform::hooks(app.handle());
+            {
+                use tauri_plugin_clipboard_manager::ClipboardExt;
+                let a = app.handle().clone();
+                st.hooks.write_clipboard = Some(Arc::new(move |text: &str| {
+                    // Android: Activity đã bị huỷ (app chạy nền) thì plugin panic. Khi đó báo
+                    // lỗi để văn bản được xử lý như văn bản thường (có thông báo).
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| a.clipboard().write_text(text.to_string())))
+                        .map_err(|_| "Không ghi được clipboard khi app chạy nền".to_string())?
+                        .map_err(|e| e.to_string())
+                }));
+            }
             #[cfg(mobile)]
             {
                 use tauri_plugin_betterdrop_mobile::BetterdropMobileExt;
@@ -694,6 +771,13 @@ pub fn run() {
             platform::before_discovery(app.handle());
             if let Err(e) = discovery::start(st.clone()) {
                 st.emit("fatal-error", format!("Không bật được tự tìm máy: {e}"));
+            }
+            // Điện thoại không đọc được clipboard ở nền: chỉ nhận, gửi bằng nút "Gửi clipboard".
+            #[cfg(desktop)]
+            {
+                use tauri_plugin_clipboard_manager::ClipboardExt;
+                let a = app.handle().clone();
+                clipboard_sync::spawn_watcher(st.clone(), move || a.clipboard().read_text().ok());
             }
             platform::after_setup(app.handle(), &settings)?;
             Ok(())
@@ -741,6 +825,11 @@ pub fn run() {
             send_text,
             respond_request,
             untrust_device,
+            set_device_rule,
+            set_default_rule,
+            set_clipboard_sync,
+            set_clipboard_device,
+            send_clipboard,
             share_group,
             cancel_transfer,
             open_folder,

@@ -206,6 +206,7 @@ pub async fn send_text(st: Arc<AppState>, peer: Peer, text: String) -> Result<()
         text: Some(text),
         group: None,
         thumbs: vec![],
+        clipboard: false,
     };
     let result = async {
         let client = peer_client(&st, &peer)?;
@@ -235,6 +236,7 @@ pub async fn share_group(st: Arc<AppState>, peer: Peer, group: crate::models::Sh
         text: None,
         group: Some(group),
         thumbs: vec![],
+        clipboard: false,
     };
     let client = peer_client(&st, &peer)?;
     let (_, resp) = send_prepare(&client, &peer, &req).await?;
@@ -287,6 +289,7 @@ pub async fn send_files(
             .iter()
             .map(|(id, _, jpeg)| Thumb { file: id.clone(), jpeg: base64::engine::general_purpose::STANDARD.encode(jpeg) })
             .collect(),
+        clipboard: false,
     };
     let (addr, resp) = send_prepare(&client, peer, &req).await?;
     if tracker.is_cancelled() {
