@@ -185,6 +185,21 @@ jobs:
 
       - run: npm ci
 
+      - name: Khoá ký APK (GitHub Secret)
+        # Mọi bản APK ký cùng một khoá thì điện thoại cài đè được, không phải gỡ app.
+        # Không có Secret (PR từ fork) thì Gradle tự ký bằng khoá debug.
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/betterdrop-android.jks"
+            printf 'storeFile=%s\npassword=%s\nkeyAlias=betterdrop\n' "$RUNNER_TEMP/betterdrop-android.jks" "$KEYSTORE_PASSWORD" \
+              > src-tauri/gen/android/keystore.properties
+          else
+            echo "::warning::Chưa có ANDROID_KEYSTORE_BASE64: APK được ký bằng khoá debug"
+          fi
+
       - name: Build APK
         run: npm run tauri android build -- --apk
 

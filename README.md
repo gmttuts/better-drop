@@ -62,6 +62,8 @@ npm run tauri build
 
 **Khoá ký bản cập nhật**: bản phát hành trên GitHub được ký bằng khoá trong GitHub Secret `TAURI_SIGNING_PRIVATE_KEY` (+ `_PASSWORD`); bản sao nằm ở `~/.tauri/betterdrop-updater.key` trên máy của chủ dự án. **Mất khoá thì các bản đã cài không tự cập nhật được nữa**, hãy cất giữ cẩn thận. Build bản có ký trên máy: đặt hai biến môi trường đó rồi chạy `npm run tauri build -- --config src-tauri/tauri.updater.conf.json`. App chỉ thấy bản mới khi bản phát hành đã **Publish** (không phải nháp) và có file `latest.json`.
 
+**Khoá ký APK Android**: mọi bản APK phải ký cùng một khoá thì điện thoại mới cài đè được (không phải gỡ app, không mất dữ liệu). Khoá nằm ở `~/.tauri/betterdrop-android.jks` (mật khẩu trong `~/.tauri/betterdrop-android.password`) trên máy chủ dự án, và trong GitHub Secret `ANDROID_KEYSTORE_BASE64` + `ANDROID_KEYSTORE_PASSWORD`. Build trên máy: tạo `src-tauri/gen/android/keystore.properties` (đã nằm trong `.gitignore`) gồm `storeFile=…`, `password=…`, `keyAlias=betterdrop`. Không có file này thì APK được ký bằng khoá debug. **Mất khoá thì người dùng phải gỡ app để cài bản mới**, hãy sao lưu.
+
 ## Menu chuột phải trên Windows
 
 Bộ cài thêm mục **Gửi bằng BetterDrop** (*Send with BetterDrop*) vào menu chuột phải của file và thư mục, cho riêng người dùng đang cài (`HKCU\Software\Classes\*\shell\BetterDrop` và `...\Directory\shell\BetterDrop`, không cần quyền admin). Gỡ cài đặt thì xoá các khoá này.

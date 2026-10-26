@@ -14,6 +14,16 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// Khoá ký bản phát hành: đọc từ gen/android/keystore.properties (không đưa lên git).
+// CI tạo file này từ GitHub Secret; trên máy chủ dự án nó trỏ tới ~/.tauri/betterdrop-android.jks.
+// Mọi bản APK phải ký cùng một khoá thì điện thoại mới cài đè được, không phải gỡ app.
+val keystoreProperties = Properties().apply {
+    val propFile = rootProject.file("keystore.properties")
+    if (propFile.exists()) {
+        propFile.inputStream().use { load(it) }
+    }
+}
+
 android {
     compileSdk = 37
     namespace = "com.nguyentuyen.betterdrop"
@@ -24,6 +34,16 @@ android {
         targetSdk = 37
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+    }
+    signingConfigs {
+        if (keystoreProperties.containsKey("storeFile")) {
+            create("release") {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("password")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("password")
+            }
+        }
     }
     buildTypes {
         getByName("debug") {
@@ -39,9 +59,11 @@ android {
             }
         }
         getByName("release") {
-            // Tạm ký bằng khoá debug để file APK cài thẳng lên điện thoại được.
-            // Muốn đưa lên Google Play thì phải tạo khoá riêng (keystore) và đổi chỗ này.
-            signingConfig = signingConfigs.getByName("debug")
+            // Có khoá riêng thì ký bằng nó. Không có (build thử ở máy khác, PR từ fork) thì ký
+            // bằng khoá debug: vẫn cài được, nhưng không cài đè lên bản chính thức được.
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug").also {
+                logger.warn("BetterDrop: không có keystore.properties, APK được ký bằng khoá debug")
+            }
             optimization {
                enable = true
             }
