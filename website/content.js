@@ -18,6 +18,8 @@ window.SITE = {
     "nav.browser": { vi: "Qua trình duyệt", en: "Browser sharing" },
     "nav.faq": { vi: "Hỏi đáp", en: "FAQ" },
     "nav.download": { vi: "Tải về", en: "Download" },
+    "theme.toLight": { vi: "Chuyển sang giao diện sáng", en: "Switch to light mode" },
+    "theme.toDark": { vi: "Chuyển sang giao diện tối", en: "Switch to dark mode" },
     "nav.support": { vi: "Ủng hộ", en: "Support" },
 
     "hero.new": { vi: "Mới", en: "New" },

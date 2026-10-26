@@ -10,7 +10,8 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (f) => readFileSync(new URL(`./website-demo/${f}`, import.meta.url), "utf8");
 // mock.js stands in for Rust. English: the app translates itself with src/i18n.ts when the demo is opened
 // with ?lang=en (mock.js sets the language setting from that parameter).
-const inject = `<script>${read("mock.js")}</script>`;
+// theme.js lets the website switch the demo between light and dark.
+const inject = `<script>${read("mock.js")}</script>\n<script>${read("theme.js")}</script>`;
 
 await build({
   root,
